@@ -1,0 +1,25 @@
+node_modules/
+.vercel/
+.tanstack/
+.grok/
+screenshots/
+artifacts/
+dist/
+*.log
+
+# local env and secrets
+.env
+.env.*
+!.env.example
+
+# Excel workbooks stay off this repo
+*.xls
+*.xlsx
+*.xlsm
+*.xlsb
+*.xlt
+*.xltx
+*.xltm
+*.ods
+~$*.xls
+~$*.xlsx
