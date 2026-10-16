@@ -1,5 +1,6 @@
 import type { Sql } from "@/lib/db";
 import { addDays, addMonths, LEDGER_LINES, periodOf, todayISO } from "./calc";
+import { starterColumns } from "./utility";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -12,6 +13,9 @@ async function put(sql: Sql, table: string, row: Row) {
 
 export async function clearHousehold(sql: Sql, userId: string) {
   const tables = [
+    "utility_readings",
+    "utility_columns",
+    "utility_meters",
     "transactions",
     "bill_payments",
     "bills",
@@ -107,7 +111,7 @@ export async function ensureJars(sql: Sql, userId: string) {
     on conflict (id) do nothing
   `;
   await sql`update ledgers set kind = 'personal' where id = ${id} and user_id = ${userId}`;
-  for (const table of ["accounts", "categories", "transactions", "bills", "rules", "plan_months", "goals", "milestones", "watchlists", "reminders", "documents", "reports"]) {
+  for (const table of ["accounts", "categories", "transactions", "bills", "rules", "plan_months", "goals", "milestones", "watchlists", "reminders", "documents", "reports", "utility_meters"]) {
     await sql.query(`update ${table} set ledger_id = $1 where user_id = $2 and ledger_id = ''`, [id, userId]);
   }
 }
@@ -455,6 +459,85 @@ export async function seedHousehold(sql: Sql, userId: string) {
   await put(sql, "reports", { id: id("rp3"), user_id: userId, name: "Merchants, 90 days", metric: "merchant", range_key: "quarter", group_by: "merchant", filters_json: "{}" });
   await put(sql, "reports", { id: id("rp4"), user_id: userId, name: "Spending by person", metric: "spending", range_key: "month", group_by: "person", filters_json: "{}" });
   await insertSamplePortfolio(sql, userId);
+  await seedSampleMeters(sql, userId, id, checking, today);
+}
+
+async function seedSampleMeters(sql: Sql, userId: string, id: (s: string) => string, checking: string, today: string) {
+  const pge = id("m_pge");
+  const ev = id("m_ev");
+  await put(sql, "utility_meters", {
+    id: pge,
+    user_id: userId,
+    ledger_id: "",
+    name: "PG&E electric",
+    unit: "kWh",
+    provider: "PG&E",
+    parent_id: null,
+    tiers_json: JSON.stringify([
+      { name: "First 400", upTo: 400, rateCents: 12.4 },
+      { name: "Over 400", upTo: null, rateCents: 18.6 },
+    ]),
+  });
+  await put(sql, "utility_meters", {
+    id: ev,
+    user_id: userId,
+    ledger_id: "",
+    name: "Garage charger",
+    unit: "kWh",
+    provider: "Home charger",
+    parent_id: pge,
+    tiers_json: "[]",
+  });
+  const packs = [
+    { meter: pge, short: "pge", columns: starterColumns(pge, "electric") },
+    { meter: ev, short: "ev", columns: starterColumns(ev, "blank", "kWh") },
+  ];
+  for (const pack of packs) {
+    let sort = 0;
+    for (const column of pack.columns) {
+      sort += 1;
+      await put(sql, "utility_columns", {
+        id: id(`${pack.short}_${column.key}`),
+        user_id: userId,
+        meter_id: pack.meter,
+        key: column.key,
+        label: column.label,
+        kind: column.kind,
+        unit: column.unit,
+        formula: column.formula,
+        rollup: column.rollup,
+        from_children: column.fromChildren,
+        sort,
+      });
+    }
+  }
+  const older = addDays(today, -70);
+  const mid = addDays(today, -40);
+  const latest = addDays(today, -12);
+  const reads: Row[] = [
+    { id: id("r0"), user_id: userId, meter_id: pge, read_on: older, meter_value: 10000, amount_cents: 0, opening: true, cells_json: "{}" },
+    { id: id("r1"), user_id: userId, meter_id: pge, read_on: mid, meter_value: 10154, amount_cents: 17220, opening: false, cells_json: JSON.stringify({ generation_kwh: 12, energy_charge: 62, delivery_charge: 38, riders: 14, taxes_fees: 12 }) },
+    { id: id("r2"), user_id: userId, meter_id: pge, read_on: latest, meter_value: 10324, amount_cents: 18640, opening: false, cells_json: JSON.stringify({ generation_kwh: 20, energy_charge: 110, delivery_charge: 42, riders: 18.4, taxes_fees: 10.4 }) },
+    { id: id("e0"), user_id: userId, meter_id: ev, read_on: older, meter_value: 200, amount_cents: 0, opening: true, cells_json: "{}" },
+    { id: id("e1"), user_id: userId, meter_id: ev, read_on: mid, meter_value: 238, amount_cents: 0, opening: false, cells_json: "{}" },
+    { id: id("e2"), user_id: userId, meter_id: ev, read_on: latest, meter_value: 292, amount_cents: 0, opening: false, cells_json: "{}" },
+  ];
+  for (const row of reads) await put(sql, "utility_readings", row);
+  await sql`update bills set meter_id = ${pge} where id = ${id("b_pge")} and user_id = ${userId}`;
+  const txn = await sql<{ id: string; posted_on: string }>`select id, posted_on from transactions where user_id = ${userId} and merchant = 'PG&E' order by posted_on desc limit 1`;
+  if (txn[0]) {
+    await put(sql, "bill_payments", {
+      id: id("pay_pge"),
+      user_id: userId,
+      bill_id: id("b_pge"),
+      paid_on: String(txn[0].posted_on).slice(0, 10),
+      amount_cents: 18640,
+      account_id: checking,
+      transaction_id: txn[0].id,
+      status: "paid",
+      reading_id: id("r2"),
+    });
+  }
 }
 
 function sampleTags(merchant: string): string[] {

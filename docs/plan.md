@@ -43,7 +43,7 @@ The sample household is the Calders in Oakland: Jordan, Avery, and Remy. It is d
 - Live bank, card, or brokerage sync.
 - A live quote feed. Portfolio prices are typed.
 - Invoices, mileage, and a property-management ledger.
-- The Excel workbook. It stays out of git.
+- The Excel workbook file. It stays out of git. The in-app utility workbook is in, and each jar keeps its own meters.
 
 ## Decisions that should stick
 

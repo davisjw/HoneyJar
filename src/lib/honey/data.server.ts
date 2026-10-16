@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
+import { parseTiers, starterColumns, templateUnit } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import type {
   AccessRow,
@@ -38,6 +39,7 @@ import type {
   SecurityPrice,
   Snapshot,
   Txn,
+  UtilityColumn,
   Valuation,
   Watch,
   Workspace,
@@ -150,7 +152,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
   const profileRows = await sql<Record<string, unknown>>`select * from profiles where user_id = ${owner}`;
   if (!profileRows[0]) throw new Error("Household not found.");
 
-  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, ledgers, draws, reports, invoices, mileage, leases, realizations, keys, messages, invites, shared] =
+  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, ledgers, draws, reports, invoices, mileage, leases, realizations, keys, messages, invites, shared, meters, utilColumns, utilReadings] =
     await Promise.all([
       sql<Record<string, unknown>>`select * from accounts where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select * from categories where user_id = ${owner} order by sort, name`,
@@ -197,6 +199,9 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
         left join profiles p on p.user_id = a.owner_user_id
         where a.member_user_id = ${userId} and a.status = 'active'
       `,
+      sql<Record<string, unknown>>`select * from utility_meters where user_id = ${owner} order by name`,
+      sql<Record<string, unknown>>`select * from utility_columns where user_id = ${owner} order by sort, label`,
+      sql<Record<string, unknown>>`select * from utility_readings where user_id = ${owner} order by read_on`,
     ]);
 
   const mapAccess = (row: Record<string, unknown>): AccessRow => ({
@@ -210,7 +215,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     householdName: String(row.household_name ?? "Household"),
   });
 
-  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage, leases);
+  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage, leases, meters, utilColumns, utilReadings);
   const primary = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
 
   return {
@@ -227,6 +232,9 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     transactions: primary?.transactions ?? [],
     bills: primary?.bills ?? [],
     payments: payments.map(mapPayment),
+    meters: primary?.meters ?? [],
+    columns: primary?.columns ?? [],
+    readings: primary?.readings ?? [],
     assets: assets.map(mapAsset),
     valuations: valuations.map(mapValuation),
     snapshots: snapshots.map(mapSnapshot),
@@ -333,6 +341,8 @@ function mapBill(r: Record<string, unknown>): Bill {
     notes: String(r.notes ?? ""),
     url: String(r.url ?? ""),
     personId: r.person_id ? String(r.person_id) : null,
+    meterId: r.meter_id ? String(r.meter_id) : null,
+    flatPay: Boolean(r.flat_pay),
   };
 }
 function mapPayment(r: Record<string, unknown>): Payment {
@@ -343,7 +353,65 @@ function mapPayment(r: Record<string, unknown>): Payment {
     amountCents: num(r.amount_cents),
     accountId: r.account_id ? String(r.account_id) : null,
     transactionId: r.transaction_id ? String(r.transaction_id) : null,
+    readingId: r.reading_id ? String(r.reading_id) : null,
     status: String(r.status ?? "paid"),
+  };
+}
+function parseBag(raw: unknown): unknown {
+  if (typeof raw !== "string") return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function parseCells(raw: unknown): Record<string, number> {
+  const value = parseBag(raw);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    const n = Number(item);
+    if (Number.isFinite(n)) out[key.slice(0, 40)] = n;
+  }
+  return out;
+}
+function mapMeter(r: Record<string, unknown>) {
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    unit: String(r.unit || "kWh"),
+    provider: String(r.provider ?? ""),
+    parentId: r.parent_id ? String(r.parent_id) : null,
+    tiers: parseTiers(parseBag(r.tiers_json)),
+  };
+}
+function mapUtilColumn(r: Record<string, unknown>): UtilityColumn {
+  const kind = String(r.kind);
+  const rollup = String(r.rollup ?? "");
+  const allowed = ["meter", "usage", "bill", "days", "readDate", "charges"] as const;
+  return {
+    id: String(r.id),
+    meterId: String(r.meter_id),
+    key: String(r.key),
+    label: String(r.label),
+    kind: kind === "money" || kind === "calculated" || kind === "date" ? kind : "number",
+    unit: String(r.unit ?? ""),
+    formula: String(r.formula ?? ""),
+    rollup: allowed.find((item) => item === rollup) ?? "",
+    fromChildren: Boolean(r.from_children),
+    sort: num(r.sort),
+  };
+}
+function mapUtilReading(r: Record<string, unknown>) {
+  const meter = r.meter_value == null || r.meter_value === "" ? null : Number(r.meter_value);
+  return {
+    id: String(r.id),
+    meterId: String(r.meter_id),
+    readOn: String(r.read_on).slice(0, 10),
+    meter: meter != null && Number.isFinite(meter) ? meter : null,
+    amountCents: num(r.amount_cents),
+    opening: Boolean(r.opening),
+    cells: parseCells(r.cells_json),
   };
 }
 function mapAsset(r: Record<string, unknown>): Asset {
@@ -623,6 +691,9 @@ function assembleLedgers(
   invoices: Record<string, unknown>[],
   mileage: Record<string, unknown>[],
   leases: Record<string, unknown>[],
+  meterRows: Record<string, unknown>[],
+  columnRows: Record<string, unknown>[],
+  readingRows: Record<string, unknown>[],
 ): LedgerBook[] {
   return ledgers.map((row) => {
     const id = String(row.id);
@@ -651,6 +722,9 @@ function assembleLedgers(
       trips: mileage.filter((item) => String(item.ledger_id) === id).map(mapTrip),
       leases: leases.filter((item) => String(item.ledger_id) === id).map(mapLease),
       draws: draws.filter((d) => String(d.ledger_id) === id).map(mapDraw),
+      meters: meterRows.filter((m) => String(m.ledger_id) === id).map(mapMeter),
+      columns: columnRows.filter((c) => meterRows.some((m) => String(m.ledger_id) === id && String(m.id) === String(c.meter_id))).map(mapUtilColumn),
+      readings: readingRows.filter((r) => meterRows.some((m) => String(m.ledger_id) === id && String(m.id) === String(r.meter_id))).map(mapUtilReading),
     };
   });
 }
@@ -982,7 +1056,19 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         notes: str(b.notes, 500),
         url: str(b.url, 200),
         person_id: str(b.personId, 80) || null,
+        flat_pay: Boolean(b.flatPay),
       };
+      const jarForBill = existing.length
+        ? String((await sql<{ ledger_id: string }>`select ledger_id from bills where id = ${id} and user_id = ${owner}`)[0]?.ledger_id ?? "")
+        : await openJar();
+      const requestedMeter = str(b.meterId, 80);
+      let meterId: string | null = null;
+      if (requestedMeter) {
+        const hit = await sql<{ parent_id: string | null }>`select parent_id from utility_meters where id = ${requestedMeter} and user_id = ${owner} and ledger_id = ${jarForBill}`;
+        if (!hit.length) throw new Error("That meter is not on this jar.");
+        if (hit[0]?.parent_id) throw new Error("Link the parent meter. A child meter is not its own bill.");
+        meterId = requestedMeter;
+      }
       if (existing.length) {
         await sql`
           update bills set
@@ -990,13 +1076,14 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
             category_id = ${fields.category_id}, account_id = ${fields.account_id}, debt_account_id = ${fields.debt_account_id},
             amount_cents = ${fields.amount_cents}, principal_cents = ${fields.principal_cents}, cadence = ${fields.cadence},
             next_due = ${fields.next_due}, autopay = ${fields.autopay}, status = ${fields.status}, variable = ${fields.variable},
-            notes = ${fields.notes}, url = ${fields.url}, person_id = ${fields.person_id}
+            notes = ${fields.notes}, url = ${fields.url}, person_id = ${fields.person_id},
+            meter_id = ${meterId}, flat_pay = ${fields.flat_pay}
           where id = ${id} and user_id = ${owner}
         `;
       } else {
         await sql`
-          insert into bills (id, user_id, name, payee, kind, direction, category_id, account_id, debt_account_id, amount_cents, principal_cents, cadence, next_due, autopay, status, variable, notes, url, person_id, ledger_id)
-          values (${id}, ${owner}, ${fields.name}, ${fields.payee}, ${fields.kind}, ${fields.direction}, ${fields.category_id}, ${fields.account_id}, ${fields.debt_account_id}, ${fields.amount_cents}, ${fields.principal_cents}, ${fields.cadence}, ${fields.next_due}, ${fields.autopay}, ${fields.status}, ${fields.variable}, ${fields.notes}, ${fields.url}, ${fields.person_id}, ${await openJar()})
+          insert into bills (id, user_id, name, payee, kind, direction, category_id, account_id, debt_account_id, amount_cents, principal_cents, cadence, next_due, autopay, status, variable, notes, url, person_id, ledger_id, meter_id, flat_pay)
+          values (${id}, ${owner}, ${fields.name}, ${fields.payee}, ${fields.kind}, ${fields.direction}, ${fields.category_id}, ${fields.account_id}, ${fields.debt_account_id}, ${fields.amount_cents}, ${fields.principal_cents}, ${fields.cadence}, ${fields.next_due}, ${fields.autopay}, ${fields.status}, ${fields.variable}, ${fields.notes}, ${fields.url}, ${fields.person_id}, ${jarForBill}, ${meterId}, ${fields.flat_pay})
         `;
       }
       return {};
@@ -1013,6 +1100,13 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const amount = Math.max(0, action.amountCents == null ? bill.amountCents : num(action.amountCents));
       const signed = bill.direction === "in" ? amount : -amount;
       const paidOn = dateOr(action.paidOn, todayISO());
+      let readingId: string | null = null;
+      if (action.readingId) {
+        if (!bill.meterId) throw new Error("Link a meter on this bill before attaching a read.");
+        const hit = await sql`select id from utility_readings where id = ${str(action.readingId, 80)} and user_id = ${owner} and meter_id = ${bill.meterId}`;
+        if (!hit.length) throw new Error("That read is not on this bill's meter.");
+        readingId = str(action.readingId, 80);
+      }
       const jar = String(rows[0].ledger_id ?? "") || (await openJar());
       const txnId = nid();
       await adjust(sql, owner, bill.accountId, signed);
@@ -1025,11 +1119,190 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         await sql`update accounts set balance_cents = greatest(0, balance_cents - ${principal}) where id = ${bill.debtAccountId} and user_id = ${owner}`;
       }
       await sql`
-        insert into bill_payments (id, user_id, bill_id, paid_on, amount_cents, account_id, transaction_id, status)
-        values (${nid()}, ${owner}, ${bill.id}, ${paidOn}, ${amount}, ${bill.accountId}, ${txnId}, 'paid')
+        insert into bill_payments (id, user_id, bill_id, paid_on, amount_cents, account_id, transaction_id, status, reading_id)
+        values (${nid()}, ${owner}, ${bill.id}, ${paidOn}, ${amount}, ${bill.accountId}, ${txnId}, 'paid', ${readingId})
       `;
       const next = stepDue(bill.nextDue < paidOn ? paidOn : bill.nextDue, bill.cadence);
       await sql`update bills set next_due = ${next} where id = ${bill.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "meter.save": {
+      const m = action.meter;
+      const id = str(m.id, 80) || nid();
+      const existing = await sql<{ ledger_id: string }>`select ledger_id from utility_meters where id = ${id} and user_id = ${owner}`;
+      const jar = existing[0]?.ledger_id || (await openJar());
+      const name = str(m.name, 80);
+      if (!name) throw new Error("Name is required.");
+      let parentId = str(m.parentId, 80) || null;
+      if (parentId) {
+        if (parentId === id) throw new Error("A meter cannot be its own parent.");
+        const parent = await sql<{ parent_id: string | null; ledger_id: string }>`select parent_id, ledger_id from utility_meters where id = ${parentId} and user_id = ${owner}`;
+        if (!parent[0] || parent[0].ledger_id !== jar) throw new Error("The parent meter is not on this jar.");
+        if (parent[0].parent_id) throw new Error("A child meter cannot be a parent.");
+      }
+      const unit = str(m.unit, 20) || "kWh";
+      const provider = str(m.provider, 80) || name;
+      if (existing.length) {
+        await sql`
+          update utility_meters set name = ${name}, unit = ${unit}, provider = ${provider}, parent_id = ${parentId}
+          where id = ${id} and user_id = ${owner}
+        `;
+        return {};
+      }
+      await sql`
+        insert into utility_meters (id, user_id, ledger_id, name, unit, provider, parent_id, tiers_json)
+        values (${id}, ${owner}, ${jar}, ${name}, ${unit}, ${provider}, ${parentId}, ${JSON.stringify(parseTiers(m.tiers ?? []))})
+      `;
+      const slug = str(action.template, 20) || "blank";
+      const cols = starterColumns(id, slug, unit || templateUnit(slug));
+      let sort = 0;
+      for (const column of cols) {
+        sort += 1;
+        await sql`
+          insert into utility_columns (id, user_id, meter_id, key, label, kind, unit, formula, rollup, from_children, sort)
+          values (${nid()}, ${owner}, ${id}, ${column.key}, ${column.label}, ${column.kind}, ${column.unit}, ${column.formula}, ${column.rollup}, ${column.fromChildren}, ${sort})
+        `;
+      }
+      return {};
+    }
+    case "meter.delete": {
+      const owned = await sql<{ id: string; parent_id: string | null }>`select id, parent_id from utility_meters where user_id = ${owner}`;
+      if (!owned.some((row) => row.id === action.id)) return {};
+      const drop = new Set<string>([action.id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const row of owned) {
+          if (row.parent_id && drop.has(row.parent_id) && !drop.has(row.id)) {
+            drop.add(row.id);
+            grew = true;
+          }
+        }
+      }
+      for (const id of drop) {
+        const reads = await sql<{ id: string }>`select id from utility_readings where user_id = ${owner} and meter_id = ${id}`;
+        for (const read of reads) {
+          await sql`update bill_payments set reading_id = null where user_id = ${owner} and reading_id = ${read.id}`;
+        }
+        await sql`delete from utility_readings where user_id = ${owner} and meter_id = ${id}`;
+        await sql`delete from utility_columns where user_id = ${owner} and meter_id = ${id}`;
+        await sql`update bills set meter_id = null where user_id = ${owner} and meter_id = ${id}`;
+        await sql`delete from utility_meters where user_id = ${owner} and id = ${id}`;
+      }
+      return {};
+    }
+    case "meter.tiers": {
+      const tiers = JSON.stringify(parseTiers(action.tiers));
+      await sql`update utility_meters set tiers_json = ${tiers} where id = ${str(action.id, 80)} and user_id = ${owner}`;
+      return {};
+    }
+    case "column.save": {
+      const c = action.column;
+      const meterId = str(c.meterId, 80);
+      const meter = await sql`select id from utility_meters where id = ${meterId} and user_id = ${owner}`;
+      if (!meter.length) throw new Error("That meter is gone.");
+      const label = str(c.label, 60);
+      if (!label) throw new Error("A label is required.");
+      const kind = c.kind === "money" || c.kind === "calculated" || c.kind === "date" ? c.kind : "number";
+      const id = str(c.id, 80) || nid();
+      const current = await sql<{ id: string; key: string; rollup: string }>`select id, key, rollup from utility_columns where id = ${id} and user_id = ${owner}`;
+      const key = current[0]?.key || label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "field";
+      if (kind === "date") {
+        const taken = await sql<{ id: string }>`select id from utility_columns where user_id = ${owner} and meter_id = ${meterId} and (rollup = 'readDate' or key = 'read_on') and id <> ${id}`;
+        if (taken.length) throw new Error("This meter already has a read date.");
+      }
+      const rollup = kind === "date" ? "readDate" : ["meter", "usage", "bill", "days", "readDate", "charges"].includes(String(c.rollup)) ? String(c.rollup) : (current[0]?.rollup ?? "");
+      const fields = {
+        label,
+        kind,
+        unit: kind === "date" ? "" : str(c.unit, 20),
+        formula: kind === "calculated" ? str(c.formula, 200) : "",
+        rollup,
+        from_children: kind === "date" ? false : Boolean(c.fromChildren),
+      };
+      if (current.length) {
+        await sql`
+          update utility_columns set label = ${fields.label}, kind = ${fields.kind}, unit = ${fields.unit}, formula = ${fields.formula}, rollup = ${fields.rollup}, from_children = ${fields.from_children}
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        const top = await sql<{ sort: number }>`select coalesce(max(sort), 0) as sort from utility_columns where user_id = ${owner} and meter_id = ${meterId}`;
+        await sql`
+          insert into utility_columns (id, user_id, meter_id, key, label, kind, unit, formula, rollup, from_children, sort)
+          values (${id}, ${owner}, ${meterId}, ${key}, ${fields.label}, ${fields.kind}, ${fields.unit}, ${fields.formula}, ${fields.rollup}, ${fields.from_children}, ${num(top[0]?.sort) + 1})
+        `;
+      }
+      return {};
+    }
+    case "column.delete": {
+      await sql`delete from utility_columns where id = ${str(action.id, 80)} and user_id = ${owner}`;
+      return {};
+    }
+    case "column.move": {
+      const id = str(action.id, 80);
+      const current = await sql<{ meter_id: string; sort: number }>`select meter_id, sort from utility_columns where id = ${id} and user_id = ${owner}`;
+      if (!current[0]) return {};
+      const siblings = await sql<{ id: string; sort: number }>`select id, sort from utility_columns where user_id = ${owner} and meter_id = ${current[0].meter_id} order by sort, label`;
+      const index = siblings.findIndex((row) => row.id === id);
+      const swap = siblings[index + (action.direction === "up" ? -1 : 1)];
+      if (index < 0 || !swap) return {};
+      await sql`update utility_columns set sort = ${swap.sort} where id = ${id} and user_id = ${owner}`;
+      await sql`update utility_columns set sort = ${current[0].sort} where id = ${swap.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "reading.save": {
+      const r = action.reading;
+      const meterId = str(r.meterId, 80);
+      const meter = await sql`select id from utility_meters where id = ${meterId} and user_id = ${owner}`;
+      if (!meter.length) throw new Error("That meter is gone.");
+      const readOn = dateOr(r.readOn, "");
+      if (!readOn) throw new Error("The read needs a date.");
+      const id = str(r.id, 80) || nid();
+      const meterValue = r.meter == null || r.meter === ("" as unknown) ? null : Number(r.meter);
+      if (meterValue != null && !Number.isFinite(meterValue)) throw new Error("The meter read should be a number.");
+      const amount = Math.max(0, num(r.amountCents));
+      const opening = Boolean(r.opening);
+      const cells = JSON.stringify(parseCells(r.cells ?? {}));
+      const existing = await sql`select id from utility_readings where id = ${id} and user_id = ${owner}`;
+      if (existing.length) {
+        await sql`
+          update utility_readings set read_on = ${readOn}, meter_value = ${meterValue}, amount_cents = ${opening ? 0 : amount}, opening = ${opening}, cells_json = ${cells}
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        await sql`
+          insert into utility_readings (id, user_id, meter_id, read_on, meter_value, amount_cents, opening, cells_json)
+          values (${id}, ${owner}, ${meterId}, ${readOn}, ${meterValue}, ${opening ? 0 : amount}, ${opening}, ${cells})
+        `;
+      }
+      return {};
+    }
+    case "reading.cells": {
+      const id = str(action.id, 80);
+      const rows = await sql<{ meter_id: string; amount_cents: number; meter_value: number | null }>`select meter_id, amount_cents, meter_value from utility_readings where id = ${id} and user_id = ${owner}`;
+      if (!rows[0]) return {};
+      const cells = parseCells(action.cells);
+      const cols = await sql<{ key: string; rollup: string }>`select key, rollup from utility_columns where user_id = ${owner} and meter_id = ${rows[0].meter_id}`;
+      const meterKey = cols.find((c) => c.rollup === "meter")?.key;
+      const billKey = cols.find((c) => c.rollup === "bill")?.key;
+      const meterValue = meterKey && cells[meterKey] != null ? cells[meterKey]! : rows[0].meter_value;
+      const amount = billKey && cells[billKey] != null ? Math.round(cells[billKey]! * 100) : num(rows[0].amount_cents);
+      await sql`
+        update utility_readings set cells_json = ${JSON.stringify(cells)}, meter_value = ${meterValue}, amount_cents = ${amount}
+        where id = ${id} and user_id = ${owner}
+      `;
+      return {};
+    }
+    case "reading.date": {
+      const readOn = dateOr(action.readOn, "");
+      if (!readOn) return {};
+      await sql`update utility_readings set read_on = ${readOn} where id = ${str(action.id, 80)} and user_id = ${owner}`;
+      return {};
+    }
+    case "reading.delete": {
+      const id = str(action.id, 80);
+      await sql`update bill_payments set reading_id = null where user_id = ${owner} and reading_id = ${id}`;
+      await sql`delete from utility_readings where id = ${id} and user_id = ${owner}`;
       return {};
     }
     case "asset.save": {

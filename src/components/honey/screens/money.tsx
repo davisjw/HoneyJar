@@ -17,12 +17,118 @@ import {
   projectCash,
   shiftPeriod,
 } from "@/lib/honey/calc";
-import type { Bill, Txn } from "@/lib/honey/types";
+import type { Bill, Payment, Txn, UtilityColumn, UtilityMeter, UtilityReading } from "@/lib/honey/types";
+import { buildSheet, chargeCompare, suggestReadingId, type ReadLike, type UtilColumn } from "@/lib/honey/utility";
 import { useBook } from "../book";
 import { Button, Card, Empty, Field, Modal, MoneyText, PageIntro, fieldClass } from "../kit";
 
 function param(search: string, key: string) {
   return new URLSearchParams(search.replace(/^\?/, "")).get(key) ?? "";
+}
+
+function engineColumn(c: UtilityColumn): UtilColumn {
+  return {
+    id: c.id,
+    utilityId: c.meterId,
+    key: c.key,
+    label: c.label,
+    kind: c.kind,
+    unit: c.unit,
+    formula: c.formula,
+    rollup: c.rollup,
+    fromChildren: c.fromChildren,
+  };
+}
+
+function engineRead(r: UtilityReading): ReadLike {
+  return { id: r.id, utilityId: r.meterId, date: r.readOn, meter: r.meter, amountCents: r.amountCents, opening: r.opening, cells: r.cells };
+}
+
+function rowFor(meters: UtilityMeter[], columns: UtilityColumn[], readings: UtilityReading[], reading: UtilityReading) {
+  const meter = meters.find((m) => m.id === reading.meterId);
+  if (!meter) return null;
+  const kids = meters.filter((m) => m.parentId === meter.id);
+  const sheet = buildSheet(
+    meter.id,
+    columns.map(engineColumn),
+    readings.map(engineRead),
+    readings.filter((r) => kids.some((k) => k.id === r.meterId)).map(engineRead),
+    meter.tiers,
+    columns.filter((c) => kids.some((k) => k.id === c.meterId)).map(engineColumn),
+  );
+  return sheet.find((row) => row.id === reading.id) ?? null;
+}
+
+function PayCompare({
+  meters,
+  columns,
+  readings,
+  payments,
+  bill,
+}: {
+  meters: UtilityMeter[];
+  columns: UtilityColumn[];
+  readings: UtilityReading[];
+  payments: Payment[];
+  bill: Bill;
+}) {
+  const meter = meters.find((m) => m.id === bill.meterId);
+  if (!meter) return null;
+  const linked = payments.find((p) => p.billId === bill.id && p.readingId);
+  const reading = linked ? readings.find((r) => r.id === linked.readingId) : undefined;
+  if (!reading) {
+    return (
+      <p className="mt-1 text-xs text-muted">
+        No row linked · <a className="text-honey hover:underline" href={`/utilities?meter=${meter.id}`}>open {meter.name}</a>
+      </p>
+    );
+  }
+  const row = rowFor(meters, columns, readings, reading);
+  const compare = row ? chargeCompare(row, columns.filter((c) => c.meterId === meter.id).map(engineColumn)) : null;
+  const paid = linked!.amountCents;
+  const statement = compare?.statementCents ?? reading.amountCents;
+  const paidGap = paid !== statement;
+  const lineGap = compare?.chargesCents != null && !compare.chargesError && compare.chargesCents !== statement;
+  return (
+    <p className="mt-1 text-xs text-muted">
+      Paid {money(paid)}
+      {bill.flatPay && paidGap ? <span> · budget billing, statement {money(statement)}</span> : null}
+      {!bill.flatPay && paidGap ? <span className="text-clay"> · statement {money(statement)}</span> : null}
+      {!paidGap ? <span> · matches the statement</span> : null}
+      {compare?.chargesError ? <span className="text-clay"> · line items incomplete</span> : null}
+      {lineGap ? <span className="text-clay"> · line items {money(compare!.chargesCents!)}</span> : null}
+      {compare && !compare.chargesError && compare.chargesCents != null && !lineGap ? <span> · line items match</span> : null}
+      {" · "}
+      <a className="text-honey hover:underline" href={`/utilities?meter=${meter.id}&reading=${reading.id}`}>
+        {prettyDate(reading.readOn)} row
+      </a>
+    </p>
+  );
+}
+
+function PayLine({
+  meters,
+  columns,
+  readings,
+  readingId,
+}: {
+  meters: UtilityMeter[];
+  columns: UtilityColumn[];
+  readings: UtilityReading[];
+  readingId: string;
+}) {
+  const reading = readings.find((r) => r.id === readingId);
+  if (!reading) return null;
+  const meter = meters.find((m) => m.id === reading.meterId);
+  const row = rowFor(meters, columns, readings, reading);
+  const compare = row && meter ? chargeCompare(row, columns.filter((c) => c.meterId === meter.id).map(engineColumn)) : null;
+  if (!compare) return <p className="text-xs text-muted">Statement {money(reading.amountCents)}</p>;
+  return (
+    <p className="text-xs text-muted">
+      Statement {money(compare.statementCents ?? reading.amountCents)}
+      {compare.chargesError ? " · line items incomplete" : compare.chargesCents == null ? "" : ` · line items ${money(compare.chargesCents)}`}
+    </p>
+  );
 }
 
 export function TransactionsPage() {
@@ -406,6 +512,8 @@ export function BillsPage() {
   const [editing, setEditing] = useState<Partial<Bill> | null>(null);
   const [pay, setPay] = useState<Bill | null>(null);
   const [amount, setAmount] = useState("");
+  const [paidOn, setPaidOn] = useState("");
+  const [payReading, setPayReading] = useState("");
   if (!data) return null;
   const groups = [
     ["Due & bills", data.bills.filter((b) => b.kind === "bill")],
@@ -429,13 +537,21 @@ export function BillsPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-medium">{b.name}</p>
-                      <p className="text-sm text-muted">{prettyDate(b.nextDue)} · {b.cadence}{b.autopay ? " · autopay" : ""}{b.status === "paused" ? " · paused" : ""}{b.personId ? ` · ${data.people.find((p) => p.id === b.personId)?.name ?? ""}` : ""}</p>
+                      <p className="text-sm text-muted">{prettyDate(b.nextDue)} · {b.cadence}{b.autopay ? " · autopay" : ""}{b.flatPay ? " · budget billing" : ""}{b.status === "paused" ? " · paused" : ""}{b.personId ? ` · ${data.people.find((p) => p.id === b.personId)?.name ?? ""}` : ""}{data.meters.find((m) => m.id === b.meterId) ? <> · <a className="text-honey hover:underline" href={`/utilities?meter=${b.meterId}`}>{data.meters.find((m) => m.id === b.meterId)?.name}</a></> : null}</p>
+                      <PayCompare meters={data.meters} columns={data.columns} readings={data.readings} payments={data.payments} bill={b} />
                     </div>
                     <p className="num font-display text-xl">{b.direction === "in" ? "+" : ""}{money(b.amountCents, data.profile.currency)}</p>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {canEdit && b.status === "active" ? (
-                      <Button onClick={() => { setPay(b); setAmount(centsToInput(b.amountCents)); }}>
+                      <Button onClick={() => {
+                        const suggested = b.meterId ? suggestReadingId(data.readings.map(engineRead), b.meterId, data.today) : null;
+                        const reading = suggested ? data.readings.find((r) => r.id === suggested) : undefined;
+                        setPay(b);
+                        setPaidOn(data.today);
+                        setPayReading(suggested ?? "");
+                        setAmount(centsToInput(reading && reading.amountCents > 0 ? reading.amountCents : b.amountCents));
+                      }}>
                         {b.direction === "in" ? "Record deposit" : "Record payment"}
                       </Button>
                     ) : null}
@@ -450,13 +566,40 @@ export function BillsPage() {
       </div>
       {editing ? <BillEditor key={editing.id ?? "new"} bill={editing} onClose={() => setEditing(null)} /> : null}
       <Modal open={!!pay} title={pay ? `Pay ${pay.name}` : "Pay"} onClose={() => setPay(null)}>
+        <Field label="Paid on">
+          <input type="date" className={fieldClass} value={paidOn} onChange={(e) => {
+            const next = e.target.value;
+            setPaidOn(next);
+            if (!pay?.meterId) return;
+            const suggested = suggestReadingId(data.readings.map(engineRead), pay.meterId, next);
+            setPayReading(suggested ?? "");
+            const reading = suggested ? data.readings.find((r) => r.id === suggested) : undefined;
+            if (reading && reading.amountCents > 0) setAmount(centsToInput(reading.amountCents));
+          }} />
+        </Field>
+        {pay?.meterId ? (
+          <Field label="Workbook row">
+            <select className={fieldClass} value={payReading} onChange={(e) => {
+              const id = e.target.value;
+              setPayReading(id);
+              const reading = data.readings.find((r) => r.id === id);
+              if (reading && reading.amountCents > 0) setAmount(centsToInput(reading.amountCents));
+            }}>
+              <option value="">No row</option>
+              {data.readings.filter((r) => r.meterId === pay.meterId && !r.opening).slice().sort((a, b) => (a.readOn < b.readOn ? 1 : -1)).map((r) => (
+                <option key={r.id} value={r.id}>{prettyDate(r.readOn)} · statement {money(r.amountCents)}</option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+        {payReading ? <PayLine meters={data.meters} columns={data.columns} readings={data.readings} readingId={payReading} /> : null}
         <Field label="Amount">
           <input className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
         <Button
           onClick={async () => {
             if (!pay) return;
-            await run({ type: "bill.pay", id: pay.id, amountCents: dollarsToCents(amount), paidOn: data.today });
+            await run({ type: "bill.pay", id: pay.id, amountCents: dollarsToCents(amount), paidOn: paidOn || data.today, readingId: payReading || null });
             setPay(null);
           }}
         >
@@ -481,6 +624,8 @@ function BillEditor({ bill, onClose }: { bill: Partial<Bill>; onClose: () => voi
   const [debtAccountId, setDebtAccountId] = useState(bill.debtAccountId ?? "");
   const [categoryId, setCategoryId] = useState(bill.categoryId ?? "");
   const [autopay, setAutopay] = useState(!!bill.autopay);
+  const [flatPay, setFlatPay] = useState(!!bill.flatPay);
+  const [meterId, setMeterId] = useState(bill.meterId ?? "");
   const [status, setStatus] = useState(bill.status ?? "active");
   const [notes, setNotes] = useState(bill.notes ?? "");
   const [personId, setPersonId] = useState(bill.personId ?? "");
@@ -544,7 +689,18 @@ function BillEditor({ bill, onClose }: { bill: Partial<Bill>; onClose: () => voi
           ))}
         </select>
       </Field>
+      <Field label="Meter">
+        <select className={fieldClass} value={meterId} onChange={(e) => setMeterId(e.target.value)}>
+          <option value="">None</option>
+          {data.meters.filter((m) => !m.parentId).map((m) => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+      </Field>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={autopay} onChange={(e) => setAutopay(e.target.checked)} /> Autopay</label>
+      {(kind === "utility" || meterId) ? (
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={flatPay} onChange={(e) => setFlatPay(e.target.checked)} /> Budget billing</label>
+      ) : null}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={status === "paused"} onChange={(e) => setStatus(e.target.checked ? "paused" : "active")} /> Paused</label>
       <Field label="Notes"><input className={fieldClass} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
       {canEdit ? (
@@ -567,6 +723,8 @@ function BillEditor({ bill, onClose }: { bill: Partial<Bill>; onClose: () => voi
                   debtAccountId: debtAccountId || null,
                   categoryId: categoryId || null,
                   autopay,
+                  flatPay: kind === "utility" || !!meterId ? flatPay : false,
+                  meterId: meterId || null,
                   status,
                   notes,
                   variable: bill.variable ?? false,

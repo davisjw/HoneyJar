@@ -53,6 +53,9 @@ function scopeJar(data: Workspace, jar: LedgerBook): Workspace {
     documents: jar.documents,
     reports: jar.reports,
     payments: data.payments.filter((p) => billIds.has(p.billId)),
+    meters: jar.meters,
+    columns: jar.columns,
+    readings: jar.readings,
   };
 }
 

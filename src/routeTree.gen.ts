@@ -36,6 +36,7 @@ import { Route as AppShareRouteImport } from './routes/_app/share'
 import { Route as AppSummaryRouteImport } from './routes/_app/summary'
 import { Route as AppTaxesRouteImport } from './routes/_app/taxes'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
+import { Route as AppUtilitiesRouteImport } from './routes/_app/utilities'
 import { Route as AppWatchRouteImport } from './routes/_app/watch'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -175,6 +176,11 @@ const AppTransactionsRoute = AppTransactionsRouteImport.update({
   path: '/transactions',
   getParentRoute: () => AppRoute,
 } as any)
+const AppUtilitiesRoute = AppUtilitiesRouteImport.update({
+  id: '/utilities',
+  path: '/utilities',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWatchRoute = AppWatchRouteImport.update({
   id: '/watch',
   path: '/watch',
@@ -223,6 +229,7 @@ export interface FileRoutesByFullPath {
   '/summary': typeof AppSummaryRoute
   '/taxes': typeof AppTaxesRoute
   '/transactions': typeof AppTransactionsRoute
+  '/utilities': typeof AppUtilitiesRoute
   '/watch': typeof AppWatchRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -254,6 +261,7 @@ export interface FileRoutesByTo {
   '/summary': typeof AppSummaryRoute
   '/taxes': typeof AppTaxesRoute
   '/transactions': typeof AppTransactionsRoute
+  '/utilities': typeof AppUtilitiesRoute
   '/watch': typeof AppWatchRoute
   '/api/mcp': typeof ApiMcpRoute
   '/': typeof AppIndexRoute
@@ -288,6 +296,7 @@ export interface FileRoutesById {
   '/_app/summary': typeof AppSummaryRoute
   '/_app/taxes': typeof AppTaxesRoute
   '/_app/transactions': typeof AppTransactionsRoute
+  '/_app/utilities': typeof AppUtilitiesRoute
   '/_app/watch': typeof AppWatchRoute
   '/api/mcp': typeof ApiMcpRoute
   '/_app/': typeof AppIndexRoute
@@ -323,6 +332,7 @@ export interface FileRouteTypes {
     | '/summary'
     | '/taxes'
     | '/transactions'
+    | '/utilities'
     | '/watch'
     | '/api/mcp'
     | '/api/auth/$'
@@ -354,6 +364,7 @@ export interface FileRouteTypes {
     | '/summary'
     | '/taxes'
     | '/transactions'
+    | '/utilities'
     | '/watch'
     | '/api/mcp'
     | '/'
@@ -387,6 +398,7 @@ export interface FileRouteTypes {
     | '/_app/summary'
     | '/_app/taxes'
     | '/_app/transactions'
+    | '/_app/utilities'
     | '/_app/watch'
     | '/api/mcp'
     | '/_app/'
@@ -593,6 +605,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransactionsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/utilities': {
+      id: '/_app/utilities'
+      path: '/utilities'
+      fullPath: '/utilities'
+      preLoaderRoute: typeof AppUtilitiesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/watch': {
       id: '/_app/watch'
       path: '/watch'
@@ -649,6 +668,7 @@ interface AppRouteChildren {
   AppSummaryRoute: typeof AppSummaryRoute
   AppTaxesRoute: typeof AppTaxesRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
+  AppUtilitiesRoute: typeof AppUtilitiesRoute
   AppWatchRoute: typeof AppWatchRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -678,6 +698,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSummaryRoute: AppSummaryRoute,
   AppTaxesRoute: AppTaxesRoute,
   AppTransactionsRoute: AppTransactionsRoute,
+  AppUtilitiesRoute: AppUtilitiesRoute,
   AppWatchRoute: AppWatchRoute,
   AppIndexRoute: AppIndexRoute,
 }
