@@ -1,6 +1,6 @@
 # Plan
 
-HoneyJar is three jars of books. Version 2 is the personal jar. The investment slice and the first business slice are in. Invoices, mileage, and property management are still ahead.
+HoneyJar is three jars of books. Version 2 is the personal jar. The investment slice, the business slice, invoices, and mileage are in. Property management is still ahead.
 
 ## Order
 
@@ -59,7 +59,7 @@ The first slice is in. Portfolio holds lots, typed prices, and dated cash flows.
 
 Still later, not this slice: a live quote feed, realized-gain lots for Schedule D, and a daily valuation series that would make Dietz more than an inception estimate.
 
-After that, invoices, mileage, and a property ledger that reuses the same book shape. Do not mix those rows into the Calder personal transactions.
+After that, a property ledger that reuses the same book shape. Invoices and mileage are on a business jar: a payment posts as that jar’s income, and miles reduce profit at the standard rate without moving cash. Do not mix those rows into the Calder personal transactions.
 
 ## Business
 

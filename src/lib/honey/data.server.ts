@@ -18,8 +18,10 @@ import type {
   Draw,
   FilingStatus,
   Goal,
+  Invoice,
   LedgerBook,
   Lot,
+  MileageTrip,
   Milestone,
   Payment,
   Person,
@@ -144,7 +146,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
   const profileRows = await sql<Record<string, unknown>>`select * from profiles where user_id = ${owner}`;
   if (!profileRows[0]) throw new Error("Household not found.");
 
-  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, ledgers, draws, reports, keys, messages, invites, shared] =
+  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, ledgers, draws, reports, invoices, mileage, keys, messages, invites, shared] =
     await Promise.all([
       sql<Record<string, unknown>>`select * from accounts where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select * from categories where user_id = ${owner} order by sort, name`,
@@ -172,6 +174,8 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
       sql<Record<string, unknown>>`select * from ledgers where user_id = ${owner} order by sort, name`,
       sql<Record<string, unknown>>`select * from draws where user_id = ${owner} order by posted_on desc`,
       sql<Record<string, unknown>>`select * from reports where user_id = ${owner} order by name`,
+      sql<Record<string, unknown>>`select * from invoices where user_id = ${owner} order by issued_on desc`,
+      sql<Record<string, unknown>>`select * from mileage where user_id = ${owner} order by trip_on desc`,
       sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used from api_keys where user_id = ${owner} order by created_at desc`,
       sql<Record<string, unknown>>`select * from ai_messages where user_id = ${owner} order by created_at desc limit 40`,
       sql<Record<string, unknown>>`
@@ -200,7 +204,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     householdName: String(row.household_name ?? "Household"),
   });
 
-  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports);
+  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage);
   const primary = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
 
   return {
@@ -507,6 +511,44 @@ function mapDraw(r: Record<string, unknown>): Draw {
   };
 }
 
+function mapInvoice(r: Record<string, unknown>): Invoice {
+  let lines: Invoice["lines"] = [];
+  try {
+    const parsed = JSON.parse(String(r.lines_json ?? "[]"));
+    if (Array.isArray(parsed)) {
+      lines = parsed
+        .map((item) => ({ description: str(item?.description, 120), amountCents: Math.max(0, num(item?.amountCents)) }))
+        .filter((item) => item.description && item.amountCents > 0);
+    }
+  } catch {
+    lines = [];
+  }
+  return {
+    id: String(r.id),
+    ledgerId: String(r.ledger_id),
+    number: String(r.number),
+    client: String(r.client),
+    issuedOn: String(r.issued_on).slice(0, 10),
+    dueOn: String(r.due_on).slice(0, 10),
+    status: String(r.status || "open"),
+    notes: String(r.notes ?? ""),
+    lines,
+    accountId: r.account_id ? String(r.account_id) : null,
+    transactionId: r.transaction_id ? String(r.transaction_id) : null,
+    paidOn: r.paid_on ? String(r.paid_on).slice(0, 10) : null,
+  };
+}
+
+function mapTrip(r: Record<string, unknown>): MileageTrip {
+  return {
+    id: String(r.id),
+    ledgerId: String(r.ledger_id),
+    on: String(r.trip_on).slice(0, 10),
+    purpose: String(r.purpose),
+    milesHundredths: num(r.miles_hundredths),
+  };
+}
+
 function assembleLedgers(
   ledgers: Record<string, unknown>[],
   accounts: Record<string, unknown>[],
@@ -522,6 +564,8 @@ function assembleLedgers(
   reminders: Record<string, unknown>[],
   documents: Record<string, unknown>[],
   reports: Record<string, unknown>[],
+  invoices: Record<string, unknown>[],
+  mileage: Record<string, unknown>[],
 ): LedgerBook[] {
   return ledgers.map((row) => {
     const id = String(row.id);
@@ -546,9 +590,19 @@ function assembleLedgers(
       reminders: reminders.filter((r) => String(r.ledger_id ?? "") === id).map(mapReminder),
       documents: documents.filter((d) => String(d.ledger_id ?? "") === id).map(mapDocument),
       reports: reports.filter((r) => String(r.ledger_id ?? "") === id).map(mapReport),
+      invoices: invoices.filter((item) => String(item.ledger_id) === id).map(mapInvoice),
+      trips: mileage.filter((item) => String(item.ledger_id) === id).map(mapTrip),
       draws: draws.filter((d) => String(d.ledger_id) === id).map(mapDraw),
     };
   });
+}
+
+async function businessLedger(sql: Sql, owner: string, ledgerId: string) {
+  const rows = await sql<{ id: string; tax_form: string; kind: string }>`
+    select id, tax_form, kind from ledgers where id = ${ledgerId} and user_id = ${owner} and archived = false
+  `;
+  if (!rows[0] || rows[0].kind === "personal") throw new Error("Invoices and mileage belong on a business jar.");
+  return rows[0];
 }
 
 async function seedLedgerCategories(sql: Sql, owner: string, ledgerId: string, taxForm: string) {
@@ -1355,6 +1409,106 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         if (!others.length) throw new Error("Keep one personal jar. Add another before archiving this one.");
       }
       await sql`update ledgers set archived = ${Boolean(action.archived)} where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "invoice.save": {
+      const ledger = await businessLedger(sql, owner, action.ledgerId);
+      const client = str(action.invoice.client, 80);
+      if (!client) throw new Error("Name the client.");
+      const issued = dateOr(action.invoice.issuedOn, "");
+      const due = dateOr(action.invoice.dueOn, "");
+      if (!issued || !due) throw new Error("An invoice needs an issue date and a due date.");
+      const lines = (action.invoice.lines ?? [])
+        .map((line) => ({ description: str(line.description, 120), amountCents: Math.max(0, num(line.amountCents)) }))
+        .filter((line) => line.description && line.amountCents > 0)
+        .slice(0, 30);
+      if (!lines.length) throw new Error("Add at least one line with an amount.");
+      const id = str(action.invoice.id, 80) || nid();
+      const existing = await sql<{ status: string }>`select status from invoices where id = ${id} and user_id = ${owner} and ledger_id = ${ledger.id}`;
+      if (existing[0]?.status === "paid") throw new Error("A paid invoice stays as it was recorded.");
+      const notes = str(action.invoice.notes, 400);
+      const body = JSON.stringify(lines);
+      if (existing.length) {
+        await sql`
+          update invoices set client = ${client}, issued_on = ${issued}, due_on = ${due}, notes = ${notes}, lines_json = ${body}
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        const count = await sql<{ n: number }>`select count(*) as n from invoices where user_id = ${owner} and ledger_id = ${ledger.id}`;
+        const number = `INV-${1001 + num(count[0]?.n)}`;
+        await sql`
+          insert into invoices (id, user_id, ledger_id, number, client, issued_on, due_on, status, notes, lines_json)
+          values (${id}, ${owner}, ${ledger.id}, ${number}, ${client}, ${issued}, ${due}, 'open', ${notes}, ${body})
+        `;
+      }
+      return {};
+    }
+    case "invoice.pay": {
+      const rows = await sql<Record<string, unknown>>`select * from invoices where id = ${action.id} and user_id = ${owner}`;
+      const invoice = rows[0] ? mapInvoice(rows[0]) : null;
+      if (!invoice || invoice.status !== "open") throw new Error("That invoice is not open.");
+      const ledger = await businessLedger(sql, owner, invoice.ledgerId);
+      const total = invoice.lines.reduce((sum, line) => sum + line.amountCents, 0);
+      if (total <= 0) throw new Error("This invoice has nothing to collect.");
+      const account = await sql`select id from accounts where id = ${action.accountId} and user_id = ${owner} and ledger_id = ${ledger.id}`;
+      if (!account[0]) throw new Error("Pick an account on this business.");
+      const income = await sql<{ id: string; tax_line: string }>`
+        select id, tax_line from categories where user_id = ${owner} and ledger_id = ${ledger.id} and flow = 'in' order by sort limit 1
+      `;
+      if (!income[0]) throw new Error("This jar needs an income category before a payment can post.");
+      const paidOn = dateOr(action.paidOn, todayISO());
+      const txnId = nid();
+      await adjust(sql, owner, action.accountId, total);
+      await sql`
+        insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id, tags, ledger_id)
+        values (${txnId}, ${owner}, ${action.accountId}, ${income[0].id}, ${paidOn}, ${total}, ${invoice.client}, ${invoice.number}, false, ${ledger.tax_form}, ${income[0].tax_line}, true, 'invoice', null, '[]', ${ledger.id})
+      `;
+      await sql`
+        update invoices set status = 'paid', account_id = ${action.accountId}, transaction_id = ${txnId}, paid_on = ${paidOn}
+        where id = ${invoice.id} and user_id = ${owner}
+      `;
+      return {};
+    }
+    case "invoice.void": {
+      const rows = await sql<Record<string, unknown>>`select * from invoices where id = ${action.id} and user_id = ${owner}`;
+      const invoice = rows[0] ? mapInvoice(rows[0]) : null;
+      if (!invoice || invoice.status === "void") throw new Error("That invoice is already void.");
+      await businessLedger(sql, owner, invoice.ledgerId);
+      if (invoice.transactionId) {
+        const txn = await sql<{ account_id: string; amount_cents: number }>`
+          select account_id, amount_cents from transactions where id = ${invoice.transactionId} and user_id = ${owner} and ledger_id = ${invoice.ledgerId}
+        `;
+        if (txn[0]) await adjust(sql, owner, txn[0].account_id, -num(txn[0].amount_cents));
+        await sql`delete from transactions where id = ${invoice.transactionId} and user_id = ${owner} and ledger_id = ${invoice.ledgerId}`;
+      }
+      await sql`
+        update invoices set status = 'void', transaction_id = null, paid_on = null
+        where id = ${invoice.id} and user_id = ${owner}
+      `;
+      return {};
+    }
+    case "mileage.save": {
+      const ledger = await businessLedger(sql, owner, action.ledgerId);
+      const on = dateOr(action.trip.on, "");
+      if (!on) throw new Error("A trip needs a date.");
+      const purpose = str(action.trip.purpose, 120);
+      if (!purpose) throw new Error("Say what the trip was for.");
+      const miles = Math.max(0, num(action.trip.milesHundredths));
+      if (miles <= 0) throw new Error("Enter the miles.");
+      const id = str(action.trip.id, 80) || nid();
+      const existing = await sql`select id from mileage where id = ${id} and user_id = ${owner} and ledger_id = ${ledger.id}`;
+      if (existing.length) {
+        await sql`update mileage set trip_on = ${on}, purpose = ${purpose}, miles_hundredths = ${miles} where id = ${id} and user_id = ${owner}`;
+      } else {
+        await sql`
+          insert into mileage (id, user_id, ledger_id, trip_on, purpose, miles_hundredths)
+          values (${id}, ${owner}, ${ledger.id}, ${on}, ${purpose}, ${miles})
+        `;
+      }
+      return {};
+    }
+    case "mileage.delete": {
+      await sql`delete from mileage where id = ${action.id} and user_id = ${owner}`;
       return {};
     }
     case "biz.account.save": {

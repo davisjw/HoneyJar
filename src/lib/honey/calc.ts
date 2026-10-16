@@ -828,9 +828,38 @@ export const LEDGER_LINES: Record<string, [string, "in" | "out" | "transfer", st
   ],
 };
 
-export function ledgerProfit(txns: Txn[], categories: Category[], from: string, to: string) {
+/** Business standard mileage, cents per mile. 2026 changes on July 1 (IR-2025-128, IR-2026-29). */
+export function mileageRateCents(on: string): number {
+  const year = Number(on.slice(0, 4));
+  if (year <= 2024) return 67;
+  if (year === 2025) return 70;
+  if (on < "2026-07-01") return 72.5;
+  return 76;
+}
+
+export function tripDeductionCents(on: string, milesHundredths: number): number {
+  return Math.round((Math.max(0, milesHundredths) / 100) * mileageRateCents(on));
+}
+
+export function mileageDeductionCents(trips: { on: string; milesHundredths: number }[], from: string, to: string): number {
+  return trips.reduce((sum, trip) => (inRange(trip.on, from, to) ? sum + tripDeductionCents(trip.on, trip.milesHundredths) : sum), 0);
+}
+
+export function vehicleLine(taxForm: string): string {
+  return taxForm === "E" ? "auto" : "car";
+}
+
+export function withMileage(lines: ScheduleLine[], cents: number, line: string): ScheduleLine[] {
+  if (cents <= 0) return lines;
+  if (lines.some((item) => item.line === line)) {
+    return lines.map((item) => (item.line === line ? { ...item, cents: item.cents + cents, count: item.count + 1 } : item));
+  }
+  return [...lines, { line, cents, count: 1 }];
+}
+
+export function ledgerProfit(txns: Txn[], categories: Category[], from: string, to: string, extraExpenseCents = 0) {
   let income = 0;
-  let expenses = 0;
+  let expenses = Math.max(0, extraExpenseCents);
   for (const txn of txns) {
     if (!inRange(txn.postedOn, from, to)) continue;
     const cat = categories.find((c) => c.id === txn.categoryId);
@@ -842,14 +871,14 @@ export function ledgerProfit(txns: Txn[], categories: Category[], from: string, 
 }
 
 export function booksProfit(
-  books: { archived: boolean; kind?: string; transactions: Txn[]; categories: Category[] }[],
+  books: { archived: boolean; kind?: string; transactions: Txn[]; categories: Category[]; trips?: { on: string; milesHundredths: number }[] }[],
   year: number,
 ) {
   const from = `${year}-01-01`;
   const to = `${year}-12-31`;
   return books
     .filter((b) => !b.archived && b.kind !== "personal")
-    .reduce((s, b) => s + ledgerProfit(b.transactions, b.categories, from, to).profit, 0);
+    .reduce((s, b) => s + ledgerProfit(b.transactions, b.categories, from, to, mileageDeductionCents(b.trips ?? [], from, to)).profit, 0);
 }
 
 export type TaxEstimate = {

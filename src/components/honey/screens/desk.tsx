@@ -10,11 +10,14 @@ import {
   estimateTax,
   ledgerProfit,
   lineSum,
+  mileageDeductionCents,
   money,
   prettyDate,
   rangeFor,
   runReport,
   taxLines,
+  vehicleLine,
+  withMileage,
 } from "@/lib/honey/calc";
 import type { Account, Category, Profile, ProfilePatch, Reminder, Watch } from "@/lib/honey/types";
 import { createVault, decryptText, encryptText, unlockVault } from "@/lib/honey/vault";
@@ -187,8 +190,9 @@ function BusinessTaxes() {
   if (!data || !jar) return null;
   const year = Number(data.today.slice(0, 4));
   const from = `${year}-01-01`;
-  const pl = ledgerProfit(jar.transactions, jar.categories, from, data.today);
-  const lines = taxLines(jar.transactions, jar.categories, year)[jar.taxForm as "C" | "E" | "F"] ?? [];
+  const miles = mileageDeductionCents(jar.trips.map((trip) => ({ on: trip.on, milesHundredths: trip.milesHundredths })), from, data.today);
+  const pl = ledgerProfit(jar.transactions, jar.categories, from, data.today, miles);
+  const lines = withMileage(taxLines(jar.transactions, jar.categories, year)[jar.taxForm as "C" | "E" | "F"] ?? [], miles, vehicleLine(jar.taxForm));
   const cur = data.profile.currency;
   return (
     <div>

@@ -342,6 +342,31 @@ export type Draw = {
   homeAccountId: string;
 };
 
+export type InvoiceLine = { description: string; amountCents: number };
+
+export type Invoice = {
+  id: string;
+  ledgerId: string;
+  number: string;
+  client: string;
+  issuedOn: string;
+  dueOn: string;
+  status: string;
+  notes: string;
+  lines: InvoiceLine[];
+  accountId: string | null;
+  transactionId: string | null;
+  paidOn: string | null;
+};
+
+export type MileageTrip = {
+  id: string;
+  ledgerId: string;
+  on: string;
+  purpose: string;
+  milesHundredths: number;
+};
+
 export type LedgerBook = {
   id: string;
   name: string;
@@ -361,6 +386,8 @@ export type LedgerBook = {
   reminders: Reminder[];
   documents: DocumentRow[];
   reports: Report[];
+  invoices: Invoice[];
+  trips: MileageTrip[];
   draws: Draw[];
 };
 
@@ -470,4 +497,9 @@ export type Action = (
   | { type: "biz.draw"; ledgerId: string; direction: "draw" | "contribution"; amountCents: number; postedOn: string; bizAccountId: string; homeAccountId: string; ownerId?: string }
   | { type: "biz.draw.delete"; id: string; ownerId?: string }
   | { type: "ledger.archive"; id: string; archived: boolean; ownerId?: string }
+  | { type: "invoice.save"; ledgerId: string; invoice: { id?: string; client: string; issuedOn: string; dueOn: string; notes?: string; lines: InvoiceLine[] }; ownerId?: string }
+  | { type: "invoice.pay"; id: string; accountId: string; paidOn: string; ownerId?: string }
+  | { type: "invoice.void"; id: string; ownerId?: string }
+  | { type: "mileage.save"; ledgerId: string; trip: { id?: string; on: string; purpose: string; milesHundredths: number }; ownerId?: string }
+  | { type: "mileage.delete"; id: string; ownerId?: string }
 ) & { ledgerId?: string };

@@ -37,6 +37,8 @@ export async function clearHousehold(sql: Sql, userId: string) {
     "accounts",
     "ledgers",
     "draws",
+    "invoices",
+    "mileage",
     "people",
   ];
   for (const table of tables) {
@@ -681,8 +683,12 @@ export async function ensureSampleBusiness(sql: Sql, userId: string) {
   const prof = await sql<{ seeded: boolean }>`select seeded from profiles where user_id = ${userId}`;
   if (!prof[0]?.seeded) return;
   const rows = await sql<{ n: number }>`select count(*) as n from ledgers where user_id = ${userId}`;
-  if (Number(rows[0]?.n ?? 0) > 0) return;
+  if (Number(rows[0]?.n ?? 0) > 0) {
+    await insertSampleBilling(sql, userId);
+    return;
+  }
   await insertSampleBusiness(sql, userId);
+  await insertSampleBilling(sql, userId);
 }
 
 async function insertSampleBusiness(sql: Sql, userId: string) {
@@ -820,6 +826,38 @@ async function insertSampleBusiness(sql: Sql, userId: string) {
   });
   await sql`update accounts set balance_cents = balance_cents + 150000 where id = ${checking} and user_id = ${userId}`;
 }
+
+async function insertSampleBilling(sql: Sql, userId: string) {
+  const sid = slug(userId);
+  const ledger = `s_${sid}_studio`;
+  const existing = await sql<{ id: string }>`select id from ledgers where id = ${ledger} and user_id = ${userId}`;
+  if (!existing.length) return;
+  const today = todayISO();
+  await put(sql, "invoices", {
+    id: `s_${sid}_inv1`,
+    user_id: userId,
+    ledger_id: ledger,
+    number: "INV-1001",
+    client: "Harbor & Co",
+    issued_on: addDays(today, -3),
+    due_on: addDays(today, 14),
+    status: "open",
+    notes: "Logo revision",
+    lines_json: JSON.stringify([{ description: "Logo revision", amountCents: 85000 }]),
+    account_id: null,
+    transaction_id: null,
+    paid_on: null,
+  });
+  await put(sql, "mileage", {
+    id: `s_${sid}_mile1`,
+    user_id: userId,
+    ledger_id: ledger,
+    trip_on: addDays(today, -2),
+    purpose: "Client site, Northline",
+    miles_hundredths: 1860,
+  });
+}
+
 export async function ensureSampleInvestments(sql: Sql, userId: string) {
   const prof = await sql<{ seeded: boolean }>`select seeded from profiles where user_id = ${userId}`;
   if (!prof[0]?.seeded) return;

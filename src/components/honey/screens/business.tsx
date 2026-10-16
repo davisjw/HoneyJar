@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { centsToInput, dollarsToCents, isLiquid, ledgerProfit, money, prettyDate, signedMoney, taxLines } from "@/lib/honey/calc";
+import { centsToInput, dollarsToCents, isLiquid, ledgerProfit, mileageDeductionCents, money, prettyDate, signedMoney, taxLines, vehicleLine, withMileage } from "@/lib/honey/calc";
 import type { LedgerBook } from "@/lib/honey/types";
 import { useBook } from "../book";
 import { Button, Card, Field, Modal, PageIntro, fieldClass } from "../kit";
@@ -97,8 +97,9 @@ function BusinessBook({
   onDeleteDraw: (id: string) => void;
   onDeleteTxn: (id: string) => void;
 }) {
-  const pl = ledgerProfit(book.transactions, book.categories, from, to);
-  const lines = taxLines(book.transactions, book.categories, year)[book.taxForm as "C" | "E" | "F"] ?? [];
+  const miles = mileageDeductionCents(book.trips.map((trip) => ({ on: trip.on, milesHundredths: trip.milesHundredths })), from, to);
+  const pl = ledgerProfit(book.transactions, book.categories, from, to, miles);
+  const lines = withMileage(taxLines(book.transactions, book.categories, year)[book.taxForm as "C" | "E" | "F"] ?? [], miles, vehicleLine(book.taxForm));
   const cash = book.accounts.filter((a) => !a.archived && isLiquid(a.kind)).reduce((s, a) => s + a.balanceCents, 0);
   const operating = book.transactions.filter((t) => book.categories.find((c) => c.id === t.categoryId)?.flow !== "transfer");
   return (
@@ -106,7 +107,7 @@ function BusinessBook({
       <div className="grid gap-3 sm:grid-cols-4">
         <Card><p className="text-sm text-muted">Income</p><p className="font-display text-2xl num">{money(pl.income, cur)}</p></Card>
         <Card><p className="text-sm text-muted">Expenses</p><p className="font-display text-2xl num">{money(pl.expenses, cur)}</p></Card>
-        <Card><p className="text-sm text-muted">Profit</p><p className="font-display text-2xl num">{signedMoney(pl.profit, cur)}</p></Card>
+        <Card><p className="text-sm text-muted">Profit</p><p className="font-display text-2xl num">{signedMoney(pl.profit, cur)}</p>{miles ? <p className="text-xs text-muted">Includes {money(miles, cur)} of mileage, which is not cash.</p> : null}</Card>
         <Card><p className="text-sm text-muted">Cash here</p><p className="font-display text-2xl num">{money(cash, cur)}</p><p className="text-xs text-muted">Not in household net worth until you draw it.</p></Card>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">

@@ -20,7 +20,9 @@ import { Route as AppCashflowRouteImport } from './routes/_app/cashflow'
 import { Route as AppCreditRouteImport } from './routes/_app/credit'
 import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
 import { Route as AppGoalsRouteImport } from './routes/_app/goals'
+import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppJarsRouteImport } from './routes/_app/jars'
+import { Route as AppMileageRouteImport } from './routes/_app/mileage'
 import { Route as AppMilestonesRouteImport } from './routes/_app/milestones'
 import { Route as AppNetworthRouteImport } from './routes/_app/networth'
 import { Route as AppPeopleRouteImport } from './routes/_app/people'
@@ -91,9 +93,19 @@ const AppGoalsRoute = AppGoalsRouteImport.update({
   path: '/goals',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInvoicesRoute = AppInvoicesRouteImport.update({
+  id: '/invoices',
+  path: '/invoices',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppJarsRoute = AppJarsRouteImport.update({
   id: '/jars',
   path: '/jars',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMileageRoute = AppMileageRouteImport.update({
+  id: '/mileage',
+  path: '/mileage',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMilestonesRoute = AppMilestonesRouteImport.update({
@@ -183,7 +195,9 @@ export interface FileRoutesByFullPath {
   '/credit': typeof AppCreditRoute
   '/documents': typeof AppDocumentsRoute
   '/goals': typeof AppGoalsRoute
+  '/invoices': typeof AppInvoicesRoute
   '/jars': typeof AppJarsRoute
+  '/mileage': typeof AppMileageRoute
   '/milestones': typeof AppMilestonesRoute
   '/networth': typeof AppNetworthRoute
   '/people': typeof AppPeopleRoute
@@ -210,7 +224,9 @@ export interface FileRoutesByTo {
   '/credit': typeof AppCreditRoute
   '/documents': typeof AppDocumentsRoute
   '/goals': typeof AppGoalsRoute
+  '/invoices': typeof AppInvoicesRoute
   '/jars': typeof AppJarsRoute
+  '/mileage': typeof AppMileageRoute
   '/milestones': typeof AppMilestonesRoute
   '/networth': typeof AppNetworthRoute
   '/people': typeof AppPeopleRoute
@@ -240,7 +256,9 @@ export interface FileRoutesById {
   '/_app/credit': typeof AppCreditRoute
   '/_app/documents': typeof AppDocumentsRoute
   '/_app/goals': typeof AppGoalsRoute
+  '/_app/invoices': typeof AppInvoicesRoute
   '/_app/jars': typeof AppJarsRoute
+  '/_app/mileage': typeof AppMileageRoute
   '/_app/milestones': typeof AppMilestonesRoute
   '/_app/networth': typeof AppNetworthRoute
   '/_app/people': typeof AppPeopleRoute
@@ -271,7 +289,9 @@ export interface FileRouteTypes {
     | '/credit'
     | '/documents'
     | '/goals'
+    | '/invoices'
     | '/jars'
+    | '/mileage'
     | '/milestones'
     | '/networth'
     | '/people'
@@ -298,7 +318,9 @@ export interface FileRouteTypes {
     | '/credit'
     | '/documents'
     | '/goals'
+    | '/invoices'
     | '/jars'
+    | '/mileage'
     | '/milestones'
     | '/networth'
     | '/people'
@@ -327,7 +349,9 @@ export interface FileRouteTypes {
     | '/_app/credit'
     | '/_app/documents'
     | '/_app/goals'
+    | '/_app/invoices'
     | '/_app/jars'
+    | '/_app/mileage'
     | '/_app/milestones'
     | '/_app/networth'
     | '/_app/people'
@@ -433,11 +457,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppGoalsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/invoices': {
+      id: '/_app/invoices'
+      path: '/invoices'
+      fullPath: '/invoices'
+      preLoaderRoute: typeof AppInvoicesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/jars': {
       id: '/_app/jars'
       path: '/jars'
       fullPath: '/jars'
       preLoaderRoute: typeof AppJarsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/mileage': {
+      id: '/_app/mileage'
+      path: '/mileage'
+      fullPath: '/mileage'
+      preLoaderRoute: typeof AppMileageRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/milestones': {
@@ -557,7 +595,9 @@ interface AppRouteChildren {
   AppCreditRoute: typeof AppCreditRoute
   AppDocumentsRoute: typeof AppDocumentsRoute
   AppGoalsRoute: typeof AppGoalsRoute
+  AppInvoicesRoute: typeof AppInvoicesRoute
   AppJarsRoute: typeof AppJarsRoute
+  AppMileageRoute: typeof AppMileageRoute
   AppMilestonesRoute: typeof AppMilestonesRoute
   AppNetworthRoute: typeof AppNetworthRoute
   AppPeopleRoute: typeof AppPeopleRoute
@@ -582,7 +622,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppCreditRoute: AppCreditRoute,
   AppDocumentsRoute: AppDocumentsRoute,
   AppGoalsRoute: AppGoalsRoute,
+  AppInvoicesRoute: AppInvoicesRoute,
   AppJarsRoute: AppJarsRoute,
+  AppMileageRoute: AppMileageRoute,
   AppMilestonesRoute: AppMilestonesRoute,
   AppNetworthRoute: AppNetworthRoute,
   AppPeopleRoute: AppPeopleRoute,
