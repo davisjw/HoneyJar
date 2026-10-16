@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { centsToInput, dollarsToCents, isLiquid, ledgerProfit, mileageDeductionCents, money, prettyDate, signedMoney, taxLines, vehicleLine, withMileage } from "@/lib/honey/calc";
+import { centsToInput, dollarsToCents, isLiquid, ledgerProfit, mileageDeductionCents, money, omittedVehicleLines, prettyDate, signedMoney, taxLines, vehicleLine, withMileage } from "@/lib/honey/calc";
 import type { LedgerBook } from "@/lib/honey/types";
 import { useBook } from "../book";
 import { Button, Card, Field, Modal, PageIntro, fieldClass } from "../kit";
@@ -8,7 +8,7 @@ export function BusinessPage() {
   const { data, jar, run, canEdit } = useBook();
   const [txnOpen, setTxnOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  if (!data || !jar || jar.kind !== "business") return null;
+  if (!data || !jar || (jar.kind !== "business" && jar.kind !== "property")) return null;
   const book = jar;
   const year = Number(data.today.slice(0, 4));
   const from = `${year}-01-01`;
@@ -97,9 +97,11 @@ function BusinessBook({
   onDeleteDraw: (id: string) => void;
   onDeleteTxn: (id: string) => void;
 }) {
-  const miles = mileageDeductionCents(book.trips.map((trip) => ({ on: trip.on, milesHundredths: trip.milesHundredths })), from, to);
-  const pl = ledgerProfit(book.transactions, book.categories, from, to, miles);
-  const lines = withMileage(taxLines(book.transactions, book.categories, year)[book.taxForm as "C" | "E" | "F"] ?? [], miles, vehicleLine(book.taxForm));
+  const logged = book.trips.map((trip) => ({ on: trip.on, milesHundredths: trip.milesHundredths, use: trip.use, parkingCents: trip.parkingCents, tollsCents: trip.tollsCents }));
+  const miles = mileageDeductionCents(logged, from, to);
+  const omit = omittedVehicleLines(logged);
+  const pl = ledgerProfit(book.transactions, book.categories, from, to, miles, omit);
+  const lines = withMileage(taxLines(book.transactions, book.categories, year, omit)[book.taxForm as "C" | "E" | "F"] ?? [], miles, vehicleLine(book.taxForm));
   const cash = book.accounts.filter((a) => !a.archived && isLiquid(a.kind)).reduce((s, a) => s + a.balanceCents, 0);
   const operating = book.transactions.filter((t) => book.categories.find((c) => c.id === t.categoryId)?.flow !== "transfer");
   return (
@@ -249,7 +251,7 @@ function AccountModal({ onClose, onSave }: { onClose: () => void; onSave: (accou
   const [name, setName] = useState("");
   const [kind, setKind] = useState("checking");
   return (
-    <Modal open title="Business account" onClose={onClose}>
+    <Modal open title="Account" onClose={onClose}>
       <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
       <Field label="Kind">
         <select className={fieldClass} value={kind} onChange={(e) => setKind(e.target.value)}>
@@ -257,6 +259,8 @@ function AccountModal({ onClose, onSave }: { onClose: () => void; onSave: (accou
           <option value="savings">Savings</option>
           <option value="cash">Cash</option>
           <option value="credit">Credit card</option>
+          <option value="mortgage">Mortgage</option>
+          <option value="loan">Loan</option>
         </select>
       </Field>
       <Button onClick={() => onSave({ name, kind })}>Save</Button>

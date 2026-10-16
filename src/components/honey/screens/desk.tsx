@@ -12,6 +12,7 @@ import {
   lineSum,
   mileageDeductionCents,
   money,
+  omittedVehicleLines,
   prettyDate,
   rangeFor,
   runReport,
@@ -190,9 +191,11 @@ function BusinessTaxes() {
   if (!data || !jar) return null;
   const year = Number(data.today.slice(0, 4));
   const from = `${year}-01-01`;
-  const miles = mileageDeductionCents(jar.trips.map((trip) => ({ on: trip.on, milesHundredths: trip.milesHundredths })), from, data.today);
-  const pl = ledgerProfit(jar.transactions, jar.categories, from, data.today, miles);
-  const lines = withMileage(taxLines(jar.transactions, jar.categories, year)[jar.taxForm as "C" | "E" | "F"] ?? [], miles, vehicleLine(jar.taxForm));
+  const logged = jar.trips.map((trip) => ({ on: trip.on, milesHundredths: trip.milesHundredths, use: trip.use, parkingCents: trip.parkingCents, tollsCents: trip.tollsCents }));
+  const miles = mileageDeductionCents(logged, from, data.today);
+  const omit = omittedVehicleLines(logged);
+  const pl = ledgerProfit(jar.transactions, jar.categories, from, data.today, miles, omit);
+  const lines = withMileage(taxLines(jar.transactions, jar.categories, year, omit)[jar.taxForm as "C" | "E" | "F"] ?? [], miles, vehicleLine(jar.taxForm));
   const cur = data.profile.currency;
   return (
     <div>
@@ -224,7 +227,7 @@ function BusinessTaxes() {
 export function TaxesPage() {
   const { data, jar, run, canEdit, isOwner } = useBook();
   if (!data) return null;
-  if (jar?.kind === "business") return <BusinessTaxes />;
+  if (jar?.kind === "business" || jar?.kind === "property") return <BusinessTaxes />;
   const year = Number(data.today.slice(0, 4));
   const pack = taxLines(data.transactions, data.categories, year);
   const profit = booksProfit(data.ledgers, year);

@@ -685,10 +685,12 @@ export async function ensureSampleBusiness(sql: Sql, userId: string) {
   const rows = await sql<{ n: number }>`select count(*) as n from ledgers where user_id = ${userId}`;
   if (Number(rows[0]?.n ?? 0) > 0) {
     await insertSampleBilling(sql, userId);
+    await insertSampleProperty(sql, userId);
     return;
   }
   await insertSampleBusiness(sql, userId);
   await insertSampleBilling(sql, userId);
+  await insertSampleProperty(sql, userId);
 }
 
 async function insertSampleBusiness(sql: Sql, userId: string) {
@@ -829,16 +831,53 @@ async function insertSampleBusiness(sql: Sql, userId: string) {
 
 async function insertSampleBilling(sql: Sql, userId: string) {
   const sid = slug(userId);
-  const ledger = `s_${sid}_studio`;
+  const id = (s: string) => `s_${sid}_${s}`;
+  const ledger = id("studio");
   const existing = await sql<{ id: string }>`select id from ledgers where id = ${ledger} and user_id = ${userId}`;
   if (!existing.length) return;
   const today = todayISO();
+  const studio = id("studio_chk");
+  const avery = id("p_avery");
+  const catId = (name: string) => `c_${sid}_studio_${slug(name)}`;
+  const extra: { key: string; cat: string; amt: number; merchant: string; day: number }[] = [
+    { key: "biz5", cat: "Advertising", amt: -24000, merchant: "Portland Monthly", day: -40 },
+    { key: "biz6", cat: "Contract labor", amt: -75000, merchant: "June Ito, copy", day: -28 },
+    { key: "biz7", cat: "Insurance", amt: -8900, merchant: "Hiscox", day: -22 },
+    { key: "biz8", cat: "Travel", amt: -31200, merchant: "Amtrak to Boston", day: -16 },
+    { key: "biz9", cat: "Utilities", amt: -5400, merchant: "Studio power", day: -3 },
+  ];
+  for (const row of extra) {
+    const line = LEDGER_LINES.C.find((item) => item[0] === row.cat)?.[2] ?? "";
+    await put(sql, "transactions", {
+      id: id(row.key),
+      user_id: userId,
+      account_id: studio,
+      category_id: catId(row.cat),
+      posted_on: addDays(today, row.day),
+      amount_cents: row.amt,
+      merchant: row.merchant,
+      memo: "",
+      pending: false,
+      tax_schedule: "C",
+      tax_line: line,
+      reviewed: true,
+      source: "sample",
+      person_id: avery,
+      tags: "[]",
+      ledger_id: ledger,
+    });
+  }
   await put(sql, "invoices", {
-    id: `s_${sid}_inv1`,
+    id: id("inv1"),
     user_id: userId,
     ledger_id: ledger,
     number: "INV-1001",
     client: "Harbor & Co",
+    client_email: "accounts@harborandco.example",
+    client_address: "88 Exchange Street",
+    client_city: "Portland",
+    client_region: "ME",
+    client_postal: "04101",
     issued_on: addDays(today, -3),
     due_on: addDays(today, 14),
     status: "open",
@@ -848,13 +887,253 @@ async function insertSampleBilling(sql: Sql, userId: string) {
     transaction_id: null,
     paid_on: null,
   });
+  await sql`
+    update invoices set
+      client_email = 'accounts@harborandco.example',
+      client_address = '88 Exchange Street',
+      client_city = 'Portland',
+      client_region = 'ME',
+      client_postal = '04101'
+    where id = ${id("inv1")} and user_id = ${userId}
+  `;
+  const paidTxn = id("inv2_txn");
+  const paidAlready = await sql`select id from transactions where id = ${paidTxn}`;
+  if (!paidAlready.length) {
+    await put(sql, "transactions", {
+      id: paidTxn,
+      user_id: userId,
+      account_id: studio,
+      category_id: catId("Gross receipts"),
+      posted_on: addDays(today, -9),
+      amount_cents: 120000,
+      merchant: "Northline",
+      memo: "INV-1002",
+      pending: false,
+      tax_schedule: "C",
+      tax_line: "gross",
+      reviewed: true,
+      source: "invoice",
+      person_id: avery,
+      tags: "[]",
+      ledger_id: ledger,
+    });
+    await sql`update accounts set balance_cents = balance_cents + 120000 where id = ${studio} and user_id = ${userId}`;
+  }
+  await put(sql, "invoices", {
+    id: id("inv2"),
+    user_id: userId,
+    ledger_id: ledger,
+    number: "INV-1002",
+    client: "Northline",
+    client_email: "ap@northline.example",
+    client_address: "400 Fore Street",
+    client_city: "Portland",
+    client_region: "ME",
+    client_postal: "04101",
+    issued_on: addDays(today, -20),
+    due_on: addDays(today, -6),
+    status: "paid",
+    notes: "Monthly care",
+    lines_json: JSON.stringify([{ description: "Site care, October", amountCents: 120000 }]),
+    account_id: studio,
+    transaction_id: paidTxn,
+    paid_on: addDays(today, -9),
+  });
+  await put(sql, "invoices", {
+    id: id("inv3"),
+    user_id: userId,
+    ledger_id: ledger,
+    number: "INV-1003",
+    client: "Lumen Press",
+    client_email: "ellen@lumenpress.example",
+    client_address: "12 Milk Street",
+    client_city: "Boston",
+    client_region: "MA",
+    client_postal: "02109",
+    issued_on: addDays(today, -18),
+    due_on: addDays(today, -4),
+    status: "open",
+    notes: "Brand guide",
+    lines_json: JSON.stringify([
+      { description: "Brand guide", amountCents: 48000 },
+      { description: "Print specs", amountCents: 16000 },
+    ]),
+    account_id: null,
+    transaction_id: null,
+    paid_on: null,
+  });
+  await sql`
+    update mileage set destination = 'Northline office', use_type = 'business', parking_cents = 0, tolls_cents = 0
+    where id = ${id("mile1")} and user_id = ${userId}
+  `;
   await put(sql, "mileage", {
-    id: `s_${sid}_mile1`,
+    id: id("mile1"),
     user_id: userId,
     ledger_id: ledger,
     trip_on: addDays(today, -2),
     purpose: "Client site, Northline",
+    destination: "Northline office",
+    use_type: "business",
     miles_hundredths: 1860,
+    parking_cents: 0,
+    tolls_cents: 0,
+  });
+  await put(sql, "mileage", {
+    id: id("mile2"),
+    user_id: userId,
+    ledger_id: ledger,
+    trip_on: addDays(today, -1),
+    purpose: "Home to the studio",
+    destination: "Calder Studio",
+    use_type: "commute",
+    miles_hundredths: 840,
+    parking_cents: 0,
+    tolls_cents: 0,
+  });
+  await put(sql, "mileage", {
+    id: id("mile3"),
+    user_id: userId,
+    ledger_id: ledger,
+    trip_on: addDays(today, -5),
+    purpose: "Deliver brand guide",
+    destination: "Lumen Press, Boston",
+    use_type: "business",
+    miles_hundredths: 1420,
+    parking_cents: 800,
+    tolls_cents: 350,
+  });
+}
+
+async function insertSampleProperty(sql: Sql, userId: string) {
+  const sid = slug(userId);
+  const id = (s: string) => `s_${sid}_${s}`;
+  const ledger = id("maple");
+  const existing = await sql<{ id: string }>`select id from ledgers where id = ${ledger} and user_id = ${userId}`;
+  if (existing.length) return;
+  const today = todayISO();
+  const checking = id("maple_chk");
+  const loan = id("maple_loan");
+  const catId = (name: string) => `c_${sid}_maple_${slug(name)}`;
+  await put(sql, "ledgers", {
+    id: ledger,
+    user_id: userId,
+    name: "Maple Street",
+    tax_form: "E",
+    activity: "418 Maple Street, Portland",
+    archived: false,
+    sort: 1,
+    kind: "property",
+  });
+  let sort = 0;
+  for (const [name, flow, line] of LEDGER_LINES.E) {
+    sort += 1;
+    await put(sql, "categories", {
+      id: catId(name),
+      user_id: userId,
+      name,
+      section: flow === "in" ? "Income" : flow === "transfer" ? "Equity" : "Expenses",
+      flow,
+      tax_schedule: flow === "transfer" ? "" : "E",
+      tax_line: line,
+      icon: "tag",
+      monthly_cents: 0,
+      rollover: false,
+      sort,
+      archived: false,
+      ledger_id: ledger,
+    });
+  }
+  await put(sql, "accounts", {
+    id: checking,
+    user_id: userId,
+    name: "Rent checking",
+    institution: "First Harbor",
+    kind: "checking",
+    mask: "2284",
+    balance_cents: 642000,
+    limit_cents: null,
+    apr_bps: null,
+    connected: false,
+    archived: false,
+    opened_on: "2022-06-01",
+    custom_json: "[]",
+    ledger_id: ledger,
+  });
+  await put(sql, "accounts", {
+    id: loan,
+    user_id: userId,
+    name: "Maple mortgage",
+    institution: "First Harbor",
+    kind: "mortgage",
+    mask: "7741",
+    balance_cents: 18600000,
+    limit_cents: null,
+    apr_bps: 625,
+    connected: false,
+    archived: false,
+    opened_on: "2022-06-01",
+    custom_json: "[]",
+    ledger_id: ledger,
+  });
+  const rows: { key: string; cat: string; amt: number; merchant: string; day: number }[] = [
+    { key: "rent1", cat: "Rents received", amt: 180000, merchant: "Jordan Hale", day: -12 },
+    { key: "rent2", cat: "Insurance", amt: -9600, merchant: "Landlord policy", day: -20 },
+    { key: "rent3", cat: "Repairs", amt: -22000, merchant: "Maple plumbing", day: -8 },
+    { key: "rent4", cat: "Mortgage interest", amt: -41000, merchant: "First Harbor", day: -2 },
+    { key: "rent5", cat: "Taxes", amt: -15500, merchant: "Portland property tax", day: -35 },
+  ];
+  for (const row of rows) {
+    const line = LEDGER_LINES.E.find((item) => item[0] === row.cat)?.[2] ?? "";
+    await put(sql, "transactions", {
+      id: id(row.key),
+      user_id: userId,
+      account_id: checking,
+      category_id: catId(row.cat),
+      posted_on: addDays(today, row.day),
+      amount_cents: row.amt,
+      merchant: row.merchant,
+      memo: "",
+      pending: false,
+      tax_schedule: "E",
+      tax_line: line,
+      reviewed: true,
+      source: "sample",
+      person_id: null,
+      tags: "[]",
+      ledger_id: ledger,
+    });
+  }
+  await put(sql, "invoices", {
+    id: id("rent_inv"),
+    user_id: userId,
+    ledger_id: ledger,
+    number: "INV-1001",
+    client: "Jordan Hale",
+    client_email: "jordan.hale@example",
+    client_address: "418 Maple Street",
+    client_city: "Portland",
+    client_region: "ME",
+    client_postal: "04102",
+    issued_on: today,
+    due_on: addDays(today, 5),
+    status: "open",
+    notes: "November rent",
+    lines_json: JSON.stringify([{ description: "November rent", amountCents: 180000 }]),
+    account_id: null,
+    transaction_id: null,
+    paid_on: null,
+  });
+  await put(sql, "mileage", {
+    id: id("maple_mile"),
+    user_id: userId,
+    ledger_id: ledger,
+    trip_on: addDays(today, -8),
+    purpose: "Leak in the upstairs bath",
+    destination: "418 Maple Street",
+    use_type: "business",
+    miles_hundredths: 420,
+    parking_cents: 0,
+    tolls_cents: 0,
   });
 }
 

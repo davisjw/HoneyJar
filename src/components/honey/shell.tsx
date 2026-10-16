@@ -119,7 +119,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const { data, jar } = useBook();
   const hidden = new Set((data?.profile.navHidden ?? "").split(",").filter(Boolean));
-  const nav = jar?.kind === "business" ? BUSINESS_NAV : NAV;
+  const nav = jar?.kind === "business" || jar?.kind === "property" ? BUSINESS_NAV : NAV;
   return (
     <div className="space-y-5">
       {nav.map((group) => {
@@ -161,6 +161,8 @@ function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   if (!jar || jars.length < 2) return null;
   const personal = jars.filter((item) => item.kind === "personal");
   const business = jars.filter((item) => item.kind === "business");
+  const property = jars.filter((item) => item.kind === "property");
+  const label = jar.kind === "property" ? "Property · Schedule E" : jar.kind === "business" ? `Business · Schedule ${jar.taxForm}` : "Personal";
   const pick = (id: string) => {
     setJar(id);
     setOpen(false);
@@ -176,13 +178,13 @@ function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
       >
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium">{jar.name}</span>
-          <span className="block text-xs text-sidebar-muted">{jar.kind === "business" ? `Business · Schedule ${jar.taxForm}` : "Personal"}</span>
+          <span className="block text-xs text-sidebar-muted">{label}</span>
         </span>
         <ChevronDown className="h-4 w-4 shrink-0" />
       </button>
       {open ? (
         <div className="absolute left-0 right-0 z-20 mt-1 rounded-xl border border-white/10 bg-sidebar p-1 shadow-lg">
-          {[{ label: "Personal", rows: personal }, { label: "Business", rows: business }].map((group) =>
+          {[{ label: "Personal", rows: personal }, { label: "Business", rows: business }, { label: "Property", rows: property }].map((group) =>
             group.rows.length ? (
               <div key={group.label} className="py-1">
                 <p className="px-2 text-xs uppercase tracking-wide text-sidebar-muted">{group.label}</p>
@@ -214,11 +216,11 @@ export function Shell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const period = data ? monthLabel(periodOf(data.today, data.profile.monthStartDay)) : "";
-  const home = jar?.kind === "business" ? "/business" : "/";
+  const home = jar?.kind === "business" || jar?.kind === "property" ? "/business" : "/";
 
   useEffect(() => {
     if (!jar) return;
-    if (jar.kind === "business" && !BUSINESS_PATHS.has(path)) navigate({ to: "/business" });
+    if ((jar.kind === "business" || jar.kind === "property") && !BUSINESS_PATHS.has(path)) navigate({ to: "/business" });
     if (jar.kind === "personal" && path === "/business") navigate({ to: "/" });
   }, [jar, navigate, path]);
 

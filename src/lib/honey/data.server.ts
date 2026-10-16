@@ -528,6 +528,11 @@ function mapInvoice(r: Record<string, unknown>): Invoice {
     ledgerId: String(r.ledger_id),
     number: String(r.number),
     client: String(r.client),
+    clientEmail: String(r.client_email ?? ""),
+    clientAddress: String(r.client_address ?? ""),
+    clientCity: String(r.client_city ?? ""),
+    clientRegion: String(r.client_region ?? ""),
+    clientPostal: String(r.client_postal ?? ""),
     issuedOn: String(r.issued_on).slice(0, 10),
     dueOn: String(r.due_on).slice(0, 10),
     status: String(r.status || "open"),
@@ -545,7 +550,11 @@ function mapTrip(r: Record<string, unknown>): MileageTrip {
     ledgerId: String(r.ledger_id),
     on: String(r.trip_on).slice(0, 10),
     purpose: String(r.purpose),
+    destination: String(r.destination ?? ""),
+    use: String(r.use_type || "business"),
     milesHundredths: num(r.miles_hundredths),
+    parkingCents: num(r.parking_cents),
+    tollsCents: num(r.tolls_cents),
   };
 }
 
@@ -569,7 +578,7 @@ function assembleLedgers(
 ): LedgerBook[] {
   return ledgers.map((row) => {
     const id = String(row.id);
-    const kind = String(row.kind) === "personal" ? "personal" : "business";
+    const kind = String(row.kind) === "personal" ? "personal" : String(row.kind) === "property" ? "property" : "business";
     const form = String(row.tax_form || "C").toUpperCase();
     return {
       id,
@@ -601,7 +610,7 @@ async function businessLedger(sql: Sql, owner: string, ledgerId: string) {
   const rows = await sql<{ id: string; tax_form: string; kind: string }>`
     select id, tax_form, kind from ledgers where id = ${ledgerId} and user_id = ${owner} and archived = false
   `;
-  if (!rows[0] || rows[0].kind === "personal") throw new Error("Invoices and mileage belong on a business jar.");
+  if (!rows[0] || rows[0].kind === "personal") throw new Error("Invoices and mileage belong on a business or property jar.");
   return rows[0];
 }
 
@@ -1385,9 +1394,9 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       if (!name) throw new Error("Name the jar.");
       const id = str(action.ledger.id, 80) || nid();
       const activity = str(action.ledger.activity, 80);
-      const kind = action.ledger.kind === "personal" ? "personal" : "business";
+      const kind = action.ledger.kind === "personal" ? "personal" : action.ledger.kind === "property" ? "property" : "business";
       const requested = str(action.ledger.taxForm, 1).toUpperCase();
-      const taxForm = kind === "personal" ? "" : requested === "E" || requested === "F" ? requested : "C";
+      const taxForm = kind === "personal" ? "" : kind === "property" ? "E" : requested === "E" || requested === "F" ? requested : "C";
       const existing = await sql`select id from ledgers where id = ${id} and user_id = ${owner}`;
       if (existing.length) {
         await sql`update ledgers set name = ${name}, activity = ${activity} where id = ${id} and user_id = ${owner}`;
@@ -1427,18 +1436,23 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const existing = await sql<{ status: string }>`select status from invoices where id = ${id} and user_id = ${owner} and ledger_id = ${ledger.id}`;
       if (existing[0]?.status === "paid") throw new Error("A paid invoice stays as it was recorded.");
       const notes = str(action.invoice.notes, 400);
+      const email = str(action.invoice.clientEmail, 120);
+      const address = str(action.invoice.clientAddress, 120);
+      const city = str(action.invoice.clientCity, 60);
+      const region = str(action.invoice.clientRegion, 40);
+      const postal = str(action.invoice.clientPostal, 16);
       const body = JSON.stringify(lines);
       if (existing.length) {
         await sql`
-          update invoices set client = ${client}, issued_on = ${issued}, due_on = ${due}, notes = ${notes}, lines_json = ${body}
+          update invoices set client = ${client}, client_email = ${email}, client_address = ${address}, client_city = ${city}, client_region = ${region}, client_postal = ${postal}, issued_on = ${issued}, due_on = ${due}, notes = ${notes}, lines_json = ${body}
           where id = ${id} and user_id = ${owner}
         `;
       } else {
         const count = await sql<{ n: number }>`select count(*) as n from invoices where user_id = ${owner} and ledger_id = ${ledger.id}`;
         const number = `INV-${1001 + num(count[0]?.n)}`;
         await sql`
-          insert into invoices (id, user_id, ledger_id, number, client, issued_on, due_on, status, notes, lines_json)
-          values (${id}, ${owner}, ${ledger.id}, ${number}, ${client}, ${issued}, ${due}, 'open', ${notes}, ${body})
+          insert into invoices (id, user_id, ledger_id, number, client, client_email, client_address, client_city, client_region, client_postal, issued_on, due_on, status, notes, lines_json)
+          values (${id}, ${owner}, ${ledger.id}, ${number}, ${client}, ${email}, ${address}, ${city}, ${region}, ${postal}, ${issued}, ${due}, 'open', ${notes}, ${body})
         `;
       }
       return {};
@@ -1493,16 +1507,23 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       if (!on) throw new Error("A trip needs a date.");
       const purpose = str(action.trip.purpose, 120);
       if (!purpose) throw new Error("Say what the trip was for.");
+      const destination = str(action.trip.destination, 120);
+      const use = action.trip.use === "commute" || action.trip.use === "personal" ? action.trip.use : "business";
       const miles = Math.max(0, num(action.trip.milesHundredths));
       if (miles <= 0) throw new Error("Enter the miles.");
+      const parking = Math.max(0, num(action.trip.parkingCents));
+      const tolls = Math.max(0, num(action.trip.tollsCents));
       const id = str(action.trip.id, 80) || nid();
       const existing = await sql`select id from mileage where id = ${id} and user_id = ${owner} and ledger_id = ${ledger.id}`;
       if (existing.length) {
-        await sql`update mileage set trip_on = ${on}, purpose = ${purpose}, miles_hundredths = ${miles} where id = ${id} and user_id = ${owner}`;
+        await sql`
+          update mileage set trip_on = ${on}, purpose = ${purpose}, destination = ${destination}, use_type = ${use}, miles_hundredths = ${miles}, parking_cents = ${parking}, tolls_cents = ${tolls}
+          where id = ${id} and user_id = ${owner}
+        `;
       } else {
         await sql`
-          insert into mileage (id, user_id, ledger_id, trip_on, purpose, miles_hundredths)
-          values (${id}, ${owner}, ${ledger.id}, ${on}, ${purpose}, ${miles})
+          insert into mileage (id, user_id, ledger_id, trip_on, purpose, destination, use_type, miles_hundredths, parking_cents, tolls_cents)
+          values (${id}, ${owner}, ${ledger.id}, ${on}, ${purpose}, ${destination}, ${use}, ${miles}, ${parking}, ${tolls})
         `;
       }
       return {};
@@ -1516,7 +1537,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       if (!ledger[0]) throw new Error("That business is not in this household.");
       const name = str(action.account.name, 80);
       if (!name) throw new Error("Name the account.");
-      const kind = ["checking", "savings", "cash", "credit"].includes(String(action.account.kind)) ? String(action.account.kind) : "checking";
+      const kind = ["checking", "savings", "cash", "credit", "loan", "mortgage"].includes(String(action.account.kind)) ? String(action.account.kind) : "checking";
       const id = str(action.account.id, 80) || nid();
       const existing = await sql`select id from accounts where id = ${id} and user_id = ${owner} and ledger_id = ${action.ledgerId}`;
       if (existing.length) {

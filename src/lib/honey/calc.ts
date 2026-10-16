@@ -735,12 +735,13 @@ export function marginalRate(taxableCents: number, status: FilingStatus): number
 
 export type ScheduleLine = { line: string; cents: number; count: number };
 
-export function taxLines(txns: Txn[], categories: Category[], year: number) {
+export function taxLines(txns: Txn[], categories: Category[], year: number, omitLines: string[] = []) {
   const from = `${year}-01-01`;
   const to = `${year}-12-31`;
+  const skip = new Set(omitLines);
   const lines = new Map<string, ScheduleLine>();
   const bump = (schedule: string, line: string, cents: number) => {
-    if (!schedule) return;
+    if (!schedule || skip.has(line)) return;
     const key = `${schedule}:${line || "other"}`;
     const cur = lines.get(key) ?? { line: line || "other", cents: 0, count: 0 };
     cur.cents += cents;
@@ -837,12 +838,42 @@ export function mileageRateCents(on: string): number {
   return 76;
 }
 
+/** Cents of the standard rate that are depreciation and reduce the car's basis. Not a second deduction. */
+export function mileageDepreciationCents(on: string): number {
+  const year = Number(on.slice(0, 4));
+  if (year >= 2026) return 35;
+  if (year === 2025) return 33;
+  if (year === 2024) return 30;
+  return 28;
+}
+
+export type MileTrip = { on: string; milesHundredths: number; use?: string; parkingCents?: number; tollsCents?: number };
+
+export function businessMiles(trips: MileTrip[]): boolean {
+  return trips.some((trip) => (!trip.use || trip.use === "business") && trip.milesHundredths > 0);
+}
+
+/** Actual gas, repairs, and depreciation stay off the schedule once the jar uses the standard rate. */
+export function omittedVehicleLines(trips: MileTrip[]): string[] {
+  return businessMiles(trips) ? ["car", "auto", "gas"] : [];
+}
+
 export function tripDeductionCents(on: string, milesHundredths: number): number {
   return Math.round((Math.max(0, milesHundredths) / 100) * mileageRateCents(on));
 }
 
-export function mileageDeductionCents(trips: { on: string; milesHundredths: number }[], from: string, to: string): number {
-  return trips.reduce((sum, trip) => (inRange(trip.on, from, to) ? sum + tripDeductionCents(trip.on, trip.milesHundredths) : sum), 0);
+export function mileageDeductionCents(trips: MileTrip[], from: string, to: string): number {
+  return trips.reduce((sum, trip) => {
+    if (!inRange(trip.on, from, to) || (trip.use && trip.use !== "business")) return sum;
+    return sum + tripDeductionCents(trip.on, trip.milesHundredths) + Math.max(0, trip.parkingCents ?? 0) + Math.max(0, trip.tollsCents ?? 0);
+  }, 0);
+}
+
+export function mileageBasisCents(trips: MileTrip[], from: string, to: string): number {
+  return trips.reduce((sum, trip) => {
+    if (!inRange(trip.on, from, to) || (trip.use && trip.use !== "business")) return sum;
+    return sum + Math.round((Math.max(0, trip.milesHundredths) / 100) * mileageDepreciationCents(trip.on));
+  }, 0);
 }
 
 export function vehicleLine(taxForm: string): string {
@@ -857,28 +888,33 @@ export function withMileage(lines: ScheduleLine[], cents: number, line: string):
   return [...lines, { line, cents, count: 1 }];
 }
 
-export function ledgerProfit(txns: Txn[], categories: Category[], from: string, to: string, extraExpenseCents = 0) {
+export function ledgerProfit(txns: Txn[], categories: Category[], from: string, to: string, extraExpenseCents = 0, omitLines: string[] = []) {
   let income = 0;
   let expenses = Math.max(0, extraExpenseCents);
+  const skip = new Set(omitLines);
   for (const txn of txns) {
     if (!inRange(txn.postedOn, from, to)) continue;
     const cat = categories.find((c) => c.id === txn.categoryId);
     if (!cat || cat.flow === "transfer") continue;
+    const line = txn.taxLine || cat.taxLine || "";
     if (txn.amountCents > 0 && cat.flow === "in") income += txn.amountCents;
-    else if (txn.amountCents < 0) expenses += -txn.amountCents;
+    else if (txn.amountCents < 0 && !skip.has(line)) expenses += -txn.amountCents;
   }
   return { income, expenses, profit: income - expenses };
 }
 
 export function booksProfit(
-  books: { archived: boolean; kind?: string; transactions: Txn[]; categories: Category[]; trips?: { on: string; milesHundredths: number }[] }[],
+  books: { archived: boolean; kind?: string; taxForm?: string; transactions: Txn[]; categories: Category[]; trips?: MileTrip[] }[],
   year: number,
 ) {
   const from = `${year}-01-01`;
   const to = `${year}-12-31`;
   return books
     .filter((b) => !b.archived && b.kind !== "personal")
-    .reduce((s, b) => s + ledgerProfit(b.transactions, b.categories, from, to, mileageDeductionCents(b.trips ?? [], from, to)).profit, 0);
+    .reduce((sum, book) => {
+      const trips = book.trips ?? [];
+      return sum + ledgerProfit(book.transactions, book.categories, from, to, mileageDeductionCents(trips, from, to), omittedVehicleLines(trips)).profit;
+    }, 0);
 }
 
 export type TaxEstimate = {
