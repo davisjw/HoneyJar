@@ -1,11 +1,11 @@
-# HoneyJar version 2 docs
+# HoneyJar docs
 
-These notes are for the private [HoneyJar](https://github.com/davisjw/HoneyJar) repo. They describe the app that is tagged `v2`.
-
-| Doc | What it is |
+| Doc | Who it is for |
 | --- | --- |
-| [prompts.md](prompts.md) | The product requests that shaped this build, in order. |
-| [plan.md](plan.md) | What shipped, what was deferred, and the order of the next jars. |
-| [architecture.md](architecture.md) | How the app is put together: data, money, auth, API, advisor, vault. |
-
-Version 0.5 and version 1 are not in this repository. Their source was not in the workspace when version 2 was committed.
+| [Install](install.md) | Someone running the app. |
+| [Features](features.md) | Someone using the screens. |
+| [API and MCP](api.md) | An AI or a script reading the books. |
+| [Before you share it](release.md) | Publishing the repo or hosting it. |
+| [Architecture](architecture.md) | Someone changing the code. |
+| [Plan](plan.md) | What was deferred, and in what order. |
+| [Prompts](prompts.md) | The requests that shaped version 2. Leave this out of a public repo if you do not want that conversation published. |
