@@ -110,7 +110,7 @@ function BusinessBook({
         <Card><p className="text-sm text-muted">Income</p><p className="font-display text-2xl num">{money(pl.income, cur)}</p></Card>
         <Card><p className="text-sm text-muted">Expenses</p><p className="font-display text-2xl num">{money(pl.expenses, cur)}</p></Card>
         <Card><p className="text-sm text-muted">Profit</p><p className="font-display text-2xl num">{signedMoney(pl.profit, cur)}</p>{miles ? <p className="text-xs text-muted">Includes {money(miles, cur)} of mileage, which is not cash.</p> : null}</Card>
-        <Card><p className="text-sm text-muted">Cash here</p><p className="font-display text-2xl num">{money(cash, cur)}</p><p className="text-xs text-muted">Not in household net worth until you draw it.</p></Card>
+        <Card><p className="text-sm text-muted">Cash here</p><p className="font-display text-2xl num">{money(cash, cur)}</p><p className="text-xs text-muted">Not in household net worth until you draw it.{book.kind === "property" && book.leases.some((lease) => lease.depositHeldCents > 0) ? ` Deposits held ${money(book.leases.reduce((sum, lease) => sum + lease.depositHeldCents, 0), cur)} are owed back.` : ""}</p></Card>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

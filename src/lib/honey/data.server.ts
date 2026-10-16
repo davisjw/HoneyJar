@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
-import { balanceDelta, LEDGER_LINES, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
-import { clearHousehold, ensureJars, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleTags, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
+import { balanceDelta, holdingTerm, LEDGER_LINES, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
+import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import type {
   AccessRow,
   Account,
@@ -19,6 +19,7 @@ import type {
   FilingStatus,
   Goal,
   Invoice,
+  Lease,
   LedgerBook,
   Lot,
   MileageTrip,
@@ -28,6 +29,7 @@ import type {
   PlanMonth,
   PortfolioFlow,
   Profile,
+  Realization,
   Reminder,
   Report,
   RetirementSketch,
@@ -100,7 +102,9 @@ async function ensureSeed(sql: Sql, userId: string) {
   await ensureSampleTags(sql, userId);
   await ensureSampleInvestments(sql, userId);
   await ensureSampleBusiness(sql, userId);
+  await ensureSampleSale(sql, userId);
   await ensureJars(sql, userId);
+  await ensureLeaseInvoices(sql, userId);
 }
 
 function mapProfile(row: Record<string, unknown>): Profile {
@@ -146,7 +150,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
   const profileRows = await sql<Record<string, unknown>>`select * from profiles where user_id = ${owner}`;
   if (!profileRows[0]) throw new Error("Household not found.");
 
-  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, ledgers, draws, reports, invoices, mileage, keys, messages, invites, shared] =
+  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, ledgers, draws, reports, invoices, mileage, leases, realizations, keys, messages, invites, shared] =
     await Promise.all([
       sql<Record<string, unknown>>`select * from accounts where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select * from categories where user_id = ${owner} order by sort, name`,
@@ -176,6 +180,8 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
       sql<Record<string, unknown>>`select * from reports where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select * from invoices where user_id = ${owner} order by issued_on desc`,
       sql<Record<string, unknown>>`select * from mileage where user_id = ${owner} order by trip_on desc`,
+      sql<Record<string, unknown>>`select * from leases where user_id = ${owner} order by tenant`,
+      sql<Record<string, unknown>>`select * from realizations where user_id = ${owner} order by sold_on desc`,
       sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used from api_keys where user_id = ${owner} order by created_at desc`,
       sql<Record<string, unknown>>`select * from ai_messages where user_id = ${owner} order by created_at desc limit 40`,
       sql<Record<string, unknown>>`
@@ -204,7 +210,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     householdName: String(row.household_name ?? "Household"),
   });
 
-  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage);
+  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage, leases);
   const primary = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
 
   return {
@@ -236,6 +242,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     lots: lots.map(mapLot),
     prices: prices.map(mapPrice),
     flows: flows.map(mapFlow),
+    realizations: realizations.map(mapRealization),
     sketches: sketches.map(mapSketch),
     ledgers: books,
     reports: primary?.reports ?? [],
@@ -541,6 +548,46 @@ function mapInvoice(r: Record<string, unknown>): Invoice {
     accountId: r.account_id ? String(r.account_id) : null,
     transactionId: r.transaction_id ? String(r.transaction_id) : null,
     paidOn: r.paid_on ? String(r.paid_on).slice(0, 10) : null,
+    leaseId: r.lease_id ? String(r.lease_id) : null,
+  };
+}
+
+function mapLease(r: Record<string, unknown>): Lease {
+  return {
+    id: String(r.id),
+    ledgerId: String(r.ledger_id),
+    tenant: String(r.tenant),
+    email: String(r.email ?? ""),
+    address: String(r.address ?? ""),
+    city: String(r.city ?? ""),
+    region: String(r.region ?? ""),
+    postal: String(r.postal ?? ""),
+    unit: String(r.unit ?? ""),
+    rentCents: num(r.rent_cents),
+    dueDay: Math.min(28, Math.max(1, num(r.due_day) || 1)),
+    startOn: String(r.start_on).slice(0, 10),
+    endOn: r.end_on ? String(r.end_on).slice(0, 10) : null,
+    depositCents: num(r.deposit_cents),
+    depositHeldCents: num(r.deposit_held_cents),
+    status: String(r.status || "active"),
+    lastInvoiced: String(r.last_invoiced ?? ""),
+    notes: String(r.notes ?? ""),
+  };
+}
+
+function mapRealization(r: Record<string, unknown>): Realization {
+  return {
+    id: String(r.id),
+    lotId: r.lot_id ? String(r.lot_id) : null,
+    accountId: r.account_id ? String(r.account_id) : null,
+    symbol: String(r.symbol),
+    acquiredOn: String(r.acquired_on).slice(0, 10),
+    soldOn: String(r.sold_on).slice(0, 10),
+    sharesMicros: num(r.shares_micros),
+    basisCents: num(r.basis_cents),
+    proceedsCents: num(r.proceeds_cents),
+    gainCents: num(r.gain_cents),
+    term: String(r.term || "short"),
   };
 }
 
@@ -575,6 +622,7 @@ function assembleLedgers(
   reports: Record<string, unknown>[],
   invoices: Record<string, unknown>[],
   mileage: Record<string, unknown>[],
+  leases: Record<string, unknown>[],
 ): LedgerBook[] {
   return ledgers.map((row) => {
     const id = String(row.id);
@@ -601,9 +649,23 @@ function assembleLedgers(
       reports: reports.filter((r) => String(r.ledger_id ?? "") === id).map(mapReport),
       invoices: invoices.filter((item) => String(item.ledger_id) === id).map(mapInvoice),
       trips: mileage.filter((item) => String(item.ledger_id) === id).map(mapTrip),
+      leases: leases.filter((item) => String(item.ledger_id) === id).map(mapLease),
       draws: draws.filter((d) => String(d.ledger_id) === id).map(mapDraw),
     };
   });
+}
+
+async function depositCategory(sql: Sql, owner: string, ledgerId: string) {
+  const rows = await sql<{ id: string }>`
+    select id from categories where user_id = ${owner} and ledger_id = ${ledgerId} and tax_line = 'deposit' limit 1
+  `;
+  if (rows[0]) return rows[0].id;
+  const id = nid();
+  await sql`
+    insert into categories (id, user_id, name, section, flow, tax_schedule, tax_line, icon, monthly_cents, rollover, sort, archived, ledger_id)
+    values (${id}, ${owner}, 'Security deposit', 'Equity', 'transfer', '', 'deposit', 'tag', 0, false, 90, false, ${ledgerId})
+  `;
+  return id;
 }
 
 async function businessLedger(sql: Sql, owner: string, ledgerId: string) {
@@ -1212,6 +1274,44 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       await sql`delete from lots where id = ${action.id} and user_id = ${owner}`;
       return {};
     }
+    case "lot.sell": {
+      const rows = await sql<{ account_id: string | null; symbol: string; acquired_on: string; shares_micros: number; cost_cents: number; closed_on: string | null }>`
+        select account_id, symbol, acquired_on, shares_micros, cost_cents, closed_on from lots where id = ${action.id} and user_id = ${owner}
+      `;
+      const lot = rows[0];
+      if (!lot || lot.closed_on) throw new Error("That lot is not open.");
+      const soldOn = dateOr(action.soldOn, "");
+      if (!soldOn || soldOn < String(lot.acquired_on).slice(0, 10)) throw new Error("The sale has to be on or after the purchase.");
+      const shares = Math.max(0, num(lot.shares_micros));
+      const sold = Math.max(0, num(action.sharesMicros));
+      if (sold <= 0 || sold > shares) throw new Error("Sell some of the shares still in the lot, not more.");
+      const proceeds = Math.max(0, num(action.proceedsCents));
+      const basis = Math.round((num(lot.cost_cents) * sold) / shares);
+      const gain = proceeds - basis;
+      const accountId = str(action.accountId, 80) || (lot.account_id ? String(lot.account_id) : "");
+      if (!accountId) throw new Error("Pick the account that received the proceeds.");
+      const account = await sql`select id from accounts where id = ${accountId} and user_id = ${owner}`;
+      if (!account[0]) throw new Error("That account is not in this household.");
+      const leftShares = shares - sold;
+      const leftCost = Math.max(0, num(lot.cost_cents) - basis);
+      const acquired = String(lot.acquired_on).slice(0, 10);
+      const term = holdingTerm(acquired, soldOn);
+      if (leftShares === 0) {
+        await sql`update lots set shares_micros = 0, cost_cents = 0, closed_on = ${soldOn} where id = ${action.id} and user_id = ${owner}`;
+      } else {
+        await sql`update lots set shares_micros = ${leftShares}, cost_cents = ${leftCost} where id = ${action.id} and user_id = ${owner}`;
+      }
+      await sql`
+        insert into realizations (id, user_id, lot_id, account_id, symbol, acquired_on, sold_on, shares_micros, basis_cents, proceeds_cents, gain_cents, term)
+        values (${nid()}, ${owner}, ${action.id}, ${accountId}, ${lot.symbol}, ${acquired}, ${soldOn}, ${sold}, ${basis}, ${proceeds}, ${gain}, ${term})
+      `;
+      await sql`
+        insert into portfolio_flows (id, user_id, lot_id, account_id, symbol, kind, posted_on, amount_cents, external, transaction_id, memo)
+        values (${nid()}, ${owner}, ${action.id}, ${accountId}, ${lot.symbol}, 'sell', ${soldOn}, ${proceeds}, true, null, ${"Sale of " + lot.symbol})
+      `;
+      await adjust(sql, owner, accountId, proceeds);
+      return {};
+    }
     case "price.save": {
       const p = action.price;
       const id = str(p.id, 80) || nid();
@@ -1530,6 +1630,86 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     }
     case "mileage.delete": {
       await sql`delete from mileage where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "lease.save": {
+      const ledger = await sql<{ kind: string }>`select kind from ledgers where id = ${action.ledgerId} and user_id = ${owner} and archived = false`;
+      if (ledger[0]?.kind !== "property") throw new Error("A lease belongs on a property jar.");
+      const tenant = str(action.lease.tenant, 80);
+      if (!tenant) throw new Error("Name the tenant.");
+      const rent = Math.max(0, num(action.lease.rentCents));
+      if (rent <= 0) throw new Error("Enter the monthly rent.");
+      const start = dateOr(action.lease.startOn, "");
+      if (!start) throw new Error("A lease needs a start date.");
+      const due = Math.min(28, Math.max(1, num(action.lease.dueDay) || 1));
+      const end = action.lease.endOn ? dateOr(action.lease.endOn, "") || null : null;
+      const id = str(action.lease.id, 80) || nid();
+      const existing = await sql`select id from leases where id = ${id} and user_id = ${owner} and ledger_id = ${action.ledgerId}`;
+      const fields = {
+        tenant,
+        email: str(action.lease.email, 120),
+        address: str(action.lease.address, 120),
+        city: str(action.lease.city, 60),
+        region: str(action.lease.region, 40),
+        postal: str(action.lease.postal, 16),
+        unit: str(action.lease.unit, 40),
+        notes: str(action.lease.notes, 400),
+        deposit: Math.max(0, num(action.lease.depositCents)),
+      };
+      if (existing.length) {
+        await sql`
+          update leases set tenant = ${fields.tenant}, email = ${fields.email}, address = ${fields.address}, city = ${fields.city}, region = ${fields.region}, postal = ${fields.postal}, unit = ${fields.unit}, rent_cents = ${rent}, due_day = ${due}, start_on = ${start}, end_on = ${end}, deposit_cents = ${fields.deposit}, notes = ${fields.notes}
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        await sql`
+          insert into leases (id, user_id, ledger_id, tenant, email, address, city, region, postal, unit, rent_cents, due_day, start_on, end_on, deposit_cents, deposit_held_cents, status, last_invoiced, notes)
+          values (${id}, ${owner}, ${action.ledgerId}, ${fields.tenant}, ${fields.email}, ${fields.address}, ${fields.city}, ${fields.region}, ${fields.postal}, ${fields.unit}, ${rent}, ${due}, ${start}, ${end}, ${fields.deposit}, 0, 'active', '', ${fields.notes})
+        `;
+      }
+      await ensureLeaseInvoices(sql, owner);
+      return {};
+    }
+    case "lease.deposit": {
+      const rows = await sql<Record<string, unknown>>`select * from leases where id = ${action.id} and user_id = ${owner}`;
+      const lease = rows[0] ? mapLease(rows[0]) : null;
+      if (!lease || lease.status !== "active") throw new Error("That lease is not active.");
+      const amount = Math.max(0, num(action.amountCents));
+      if (amount <= 0) throw new Error("Enter the deposit received.");
+      const account = await sql`select id from accounts where id = ${action.accountId} and user_id = ${owner} and ledger_id = ${lease.ledgerId}`;
+      if (!account[0]) throw new Error("Pick an account on this property.");
+      const category = await depositCategory(sql, owner, lease.ledgerId);
+      const posted = dateOr(action.postedOn, todayISO());
+      await adjust(sql, owner, action.accountId, amount);
+      await sql`
+        insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id, tags, ledger_id)
+        values (${nid()}, ${owner}, ${action.accountId}, ${category}, ${posted}, ${amount}, ${lease.tenant}, 'Security deposit', false, '', 'deposit', true, 'deposit', null, '[]', ${lease.ledgerId})
+      `;
+      const held = lease.depositHeldCents + amount;
+      const stated = Math.max(lease.depositCents, held);
+      await sql`update leases set deposit_held_cents = ${held}, deposit_cents = ${stated} where id = ${lease.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "lease.return": {
+      const rows = await sql<Record<string, unknown>>`select * from leases where id = ${action.id} and user_id = ${owner}`;
+      const lease = rows[0] ? mapLease(rows[0]) : null;
+      if (!lease) throw new Error("That lease is already gone.");
+      const amount = Math.max(0, num(action.amountCents));
+      if (amount <= 0 || amount > lease.depositHeldCents) throw new Error("Return no more than the deposit still held.");
+      const account = await sql`select id from accounts where id = ${action.accountId} and user_id = ${owner} and ledger_id = ${lease.ledgerId}`;
+      if (!account[0]) throw new Error("Pick an account on this property.");
+      const category = await depositCategory(sql, owner, lease.ledgerId);
+      const posted = dateOr(action.postedOn, todayISO());
+      await adjust(sql, owner, action.accountId, -amount);
+      await sql`
+        insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id, tags, ledger_id)
+        values (${nid()}, ${owner}, ${action.accountId}, ${category}, ${posted}, ${-amount}, ${lease.tenant}, 'Deposit returned', false, '', 'deposit', true, 'deposit', null, '[]', ${lease.ledgerId})
+      `;
+      await sql`update leases set deposit_held_cents = ${lease.depositHeldCents - amount} where id = ${lease.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "lease.end": {
+      await sql`update leases set status = 'ended' where id = ${action.id} and user_id = ${owner}`;
       return {};
     }
     case "biz.account.save": {

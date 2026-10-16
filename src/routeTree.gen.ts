@@ -22,6 +22,7 @@ import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
 import { Route as AppGoalsRouteImport } from './routes/_app/goals'
 import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppJarsRouteImport } from './routes/_app/jars'
+import { Route as AppLeasesRouteImport } from './routes/_app/leases'
 import { Route as AppMileageRouteImport } from './routes/_app/mileage'
 import { Route as AppMilestonesRouteImport } from './routes/_app/milestones'
 import { Route as AppNetworthRouteImport } from './routes/_app/networth'
@@ -101,6 +102,11 @@ const AppInvoicesRoute = AppInvoicesRouteImport.update({
 const AppJarsRoute = AppJarsRouteImport.update({
   id: '/jars',
   path: '/jars',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLeasesRoute = AppLeasesRouteImport.update({
+  id: '/leases',
+  path: '/leases',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMileageRoute = AppMileageRouteImport.update({
@@ -197,6 +203,7 @@ export interface FileRoutesByFullPath {
   '/goals': typeof AppGoalsRoute
   '/invoices': typeof AppInvoicesRoute
   '/jars': typeof AppJarsRoute
+  '/leases': typeof AppLeasesRoute
   '/mileage': typeof AppMileageRoute
   '/milestones': typeof AppMilestonesRoute
   '/networth': typeof AppNetworthRoute
@@ -226,6 +233,7 @@ export interface FileRoutesByTo {
   '/goals': typeof AppGoalsRoute
   '/invoices': typeof AppInvoicesRoute
   '/jars': typeof AppJarsRoute
+  '/leases': typeof AppLeasesRoute
   '/mileage': typeof AppMileageRoute
   '/milestones': typeof AppMilestonesRoute
   '/networth': typeof AppNetworthRoute
@@ -258,6 +266,7 @@ export interface FileRoutesById {
   '/_app/goals': typeof AppGoalsRoute
   '/_app/invoices': typeof AppInvoicesRoute
   '/_app/jars': typeof AppJarsRoute
+  '/_app/leases': typeof AppLeasesRoute
   '/_app/mileage': typeof AppMileageRoute
   '/_app/milestones': typeof AppMilestonesRoute
   '/_app/networth': typeof AppNetworthRoute
@@ -291,6 +300,7 @@ export interface FileRouteTypes {
     | '/goals'
     | '/invoices'
     | '/jars'
+    | '/leases'
     | '/mileage'
     | '/milestones'
     | '/networth'
@@ -320,6 +330,7 @@ export interface FileRouteTypes {
     | '/goals'
     | '/invoices'
     | '/jars'
+    | '/leases'
     | '/mileage'
     | '/milestones'
     | '/networth'
@@ -351,6 +362,7 @@ export interface FileRouteTypes {
     | '/_app/goals'
     | '/_app/invoices'
     | '/_app/jars'
+    | '/_app/leases'
     | '/_app/mileage'
     | '/_app/milestones'
     | '/_app/networth'
@@ -469,6 +481,13 @@ declare module '@tanstack/react-router' {
       path: '/jars'
       fullPath: '/jars'
       preLoaderRoute: typeof AppJarsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/leases': {
+      id: '/_app/leases'
+      path: '/leases'
+      fullPath: '/leases'
+      preLoaderRoute: typeof AppLeasesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/mileage': {
@@ -597,6 +616,7 @@ interface AppRouteChildren {
   AppGoalsRoute: typeof AppGoalsRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppJarsRoute: typeof AppJarsRoute
+  AppLeasesRoute: typeof AppLeasesRoute
   AppMileageRoute: typeof AppMileageRoute
   AppMilestonesRoute: typeof AppMilestonesRoute
   AppNetworthRoute: typeof AppNetworthRoute
@@ -624,6 +644,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppGoalsRoute: AppGoalsRoute,
   AppInvoicesRoute: AppInvoicesRoute,
   AppJarsRoute: AppJarsRoute,
+  AppLeasesRoute: AppLeasesRoute,
   AppMileageRoute: AppMileageRoute,
   AppMilestonesRoute: AppMilestonesRoute,
   AppNetworthRoute: AppNetworthRoute,

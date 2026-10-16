@@ -362,6 +362,42 @@ export type Invoice = {
   accountId: string | null;
   transactionId: string | null;
   paidOn: string | null;
+  leaseId: string | null;
+};
+
+export type Lease = {
+  id: string;
+  ledgerId: string;
+  tenant: string;
+  email: string;
+  address: string;
+  city: string;
+  region: string;
+  postal: string;
+  unit: string;
+  rentCents: number;
+  dueDay: number;
+  startOn: string;
+  endOn: string | null;
+  depositCents: number;
+  depositHeldCents: number;
+  status: string;
+  lastInvoiced: string;
+  notes: string;
+};
+
+export type Realization = {
+  id: string;
+  lotId: string | null;
+  accountId: string | null;
+  symbol: string;
+  acquiredOn: string;
+  soldOn: string;
+  sharesMicros: number;
+  basisCents: number;
+  proceedsCents: number;
+  gainCents: number;
+  term: string;
 };
 
 export type MileageTrip = {
@@ -397,6 +433,7 @@ export type LedgerBook = {
   reports: Report[];
   invoices: Invoice[];
   trips: MileageTrip[];
+  leases: Lease[];
   draws: Draw[];
 };
 
@@ -436,6 +473,7 @@ export type Workspace = {
   lots: Lot[];
   prices: SecurityPrice[];
   flows: PortfolioFlow[];
+  realizations: Realization[];
   sketches: RetirementSketch[];
   ledgers: LedgerBook[];
   reports: Report[];
@@ -511,4 +549,9 @@ export type Action = (
   | { type: "invoice.void"; id: string; ownerId?: string }
   | { type: "mileage.save"; ledgerId: string; trip: { id?: string; on: string; purpose: string; destination?: string; use?: string; milesHundredths: number; parkingCents?: number; tollsCents?: number }; ownerId?: string }
   | { type: "mileage.delete"; id: string; ownerId?: string }
+  | { type: "lease.save"; ledgerId: string; lease: { id?: string; tenant: string; email?: string; address?: string; city?: string; region?: string; postal?: string; unit?: string; rentCents: number; dueDay: number; startOn: string; endOn?: string; depositCents?: number; notes?: string }; ownerId?: string }
+  | { type: "lease.deposit"; id: string; accountId: string; amountCents: number; postedOn: string; ownerId?: string }
+  | { type: "lease.return"; id: string; accountId: string; amountCents: number; postedOn: string; ownerId?: string }
+  | { type: "lease.end"; id: string; ownerId?: string }
+  | { type: "lot.sell"; id: string; soldOn: string; sharesMicros: number; proceedsCents: number; accountId?: string; ownerId?: string }
 ) & { ledgerId?: string };

@@ -9,6 +9,7 @@ import {
   Flag,
   HandCoins,
   Landmark,
+  KeyRound,
   LayoutDashboard,
   LineChart,
   ListChecks,
@@ -88,6 +89,7 @@ const BUSINESS_NAV = [
       { to: "/invoices", id: "invoices", label: "Invoices", icon: ScrollText },
       { to: "/bills", id: "bills", label: "Bills", icon: Receipt },
       { to: "/mileage", id: "mileage", label: "Mileage", icon: Car },
+      { to: "/leases", id: "leases", label: "Leases", icon: KeyRound },
       { to: "/plan", id: "plan", label: "Spending plan", icon: Wallet },
       { to: "/cashflow", id: "cashflow", label: "Cash flow", icon: LineChart },
     ],
@@ -123,7 +125,10 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="space-y-5">
       {nav.map((group) => {
-        const items = group.items.filter((item) => item.id === "home" || item.id === "settings" || item.id === "jars" || item.id === "overview" || !hidden.has(item.id));
+        const items = group.items.filter((item) => {
+          if (item.id === "leases" && jar?.kind !== "property") return false;
+          return item.id === "home" || item.id === "settings" || item.id === "jars" || item.id === "overview" || !hidden.has(item.id);
+        });
         if (!items.length) return null;
         return (
           <div key={group.group}>
@@ -226,13 +231,13 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-paper text-ink md:grid md:grid-cols-[16.5rem_1fr]">
-      <aside className="hidden bg-sidebar text-sidebar-fg md:flex md:min-h-screen md:flex-col md:p-4">
+      <aside className="hidden bg-sidebar text-sidebar-fg md:sticky md:top-0 md:flex md:h-screen md:flex-col md:self-start md:overflow-hidden md:p-4">
         <Link to={home} className="mb-2 flex items-center gap-2 px-2">
           <JarMark className="h-8 w-8 text-honey" />
           <span className="font-display text-2xl">HoneyJar</span>
         </Link>
         <JarSwitcher />
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <NavLinks />
         </div>
         <div className="mt-4 border-t border-white/10 pt-3 text-sidebar-fg">

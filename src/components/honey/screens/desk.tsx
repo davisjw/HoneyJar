@@ -16,6 +16,7 @@ import {
   prettyDate,
   rangeFor,
   runReport,
+  scheduleD,
   taxLines,
   vehicleLine,
   withMileage,
@@ -231,7 +232,8 @@ export function TaxesPage() {
   const year = Number(data.today.slice(0, 4));
   const pack = taxLines(data.transactions, data.categories, year);
   const profit = booksProfit(data.ledgers, year);
-  const tax = estimateTax(data.profile, data.transactions, data.categories, data.today, profit);
+  const gains = scheduleD(data.realizations, year);
+  const tax = estimateTax(data.profile, data.transactions, data.categories, data.today, profit, { ordinaryCents: gains.ordinaryCents, longCents: gains.longCents });
   const cur = data.profile.currency;
   const p = data.profile;
   const schedules = {
@@ -292,9 +294,14 @@ export function TaxesPage() {
           <Lines cur={cur} rows={[["Interest", lineSum(pack.B, "interest")], ["Dividends", lineSum(pack.B, "dividends")]]} />
           <h2 className="mt-4 font-display text-xl">Schedules C, D, E, F</h2>
           <p className="text-sm text-muted">Totals from anything you tag. Business detail lands here when those books open; the tags already stick. Schedule lines are year-to-date, compared with the full-year standard deduction, so itemizing rarely wins before December.</p>
-          <Lines cur={cur} rows={[["C", pack.C.reduce((s, r) => s + r.cents, 0)], ["D", pack.D.reduce((s, r) => s + r.cents, 0)], ["E", pack.E.reduce((s, r) => s + r.cents, 0)], ["F", pack.F.reduce((s, r) => s + r.cents, 0)]]} />
+          <Lines cur={cur} rows={[["C", pack.C.reduce((s, r) => s + r.cents, 0)], ["D", gains.netShort + gains.netLong], ["E", pack.E.reduce((s, r) => s + r.cents, 0)], ["F", pack.F.reduce((s, r) => s + r.cents, 0)]]} />
         </Card>
       </div>
+      <Card className="mt-4">
+        <h2 className="font-display text-xl">Schedule D</h2>
+        <p className="text-sm text-muted">From sales on Portfolio. Short-term gain is taxed with ordinary income. Long-term gain is taxed here at 15%, which skips the 0% and 20% brackets. Losses offset gains, then up to $3,000 reduces ordinary income.</p>
+        <Lines cur={cur} rows={[["Short-term, after netting", gains.netShort], ["Long-term, after netting", gains.netLong], ["Long-term tax at 15%", gains.longTaxCents], ["Loss carried forward", gains.carryCents]]} />
+      </Card>
       {isOwner ? (
         <Card className="mt-4">
           <h2 className="font-display text-xl">Planner assumptions</h2>

@@ -11,6 +11,7 @@ import {
   prettyDate,
   projectBalance,
   sharesToMicros,
+  signedMoney,
 } from "@/lib/honey/calc";
 import type { Account, Lot, PortfolioFlow, RetirementSketch, SecurityPrice } from "@/lib/honey/types";
 import { useBook } from "../book";
@@ -35,6 +36,7 @@ export function PortfolioPage() {
   const [price, setPrice] = useState<Partial<SecurityPrice> | null>(null);
   const [flow, setFlow] = useState<Partial<PortfolioFlow> | null>(null);
   const [sketch, setSketch] = useState<Partial<RetirementSketch> | null>(null);
+  const [sell, setSell] = useState<Lot | null>(null);
   if (!data) return null;
   const perf = portfolioPerformance({ lots: data.lots, prices: data.prices, flows: data.flows, today: data.today });
   const cur = data.profile.currency;
@@ -124,10 +126,24 @@ export function PortfolioPage() {
               </span>
               <span className="flex items-center gap-3">
                 <span className="num">{money(row.costCents, cur)}</span>
+                {canEdit && !row.closedOn ? <button type="button" className="text-honey-deep" onClick={() => setSell(row)}>Sell</button> : null}
                 {canEdit ? <button type="button" className="text-honey-deep" onClick={() => setLot(row)}>Edit</button> : null}
               </span>
             </li>
           ))}
+        </ul>
+      </section>
+
+      <section className="mt-6">
+        <h2 className="font-display text-xl">Realized</h2>
+        <p className="mb-2 text-sm text-muted">A sale uses the lot’s average cost. Held a year or more is long-term. The gain is not cash. The proceeds are, and they land in the account. Schedule D on a personal jar picks this up.</p>
+        <ul className="divide-y divide-line text-sm">
+          {data.realizations.length ? data.realizations.map((row) => (
+            <li key={row.id} className="flex items-center justify-between gap-3 py-2">
+              <span>{prettyDate(row.soldOn)} · {row.symbol} · {formatShares(row.sharesMicros)} · {row.term}</span>
+              <span className="num">{signedMoney(row.gainCents, cur)}</span>
+            </li>
+          )) : <li className="py-2 text-muted">No sales yet.</li>}
         </ul>
       </section>
 
@@ -166,7 +182,7 @@ export function PortfolioPage() {
               <span>{prettyDate(row.postedOn)} · {row.kind}{row.symbol ? ` · ${row.symbol}` : ""}{row.external ? "" : " · inside"}{row.transactionId ? " · in the books" : ""}</span>
               <span className="flex items-center gap-3">
                 <span className="num">{money(row.amountCents, cur)}</span>
-                {canEdit ? (
+                {canEdit && row.kind !== "sell" ? (
                   <>
                     <button type="button" className="text-honey-deep" onClick={() => setFlow(row)}>Edit</button>
                     <button type="button" className="text-clay" onClick={() => run({ type: "flow.delete", id: row.id })}>Delete</button>
@@ -208,10 +224,36 @@ export function PortfolioPage() {
       </section>
 
       {lot ? <LotEditor lot={lot} accounts={data.accounts} onClose={() => setLot(null)} /> : null}
+      {sell ? <SellEditor lot={sell} today={data.today} onClose={() => setSell(null)} /> : null}
       {price ? <PriceEditor price={price} today={data.today} onClose={() => setPrice(null)} /> : null}
       {flow ? <FlowEditor flow={flow} accounts={data.accounts} onClose={() => setFlow(null)} /> : null}
       {sketch ? <SketchEditor sketch={sketch} onClose={() => setSketch(null)} /> : null}
     </div>
+  );
+}
+
+function SellEditor({ lot, today, onClose }: { lot: Lot; today: string; onClose: () => void }) {
+  const { run } = useBook();
+  const [soldOn, setSoldOn] = useState(today);
+  const [shares, setShares] = useState(formatShares(lot.sharesMicros));
+  const [proceeds, setProceeds] = useState("");
+  return (
+    <Modal open title={`Sell ${lot.symbol}`} onClose={onClose}>
+      <p className="mb-3 text-sm text-muted">{formatShares(lot.sharesMicros)} shares open. Basis is the average cost of this lot. Proceeds are added to its account.</p>
+      <form
+        className="grid gap-3"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          await run({ type: "lot.sell", id: lot.id, soldOn, sharesMicros: sharesToMicros(shares), proceedsCents: dollarsToCents(proceeds), accountId: lot.accountId ?? "" });
+          onClose();
+        }}
+      >
+        <Field label="Sold"><input type="date" className={fieldClass} value={soldOn} onChange={(e) => setSoldOn(e.target.value)} /></Field>
+        <Field label="Shares"><input className={fieldClass} value={shares} onChange={(e) => setShares(e.target.value)} /></Field>
+        <Field label="Proceeds"><input className={fieldClass} inputMode="decimal" value={proceeds} onChange={(e) => setProceeds(e.target.value)} placeholder="0.00" /></Field>
+        <Button type="submit">Record sale</Button>
+      </form>
+    </Modal>
   );
 }
 

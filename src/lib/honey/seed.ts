@@ -38,7 +38,9 @@ export async function clearHousehold(sql: Sql, userId: string) {
     "ledgers",
     "draws",
     "invoices",
+    "leases",
     "mileage",
+    "realizations",
     "people",
   ];
   for (const table of tables) {
@@ -1009,7 +1011,10 @@ async function insertSampleProperty(sql: Sql, userId: string) {
   const id = (s: string) => `s_${sid}_${s}`;
   const ledger = id("maple");
   const existing = await sql<{ id: string }>`select id from ledgers where id = ${ledger} and user_id = ${userId}`;
-  if (existing.length) return;
+  if (existing.length) {
+    await ensureMapleLease(sql, userId);
+    return;
+  }
   const today = todayISO();
   const checking = id("maple_chk");
   const loan = id("maple_loan");
@@ -1135,6 +1140,148 @@ async function insertSampleProperty(sql: Sql, userId: string) {
     parking_cents: 0,
     tolls_cents: 0,
   });
+  await ensureMapleLease(sql, userId);
+}
+
+async function ensureMapleLease(sql: Sql, userId: string) {
+  const sid = slug(userId);
+  const ledger = `s_${sid}_maple`;
+  const found = await sql<{ id: string }>`select id from ledgers where id = ${ledger} and user_id = ${userId}`;
+  if (!found.length) return;
+  const today = todayISO();
+  const leaseId = `s_${sid}_lease`;
+  await put(sql, "leases", {
+    id: leaseId,
+    user_id: userId,
+    ledger_id: ledger,
+    tenant: "Jordan Hale",
+    email: "jordan.hale@example",
+    address: "418 Maple Street",
+    city: "Portland",
+    region: "ME",
+    postal: "04102",
+    unit: "",
+    rent_cents: 180000,
+    due_day: 1,
+    start_on: "2024-06-01",
+    end_on: null,
+    deposit_cents: 180000,
+    deposit_held_cents: 180000,
+    status: "active",
+    last_invoiced: today.slice(0, 7),
+    notes: "Deposit is already in rent checking. October rent was recorded as income.",
+  });
+  await sql`update invoices set lease_id = ${leaseId} where id = ${`s_${sid}_rent_inv`} and user_id = ${userId}`;
+}
+
+export async function ensureLeaseInvoices(sql: Sql, userId: string) {
+  const today = todayISO();
+  const leases = await sql<Record<string, unknown>>`
+    select * from leases where user_id = ${userId} and status = 'active'
+  `;
+  for (const row of leases) {
+    const start = String(row.start_on).slice(0, 10);
+    const end = row.end_on ? String(row.end_on).slice(0, 10) : "";
+    let cursor = String(row.last_invoiced || "");
+    if (!cursor) {
+      const [y, m] = start.split("-").map(Number);
+      const prev = new Date(Date.UTC(y!, (m || 1) - 1, 1));
+      prev.setUTCMonth(prev.getUTCMonth() - 1);
+      cursor = prev.toISOString().slice(0, 7);
+    }
+    const stop = today.slice(0, 7);
+    let guard = 0;
+    while (guard < 6) {
+      guard += 1;
+      const [y, m] = cursor.split("-").map(Number);
+      const next = new Date(Date.UTC(y!, m || 1, 1));
+      const month = next.toISOString().slice(0, 7);
+      if (month > stop) break;
+      cursor = month;
+      if (month < start.slice(0, 7)) continue;
+      if (end && month > end.slice(0, 7)) break;
+      const dueDay = Math.min(28, Math.max(1, Number(row.due_day) || 1));
+      const dim = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+      const due = `${month}-${String(Math.min(dueDay, dim)).padStart(2, "0")}`;
+      const issued = due < start ? start : `${month}-01` < start ? start : `${month}-01`;
+      const count = await sql<{ n: number }>`select count(*) as n from invoices where user_id = ${userId} and ledger_id = ${String(row.ledger_id)}`;
+      const number = `INV-${1001 + Number(count[0]?.n ?? 0)}`;
+      const invoiceId = `inv_${String(row.id)}_${month}`;
+      const label = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1)).toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+      await put(sql, "invoices", {
+        id: invoiceId,
+        user_id: userId,
+        ledger_id: String(row.ledger_id),
+        lease_id: String(row.id),
+        number,
+        client: String(row.tenant),
+        client_email: String(row.email ?? ""),
+        client_address: String(row.address ?? ""),
+        client_city: String(row.city ?? ""),
+        client_region: String(row.region ?? ""),
+        client_postal: String(row.postal ?? ""),
+        issued_on: issued,
+        due_on: due,
+        status: "open",
+        notes: `Rent for ${label}`,
+        lines_json: JSON.stringify([{ description: `Rent for ${label}`, amountCents: Number(row.rent_cents) }]),
+        account_id: null,
+        transaction_id: null,
+        paid_on: null,
+      });
+    }
+    if (cursor !== String(row.last_invoiced || "")) {
+      await sql`update leases set last_invoiced = ${cursor} where id = ${String(row.id)} and user_id = ${userId}`;
+    }
+  }
+}
+
+export async function ensureSampleSale(sql: Sql, userId: string) {
+  const prof = await sql<{ seeded: boolean }>`select seeded from profiles where user_id = ${userId}`;
+  if (!prof[0]?.seeded) return;
+  const sid = slug(userId);
+  const saleId = `s_${sid}_sale_vti`;
+  const existing = await sql`select id from realizations where id = ${saleId}`;
+  if (existing.length) return;
+  const lotId = `s_${sid}_lot_vti`;
+  const lots = await sql<{ shares_micros: number; cost_cents: number; account_id: string | null }>`
+    select shares_micros, cost_cents, account_id from lots where id = ${lotId} and user_id = ${userId}
+  `;
+  const lot = lots[0];
+  if (!lot || Number(lot.shares_micros) !== 40500000 || Number(lot.cost_cents) !== 820000) return;
+  const sold = 5000000;
+  const basis = Math.round((820000 * sold) / 40500000);
+  const proceeds = 140000;
+  const gain = proceeds - basis;
+  await sql`update lots set shares_micros = ${40500000 - sold}, cost_cents = ${820000 - basis} where id = ${lotId} and user_id = ${userId}`;
+  await put(sql, "realizations", {
+    id: saleId,
+    user_id: userId,
+    lot_id: lotId,
+    account_id: lot.account_id,
+    symbol: "VTI",
+    acquired_on: "2022-03-15",
+    sold_on: "2026-02-12",
+    shares_micros: sold,
+    basis_cents: basis,
+    proceeds_cents: proceeds,
+    gain_cents: gain,
+    term: "long",
+  });
+  await put(sql, "portfolio_flows", {
+    id: `s_${sid}_fl_sale`,
+    user_id: userId,
+    lot_id: lotId,
+    account_id: lot.account_id,
+    symbol: "VTI",
+    kind: "sell",
+    posted_on: "2026-02-12",
+    amount_cents: proceeds,
+    external: true,
+    transaction_id: null,
+    memo: "Sale of VTI",
+  });
+  if (lot.account_id) await sql`update accounts set balance_cents = balance_cents + ${proceeds} where id = ${lot.account_id} and user_id = ${userId}`;
 }
 
 export async function ensureSampleInvestments(sql: Sql, userId: string) {

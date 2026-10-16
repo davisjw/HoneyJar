@@ -803,6 +803,7 @@ export const LEDGER_LINES: Record<string, [string, "in" | "out" | "transfer", st
     ["Taxes", "out", "taxes"],
     ["Utilities", "out", "utilities"],
     ["Other expenses", "out", "other"],
+    ["Security deposit", "transfer", "deposit"],
     ["Owner draw", "transfer", "draw"],
     ["Owner contribution", "transfer", "contribution"],
   ],
@@ -903,6 +904,50 @@ export function ledgerProfit(txns: Txn[], categories: Category[], from: string, 
   return { income, expenses, profit: income - expenses };
 }
 
+export function holdingTerm(acquired: string, sold: string): "short" | "long" {
+  const [y, m, d] = acquired.split("-").map(Number);
+  const anniversary = `${(y || 0) + 1}-${String(m || 1).padStart(2, "0")}-${String(d || 1).padStart(2, "0")}`;
+  return sold >= anniversary ? "long" : "short";
+}
+
+export type GainRow = { soldOn: string; gainCents: number; term: string };
+
+/** Net short-term gain is ordinary. Net long-term gain is taxed here at 15%. Losses offset, then up to $3,000 reduces ordinary income. */
+export function scheduleD(rows: GainRow[], year: number) {
+  const yearRows = rows.filter((row) => row.soldOn.slice(0, 4) === String(year));
+  let netShort = yearRows.filter((row) => row.term === "short").reduce((sum, row) => sum + row.gainCents, 0);
+  let netLong = yearRows.filter((row) => row.term !== "short").reduce((sum, row) => sum + row.gainCents, 0);
+  if (netShort < 0 && netLong > 0) {
+    const used = Math.min(netLong, -netShort);
+    netLong -= used;
+    netShort += used;
+  } else if (netLong < 0 && netShort > 0) {
+    const used = Math.min(netShort, -netLong);
+    netShort -= used;
+    netLong += used;
+  }
+  const cap = 300000;
+  let ordinaryCents = 0;
+  let carryCents = 0;
+  if (netShort < 0 || netLong < 0) {
+    const net = netShort + netLong;
+    ordinaryCents = Math.max(net, -cap);
+    carryCents = net - ordinaryCents;
+    netShort = ordinaryCents;
+    netLong = 0;
+  } else {
+    ordinaryCents = netShort;
+  }
+  return {
+    netShort,
+    netLong,
+    ordinaryCents,
+    longCents: Math.max(0, netLong),
+    longTaxCents: Math.round(Math.max(0, netLong) * 0.15),
+    carryCents,
+  };
+}
+
 export function booksProfit(
   books: { archived: boolean; kind?: string; taxForm?: string; transactions: Txn[]; categories: Category[]; trips?: MileTrip[] }[],
   year: number,
@@ -942,10 +987,11 @@ export function estimateTax(
   categories: Category[],
   today: string,
   businessProfitCents = 0,
+  capital: { ordinaryCents?: number; longCents?: number } = {},
 ): TaxEstimate {
   const year = Number(today.slice(0, 4));
   const pack = taxLines(txns, categories, year);
-  const agi = Math.max(0, profile.wagesCents + profile.otherIncomeCents + businessProfitCents);
+  const agi = Math.max(0, profile.wagesCents + profile.otherIncomeCents + businessProfitCents + (capital.ordinaryCents ?? 0));
   const medical = lineSum(pack.A, "medical");
   const medicalAllowed = Math.max(0, medical - Math.round(agi * 0.075));
   const saltAllowed = Math.min(lineSum(pack.A, "salt"), Math.max(0, profile.saltCapCents));
@@ -964,8 +1010,8 @@ export function estimateTax(
     deductionLabel = "Standard deduction";
   }
   const taxable = Math.max(0, agi - deduction);
-  const federal = federalTaxCents(taxable, profile.filingStatus);
-  const state = Math.round((taxable * profile.stateRateBps) / 10000);
+  const federal = federalTaxCents(taxable, profile.filingStatus) + Math.round(Math.max(0, capital.longCents ?? 0) * 0.15);
+  const state = Math.round(((taxable + Math.max(0, capital.longCents ?? 0)) * profile.stateRateBps) / 10000);
   const total = federal + state;
   const paid = profile.withholdingCents + profile.estimatedPaidCents;
   const remaining = total - paid;
