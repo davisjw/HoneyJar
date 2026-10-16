@@ -225,7 +225,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!jar) return;
-    if ((jar.kind === "business" || jar.kind === "property") && !BUSINESS_PATHS.has(path)) navigate({ to: "/business" });
+    if ((jar.kind === "business" || jar.kind === "property") && path !== "/examples" && !BUSINESS_PATHS.has(path)) navigate({ to: "/business" });
     if (jar.kind === "personal" && path === "/business") navigate({ to: "/" });
   }, [jar, navigate, path]);
 
@@ -237,6 +237,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <span className="font-display text-2xl">HoneyJar</span>
         </Link>
         <JarSwitcher />
+        <Link to="/examples" className="mb-3 block rounded-lg px-2 py-2 text-sm text-honey">
+          Summary examples
+        </Link>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <NavLinks />
         </div>
@@ -263,6 +266,9 @@ export function Shell({ children }: { children: ReactNode }) {
                 </button>
               </div>
               <JarSwitcher onNavigate={() => setOpen(false)} />
+              <Link to="/examples" className="mb-3 block rounded-lg px-2 py-2 text-sm text-honey" onClick={() => setOpen(false)}>
+                Summary examples
+              </Link>
               <div className="flex-1 overflow-y-auto">
                 <NavLinks onNavigate={() => setOpen(false)} />
               </div>

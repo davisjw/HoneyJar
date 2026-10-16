@@ -19,6 +19,7 @@ import { Route as AppBusinessRouteImport } from './routes/_app/business'
 import { Route as AppCashflowRouteImport } from './routes/_app/cashflow'
 import { Route as AppCreditRouteImport } from './routes/_app/credit'
 import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
+import { Route as AppExamplesRouteImport } from './routes/_app/examples'
 import { Route as AppGoalsRouteImport } from './routes/_app/goals'
 import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppJarsRouteImport } from './routes/_app/jars'
@@ -87,6 +88,11 @@ const AppCreditRoute = AppCreditRouteImport.update({
 const AppDocumentsRoute = AppDocumentsRouteImport.update({
   id: '/documents',
   path: '/documents',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppExamplesRoute = AppExamplesRouteImport.update({
+  id: '/examples',
+  path: '/examples',
   getParentRoute: () => AppRoute,
 } as any)
 const AppGoalsRoute = AppGoalsRouteImport.update({
@@ -200,6 +206,7 @@ export interface FileRoutesByFullPath {
   '/cashflow': typeof AppCashflowRoute
   '/credit': typeof AppCreditRoute
   '/documents': typeof AppDocumentsRoute
+  '/examples': typeof AppExamplesRoute
   '/goals': typeof AppGoalsRoute
   '/invoices': typeof AppInvoicesRoute
   '/jars': typeof AppJarsRoute
@@ -230,6 +237,7 @@ export interface FileRoutesByTo {
   '/cashflow': typeof AppCashflowRoute
   '/credit': typeof AppCreditRoute
   '/documents': typeof AppDocumentsRoute
+  '/examples': typeof AppExamplesRoute
   '/goals': typeof AppGoalsRoute
   '/invoices': typeof AppInvoicesRoute
   '/jars': typeof AppJarsRoute
@@ -263,6 +271,7 @@ export interface FileRoutesById {
   '/_app/cashflow': typeof AppCashflowRoute
   '/_app/credit': typeof AppCreditRoute
   '/_app/documents': typeof AppDocumentsRoute
+  '/_app/examples': typeof AppExamplesRoute
   '/_app/goals': typeof AppGoalsRoute
   '/_app/invoices': typeof AppInvoicesRoute
   '/_app/jars': typeof AppJarsRoute
@@ -297,6 +306,7 @@ export interface FileRouteTypes {
     | '/cashflow'
     | '/credit'
     | '/documents'
+    | '/examples'
     | '/goals'
     | '/invoices'
     | '/jars'
@@ -327,6 +337,7 @@ export interface FileRouteTypes {
     | '/cashflow'
     | '/credit'
     | '/documents'
+    | '/examples'
     | '/goals'
     | '/invoices'
     | '/jars'
@@ -359,6 +370,7 @@ export interface FileRouteTypes {
     | '/_app/cashflow'
     | '/_app/credit'
     | '/_app/documents'
+    | '/_app/examples'
     | '/_app/goals'
     | '/_app/invoices'
     | '/_app/jars'
@@ -460,6 +472,13 @@ declare module '@tanstack/react-router' {
       path: '/documents'
       fullPath: '/documents'
       preLoaderRoute: typeof AppDocumentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/examples': {
+      id: '/_app/examples'
+      path: '/examples'
+      fullPath: '/examples'
+      preLoaderRoute: typeof AppExamplesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/goals': {
@@ -613,6 +632,7 @@ interface AppRouteChildren {
   AppCashflowRoute: typeof AppCashflowRoute
   AppCreditRoute: typeof AppCreditRoute
   AppDocumentsRoute: typeof AppDocumentsRoute
+  AppExamplesRoute: typeof AppExamplesRoute
   AppGoalsRoute: typeof AppGoalsRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppJarsRoute: typeof AppJarsRoute
@@ -641,6 +661,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCashflowRoute: AppCashflowRoute,
   AppCreditRoute: AppCreditRoute,
   AppDocumentsRoute: AppDocumentsRoute,
+  AppExamplesRoute: AppExamplesRoute,
   AppGoalsRoute: AppGoalsRoute,
   AppInvoicesRoute: AppInvoicesRoute,
   AppJarsRoute: AppJarsRoute,

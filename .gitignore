@@ -23,3 +23,5 @@ dist/
 *.ods
 ~$*.xls
 ~$*.xlsx
+
+public/summary-examples/
