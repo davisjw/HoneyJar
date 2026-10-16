@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
-import { balanceDelta, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
-import { clearHousehold, ensureSampleInvestments, ensureSamplePeople, ensureSampleTags, seedHousehold, seedStarter } from "./seed";
+import { balanceDelta, LEDGER_LINES, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
+import { clearHousehold, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleTags, seedHousehold, seedStarter } from "./seed";
 import type {
   AccessRow,
   Account,
@@ -15,8 +15,10 @@ import type {
   Contribution,
   CreditScore,
   DocumentRow,
+  Draw,
   FilingStatus,
   Goal,
+  LedgerBook,
   Lot,
   Milestone,
   Payment,
@@ -95,6 +97,7 @@ async function ensureSeed(sql: Sql, userId: string) {
   await ensureSamplePeople(sql, userId);
   await ensureSampleTags(sql, userId);
   await ensureSampleInvestments(sql, userId);
+  await ensureSampleBusiness(sql, userId);
 }
 
 function mapProfile(row: Record<string, unknown>): Profile {
@@ -140,14 +143,14 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
   const profileRows = await sql<Record<string, unknown>>`select * from profiles where user_id = ${owner}`;
   if (!profileRows[0]) throw new Error("Household not found.");
 
-  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, reports, keys, messages, invites, shared] =
+  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, ledgers, bizAccounts, bizCategories, bizTxns, bizBills, draws, reports, keys, messages, invites, shared] =
     await Promise.all([
-      sql<Record<string, unknown>>`select * from accounts where user_id = ${owner} order by name`,
-      sql<Record<string, unknown>>`select * from categories where user_id = ${owner} order by sort, name`,
+      sql<Record<string, unknown>>`select * from accounts where user_id = ${owner} and ledger_id = '' order by name`,
+      sql<Record<string, unknown>>`select * from categories where user_id = ${owner} and ledger_id = '' order by sort, name`,
       sql<Record<string, unknown>>`select * from rules where user_id = ${owner} order by priority desc`,
       sql<Record<string, unknown>>`select * from people where user_id = ${owner} order by sort, name`,
-      sql<Record<string, unknown>>`select * from transactions where user_id = ${owner} order by posted_on desc, merchant`,
-      sql<Record<string, unknown>>`select * from bills where user_id = ${owner} order by next_due`,
+      sql<Record<string, unknown>>`select * from transactions where user_id = ${owner} and ledger_id = '' order by posted_on desc, merchant`,
+      sql<Record<string, unknown>>`select * from bills where user_id = ${owner} and ledger_id = '' order by next_due`,
       sql<Record<string, unknown>>`select * from bill_payments where user_id = ${owner} order by paid_on desc`,
       sql<Record<string, unknown>>`select * from assets where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select * from valuations where user_id = ${owner} order by as_of`,
@@ -165,6 +168,12 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
       sql<Record<string, unknown>>`select * from prices where user_id = ${owner} order by as_of, symbol`,
       sql<Record<string, unknown>>`select * from portfolio_flows where user_id = ${owner} order by posted_on, symbol`,
       sql<Record<string, unknown>>`select * from retirement_sketches where user_id = ${owner} order by name`,
+      sql<Record<string, unknown>>`select * from ledgers where user_id = ${owner} order by sort, name`,
+      sql<Record<string, unknown>>`select * from accounts where user_id = ${owner} and ledger_id <> '' order by name`,
+      sql<Record<string, unknown>>`select * from categories where user_id = ${owner} and ledger_id <> '' order by sort, name`,
+      sql<Record<string, unknown>>`select * from transactions where user_id = ${owner} and ledger_id <> '' order by posted_on desc, merchant`,
+      sql<Record<string, unknown>>`select * from bills where user_id = ${owner} and ledger_id <> '' order by next_due`,
+      sql<Record<string, unknown>>`select * from draws where user_id = ${owner} order by posted_on desc`,
       sql<Record<string, unknown>>`select * from reports where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used from api_keys where user_id = ${owner} order by created_at desc`,
       sql<Record<string, unknown>>`select * from ai_messages where user_id = ${owner} order by created_at desc limit 40`,
@@ -224,6 +233,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     prices: prices.map(mapPrice),
     flows: flows.map(mapFlow),
     sketches: sketches.map(mapSketch),
+    ledgers: assembleLedgers(ledgers, bizAccounts, bizCategories, bizTxns, bizBills, draws),
     reports: reports.map(mapReport),
     keys: keys.map(mapKey),
     messages: messages.map(mapMessage).reverse(),
@@ -485,6 +495,57 @@ function mapReport(r: Record<string, unknown>): Report {
     filtersJson: String(r.filters_json ?? "{}"),
   };
 }
+function mapDraw(r: Record<string, unknown>): Draw {
+  return {
+    id: String(r.id),
+    ledgerId: String(r.ledger_id),
+    postedOn: String(r.posted_on).slice(0, 10),
+    direction: String(r.direction),
+    amountCents: num(r.amount_cents),
+    bizAccountId: String(r.biz_account_id),
+    homeAccountId: String(r.home_account_id),
+  };
+}
+
+function assembleLedgers(
+  ledgers: Record<string, unknown>[],
+  accounts: Record<string, unknown>[],
+  categories: Record<string, unknown>[],
+  transactions: Record<string, unknown>[],
+  bills: Record<string, unknown>[],
+  draws: Record<string, unknown>[],
+): LedgerBook[] {
+  return ledgers.map((row) => {
+    const id = String(row.id);
+    const form = String(row.tax_form || "C").toUpperCase();
+    return {
+      id,
+      name: String(row.name),
+      taxForm: form === "E" || form === "F" ? form : "C",
+      activity: String(row.activity ?? ""),
+      archived: Boolean(row.archived),
+      accounts: accounts.filter((a) => String(a.ledger_id) === id).map(mapAccount),
+      categories: categories.filter((c) => String(c.ledger_id) === id).map(mapCategory),
+      transactions: transactions.filter((t) => String(t.ledger_id) === id).map(mapTxn),
+      bills: bills.filter((b) => String(b.ledger_id) === id).map(mapBill),
+      draws: draws.filter((d) => String(d.ledger_id) === id).map(mapDraw),
+    };
+  });
+}
+
+async function seedLedgerCategories(sql: Sql, owner: string, ledgerId: string, taxForm: string) {
+  const lines = LEDGER_LINES[taxForm] ?? LEDGER_LINES.C!;
+  let sort = 0;
+  for (const [name, flow, line] of lines) {
+    sort += 1;
+    const section = flow === "in" ? "Income" : flow === "transfer" ? "Equity" : "Expenses";
+    await sql`
+      insert into categories (id, user_id, name, section, flow, tax_schedule, tax_line, icon, monthly_cents, rollover, sort, archived, ledger_id)
+      values (${nid()}, ${owner}, ${name}, ${section}, ${flow}, ${flow === "transfer" ? "" : taxForm}, ${line}, 'tag', 0, false, ${sort}, false, ${ledgerId})
+    `;
+  }
+}
+
 function mapKey(r: Record<string, unknown>): ApiKeyPublic {
   return { id: String(r.id), name: String(r.name), prefix: String(r.prefix), createdAt: stamp(r.created_at) ?? "", lastUsed: stamp(r.last_used) };
 }
@@ -703,7 +764,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     }
     case "txn.import": {
       const rows = action.rows.slice(0, 500);
-      const cats = await sql<{ id: string; name: string }>`select id, name from categories where user_id = ${owner}`;
+      const cats = await sql<{ id: string; name: string }>`select id, name from categories where user_id = ${owner} and ledger_id = ''`;
       const rules = await sql<{ pattern: string; category_id: string; priority: number }>`select pattern, category_id, priority from rules where user_id = ${owner}`;
       for (const row of rows) {
         const posted = dateOr(row.postedOn, "");
@@ -720,10 +781,10 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       return {};
     }
     case "txn.recategorize": {
-      const cats = await sql<{ id: string; name: string }>`select id, name from categories where user_id = ${owner}`;
+      const cats = await sql<{ id: string; name: string }>`select id, name from categories where user_id = ${owner} and ledger_id = ''`;
       const rules = await sql<{ pattern: string; category_id: string; priority: number }>`select pattern, category_id, priority from rules where user_id = ${owner}`;
       const txns = await sql<{ id: string; merchant: string; memo: string; category_id: string | null; reviewed: boolean }>`
-        select id, merchant, memo, category_id, reviewed from transactions where user_id = ${owner}
+        select id, merchant, memo, category_id, reviewed from transactions where user_id = ${owner} and ledger_id = ''
       `;
       const uncat = cats.find((c) => c.name === "Uncategorized")?.id;
       let changed = 0;
@@ -1226,6 +1287,149 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     case "advisor.log": {
       await sql`insert into ai_messages (id, user_id, role, content) values (${nid()}, ${owner}, 'user', ${str(action.question, 4000)})`;
       await sql`insert into ai_messages (id, user_id, role, content) values (${nid()}, ${owner}, 'assistant', ${str(action.answer, 8000)})`;
+      return {};
+    }
+    case "ledger.save": {
+      const name = str(action.ledger.name, 80);
+      if (!name) throw new Error("Name the business.");
+      const id = str(action.ledger.id, 80) || nid();
+      const activity = str(action.ledger.activity, 80);
+      const requested = str(action.ledger.taxForm, 1).toUpperCase();
+      const taxForm = requested === "E" || requested === "F" ? requested : "C";
+      const existing = await sql`select id from ledgers where id = ${id} and user_id = ${owner}`;
+      if (existing.length) {
+        await sql`update ledgers set name = ${name}, activity = ${activity} where id = ${id} and user_id = ${owner}`;
+      } else {
+        await sql`
+          insert into ledgers (id, user_id, name, tax_form, activity, archived, sort)
+          values (${id}, ${owner}, ${name}, ${taxForm}, ${activity}, false, 0)
+        `;
+        await seedLedgerCategories(sql, owner, id, taxForm);
+      }
+      return {};
+    }
+    case "biz.account.save": {
+      const ledger = await sql`select id from ledgers where id = ${action.ledgerId} and user_id = ${owner}`;
+      if (!ledger[0]) throw new Error("That business is not in this household.");
+      const name = str(action.account.name, 80);
+      if (!name) throw new Error("Name the account.");
+      const kind = ["checking", "savings", "cash", "credit"].includes(String(action.account.kind)) ? String(action.account.kind) : "checking";
+      const id = str(action.account.id, 80) || nid();
+      const existing = await sql`select id from accounts where id = ${id} and user_id = ${owner} and ledger_id = ${action.ledgerId}`;
+      if (existing.length) {
+        await sql`update accounts set name = ${name}, kind = ${kind} where id = ${id} and user_id = ${owner}`;
+      } else {
+        await sql`
+          insert into accounts (id, user_id, name, institution, kind, mask, balance_cents, connected, archived, custom_json, ledger_id)
+          values (${id}, ${owner}, ${name}, '', ${kind}, '', 0, false, false, '[]', ${action.ledgerId})
+        `;
+      }
+      return {};
+    }
+    case "biz.txn.save": {
+      const ledger = await sql<{ tax_form: string }>`select tax_form from ledgers where id = ${action.ledgerId} and user_id = ${owner}`;
+      if (!ledger[0]) throw new Error("That business is not in this household.");
+      const t = action.txn;
+      const acct = await sql`select id from accounts where id = ${t.accountId} and user_id = ${owner} and ledger_id = ${action.ledgerId}`;
+      if (!acct[0]) throw new Error("Pick an account on this business.");
+      const cat = t.categoryId
+        ? await sql<{ tax_line: string; flow: string }>`select tax_line, flow from categories where id = ${t.categoryId} and user_id = ${owner} and ledger_id = ${action.ledgerId}`
+        : [];
+      if (t.categoryId && !cat[0]) throw new Error("Pick a category on this business.");
+      if (cat[0]?.flow === "transfer") throw new Error("Draws and contributions use the draw form, so they stay off the profit and loss.");
+      const id = str(t.id, 80) || nid();
+      const posted = dateOr(t.postedOn, todayISO());
+      const amount = num(t.amountCents);
+      const schedule = String(ledger[0].tax_form || "C");
+      const line = cat[0]?.tax_line ?? "";
+      const existing = await sql<{ account_id: string; amount_cents: number; ledger_id: string }>`
+        select account_id, amount_cents, ledger_id from transactions where id = ${id} and user_id = ${owner}
+      `;
+      if (existing[0] && existing[0].ledger_id !== action.ledgerId) throw new Error("That transaction is not on this business.");
+      const paired = await sql`select id from draws where user_id = ${owner} and (biz_txn_id = ${id} or home_txn_id = ${id})`;
+      if (paired[0]) throw new Error("Delete the owner draw. That removes both sides.");
+      if (existing[0]) await adjust(sql, owner, existing[0].account_id, -num(existing[0].amount_cents));
+      await adjust(sql, owner, t.accountId, amount);
+      const personId = str(t.personId, 80) || null;
+      if (existing[0]) {
+        await sql`
+          update transactions set
+            account_id = ${t.accountId}, category_id = ${t.categoryId || null}, posted_on = ${posted},
+            amount_cents = ${amount}, merchant = ${str(t.merchant, 120)}, memo = ${str(t.memo, 240)},
+            tax_schedule = ${schedule}, tax_line = ${line}, person_id = ${personId}, reviewed = true, source = 'manual'
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        await sql`
+          insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id, tags, ledger_id)
+          values (${id}, ${owner}, ${t.accountId}, ${t.categoryId || null}, ${posted}, ${amount}, ${str(t.merchant, 120)}, ${str(t.memo, 240)}, false, ${schedule}, ${line}, true, 'manual', ${personId}, '[]', ${action.ledgerId})
+        `;
+      }
+      return {};
+    }
+    case "biz.txn.delete": {
+      const paired = await sql`select id from draws where user_id = ${owner} and (biz_txn_id = ${action.id} or home_txn_id = ${action.id})`;
+      if (paired[0]) throw new Error("Delete the owner draw. That removes both sides.");
+      const existing = await sql<{ account_id: string; amount_cents: number }>`
+        select account_id, amount_cents from transactions where id = ${action.id} and user_id = ${owner} and ledger_id <> ''
+      `;
+      if (!existing[0]) throw new Error("That transaction is not on a business book.");
+      await adjust(sql, owner, existing[0].account_id, -num(existing[0].amount_cents));
+      await sql`delete from transactions where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "biz.draw": {
+      const ledger = await sql<{ name: string }>`select name from ledgers where id = ${action.ledgerId} and user_id = ${owner}`;
+      if (!ledger[0]) throw new Error("That business is not in this household.");
+      const amount = Math.abs(num(action.amountCents));
+      if (!amount) throw new Error("Enter an amount.");
+      const direction = action.direction === "contribution" ? "contribution" : "draw";
+      const bizSigned = direction === "draw" ? -amount : amount;
+      const bizAcct = await sql`select id from accounts where id = ${action.bizAccountId} and user_id = ${owner} and ledger_id = ${action.ledgerId}`;
+      const homeAcct = await sql`select id from accounts where id = ${action.homeAccountId} and user_id = ${owner} and ledger_id = ''`;
+      if (!bizAcct[0] || !homeAcct[0]) throw new Error("Pick a business account and a household account.");
+      const equity = await sql<{ id: string }>`
+        select id from categories where user_id = ${owner} and ledger_id = ${action.ledgerId} and tax_line = ${direction} limit 1
+      `;
+      const homeCat = await sql<{ id: string }>`
+        select id from categories where user_id = ${owner} and ledger_id = '' and flow = 'transfer' order by name limit 1
+      `;
+      if (!equity[0] || !homeCat[0]) throw new Error("Missing the equity category, or the household Transfer category.");
+      const posted = dateOr(action.postedOn, todayISO());
+      const bizTxn = nid();
+      const homeTxn = nid();
+      const label = direction === "draw" ? "Owner draw" : "Owner contribution";
+      await adjust(sql, owner, action.bizAccountId, bizSigned);
+      await adjust(sql, owner, action.homeAccountId, -bizSigned);
+      await sql`
+        insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, tags, ledger_id)
+        values (${bizTxn}, ${owner}, ${action.bizAccountId}, ${equity[0].id}, ${posted}, ${bizSigned}, ${label}, ${ledger[0].name}, false, '', ${direction}, true, 'draw', '[]', ${action.ledgerId})
+      `;
+      await sql`
+        insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, tags, ledger_id)
+        values (${homeTxn}, ${owner}, ${action.homeAccountId}, ${homeCat[0].id}, ${posted}, ${-bizSigned}, ${label}, ${ledger[0].name}, false, '', '', true, 'draw', '[]', '')
+      `;
+      await sql`
+        insert into draws (id, user_id, ledger_id, posted_on, direction, amount_cents, biz_account_id, home_account_id, biz_txn_id, home_txn_id)
+        values (${nid()}, ${owner}, ${action.ledgerId}, ${posted}, ${direction}, ${amount}, ${action.bizAccountId}, ${action.homeAccountId}, ${bizTxn}, ${homeTxn})
+      `;
+      return {};
+    }
+    case "biz.draw.delete": {
+      const row = await sql<{ biz_txn_id: string; home_txn_id: string }>`
+        select biz_txn_id, home_txn_id from draws where id = ${action.id} and user_id = ${owner}
+      `;
+      if (!row[0]) throw new Error("That draw is already gone.");
+      for (const txnId of [row[0].biz_txn_id, row[0].home_txn_id]) {
+        const txn = await sql<{ account_id: string; amount_cents: number }>`
+          select account_id, amount_cents from transactions where id = ${txnId} and user_id = ${owner}
+        `;
+        if (txn[0]) {
+          await adjust(sql, owner, txn[0].account_id, -num(txn[0].amount_cents));
+          await sql`delete from transactions where id = ${txnId} and user_id = ${owner}`;
+        }
+      }
+      await sql`delete from draws where id = ${action.id} and user_id = ${owner}`;
       return {};
     }
     default:

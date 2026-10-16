@@ -4,6 +4,7 @@ import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recha
 import { SliceTip, axisTick } from "../charts";
 import { askAdvisor } from "@/lib/honey/fns";
 import {
+  booksProfit,
   centsToInput,
   dollarsToCents,
   estimateTax,
@@ -185,7 +186,8 @@ export function TaxesPage() {
   if (!data) return null;
   const year = Number(data.today.slice(0, 4));
   const pack = taxLines(data.transactions, data.categories, year);
-  const tax = estimateTax(data.profile, data.transactions, data.categories, data.today);
+  const profit = booksProfit(data.ledgers, year);
+  const tax = estimateTax(data.profile, data.transactions, data.categories, data.today, profit);
   const cur = data.profile.currency;
   const p = data.profile;
   const schedules = {
@@ -231,7 +233,7 @@ export function TaxesPage() {
         }
       />
       <div className="grid gap-3 md:grid-cols-3">
-        <Card><p className="text-sm text-muted">Estimated tax</p><p className="font-display text-3xl num">{money(tax.total, cur)}</p><p className="text-xs text-muted">{tax.deductionLabel}</p></Card>
+        <Card><p className="text-sm text-muted">Estimated tax</p><p className="font-display text-3xl num">{money(tax.total, cur)}</p><p className="text-xs text-muted">{tax.deductionLabel}{profit ? ` · includes ${money(profit, cur)} of business profit` : ""}</p></Card>
         <Card><p className="text-sm text-muted">Still to set aside</p><p className="font-display text-3xl num">{money(Math.max(0, tax.remaining), cur)}</p><p className="text-xs text-muted">Next voucher {prettyDate(tax.nextVoucher)} · about {money(Math.max(0, voucher), cur)}</p></Card>
         <Card><p className="text-sm text-muted">Safe harbor</p><p className="font-display text-3xl num">{money(tax.safeHarbor, cur)}</p><p className="text-xs text-muted">{p.wagesCents + p.otherIncomeCents > 15000000 ? "110% of prior-year tax" : "100% of prior-year tax"}</p></Card>
       </div>

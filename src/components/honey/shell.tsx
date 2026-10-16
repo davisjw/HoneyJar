@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   Bell,
+  Briefcase,
   FileText,
   Flag,
   HandCoins,
@@ -56,6 +57,10 @@ const NAV = [
       { to: "/watch", id: "watch", label: "Watchlists", icon: Target },
       { to: "/reminders", id: "reminders", label: "Reminders", icon: Bell },
     ],
+  },
+  {
+    group: "Business",
+    items: [{ to: "/business", id: "business", label: "Business", icon: Briefcase }],
   },
   {
     group: "Household",

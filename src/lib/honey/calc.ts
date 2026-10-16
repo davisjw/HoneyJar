@@ -766,6 +766,87 @@ export function lineSum(lines: ScheduleLine[], name: string): number {
   return lines.filter((l) => l.line === name).reduce((s, l) => s + l.cents, 0);
 }
 
+/** name, flow, tax line. Equity rows are transfers: they move cash and are not profit. */
+export const LEDGER_LINES: Record<string, [string, "in" | "out" | "transfer", string][]> = {
+  C: [
+    ["Gross receipts", "in", "gross"],
+    ["Advertising", "out", "advertising"],
+    ["Car and truck", "out", "car"],
+    ["Contract labor", "out", "contract"],
+    ["Insurance", "out", "insurance"],
+    ["Legal and professional", "out", "legal"],
+    ["Office", "out", "office"],
+    ["Rent", "out", "rent"],
+    ["Repairs", "out", "repairs"],
+    ["Supplies", "out", "supplies"],
+    ["Taxes and licenses", "out", "taxes"],
+    ["Travel", "out", "travel"],
+    ["Meals", "out", "meals"],
+    ["Utilities", "out", "utilities"],
+    ["Wages", "out", "wages"],
+    ["Other expenses", "out", "other"],
+    ["Owner draw", "transfer", "draw"],
+    ["Owner contribution", "transfer", "contribution"],
+  ],
+  E: [
+    ["Rents received", "in", "rents"],
+    ["Advertising", "out", "advertising"],
+    ["Auto", "out", "auto"],
+    ["Cleaning", "out", "cleaning"],
+    ["Insurance", "out", "insurance"],
+    ["Legal", "out", "legal"],
+    ["Management", "out", "management"],
+    ["Mortgage interest", "out", "mortgage_interest"],
+    ["Repairs", "out", "repairs"],
+    ["Supplies", "out", "supplies"],
+    ["Taxes", "out", "taxes"],
+    ["Utilities", "out", "utilities"],
+    ["Other expenses", "out", "other"],
+    ["Owner draw", "transfer", "draw"],
+    ["Owner contribution", "transfer", "contribution"],
+  ],
+  F: [
+    ["Sales", "in", "sales"],
+    ["Car and truck", "out", "car"],
+    ["Chemicals", "out", "chemicals"],
+    ["Feed", "out", "feed"],
+    ["Fertilizer", "out", "fertilizer"],
+    ["Freight", "out", "freight"],
+    ["Gas", "out", "gas"],
+    ["Insurance", "out", "insurance"],
+    ["Labor", "out", "labor"],
+    ["Rent", "out", "rent"],
+    ["Repairs", "out", "repairs"],
+    ["Seeds", "out", "seeds"],
+    ["Supplies", "out", "supplies"],
+    ["Taxes", "out", "taxes"],
+    ["Utilities", "out", "utilities"],
+    ["Veterinary", "out", "veterinary"],
+    ["Other expenses", "out", "other"],
+    ["Owner draw", "transfer", "draw"],
+    ["Owner contribution", "transfer", "contribution"],
+  ],
+};
+
+export function ledgerProfit(txns: Txn[], categories: Category[], from: string, to: string) {
+  let income = 0;
+  let expenses = 0;
+  for (const txn of txns) {
+    if (!inRange(txn.postedOn, from, to)) continue;
+    const cat = categories.find((c) => c.id === txn.categoryId);
+    if (!cat || cat.flow === "transfer") continue;
+    if (txn.amountCents > 0 && cat.flow === "in") income += txn.amountCents;
+    else if (txn.amountCents < 0) expenses += -txn.amountCents;
+  }
+  return { income, expenses, profit: income - expenses };
+}
+
+export function booksProfit(books: { archived: boolean; transactions: Txn[]; categories: Category[] }[], year: number) {
+  const from = `${year}-01-01`;
+  const to = `${year}-12-31`;
+  return books.filter((b) => !b.archived).reduce((s, b) => s + ledgerProfit(b.transactions, b.categories, from, to).profit, 0);
+}
+
 export type TaxEstimate = {
   agi: number;
   deduction: number;
@@ -785,10 +866,16 @@ export type TaxEstimate = {
   vouchersLeft: number;
 };
 
-export function estimateTax(profile: Profile, txns: Txn[], categories: Category[], today: string): TaxEstimate {
+export function estimateTax(
+  profile: Profile,
+  txns: Txn[],
+  categories: Category[],
+  today: string,
+  businessProfitCents = 0,
+): TaxEstimate {
   const year = Number(today.slice(0, 4));
   const pack = taxLines(txns, categories, year);
-  const agi = Math.max(0, profile.wagesCents + profile.otherIncomeCents);
+  const agi = Math.max(0, profile.wagesCents + profile.otherIncomeCents + businessProfitCents);
   const medical = lineSum(pack.A, "medical");
   const medicalAllowed = Math.max(0, medical - Math.round(agi * 0.075));
   const saltAllowed = Math.min(lineSum(pack.A, "salt"), Math.max(0, profile.saltCapCents));

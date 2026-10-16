@@ -1,5 +1,5 @@
 import type { Sql } from "@/lib/db";
-import { addDays, addMonths, periodOf, todayISO } from "./calc";
+import { addDays, addMonths, LEDGER_LINES, periodOf, todayISO } from "./calc";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -35,6 +35,8 @@ export async function clearHousehold(sql: Sql, userId: string) {
     "lots",
     "retirement_sketches",
     "accounts",
+    "ledgers",
+    "draws",
     "people",
   ];
   for (const table of tables) {
@@ -634,7 +636,150 @@ async function insertSamplePortfolio(sql: Sql, userId: string) {
   });
 }
 
-/** Sample households created before the portfolio existed get one brokerage once. */
+/** Sample households created before business books existed get Calder Studio once. */
+export async function ensureSampleBusiness(sql: Sql, userId: string) {
+  const prof = await sql<{ seeded: boolean }>`select seeded from profiles where user_id = ${userId}`;
+  if (!prof[0]?.seeded) return;
+  const rows = await sql<{ n: number }>`select count(*) as n from ledgers where user_id = ${userId}`;
+  if (Number(rows[0]?.n ?? 0) > 0) return;
+  await insertSampleBusiness(sql, userId);
+}
+
+async function insertSampleBusiness(sql: Sql, userId: string) {
+  const sid = slug(userId);
+  const id = (s: string) => `s_${sid}_${s}`;
+  const ledger = id("studio");
+  const existing = await sql<{ id: string }>`select id from ledgers where id = ${ledger}`;
+  if (existing.length) return;
+  const today = todayISO();
+  const checking = id("chk");
+  const studio = id("studio_chk");
+  const avery = id("p_avery");
+  const catId = (name: string) => `c_${sid}_studio_${slug(name)}`;
+  await put(sql, "ledgers", {
+    id: ledger,
+    user_id: userId,
+    name: "Calder Studio",
+    tax_form: "C",
+    activity: "Design",
+    archived: false,
+    sort: 0,
+  });
+  let sort = 0;
+  for (const [name, flow, line] of LEDGER_LINES.C) {
+    sort += 1;
+    await put(sql, "categories", {
+      id: catId(name),
+      user_id: userId,
+      name,
+      section: flow === "in" ? "Income" : flow === "transfer" ? "Equity" : "Expenses",
+      flow,
+      tax_schedule: flow === "transfer" ? "" : "C",
+      tax_line: line,
+      icon: "tag",
+      monthly_cents: 0,
+      rollover: false,
+      sort,
+      archived: false,
+      ledger_id: ledger,
+    });
+  }
+  await put(sql, "accounts", {
+    id: studio,
+    user_id: userId,
+    name: "Studio checking",
+    institution: "First Harbor",
+    kind: "checking",
+    mask: "5510",
+    balance_cents: 240800,
+    limit_cents: null,
+    apr_bps: null,
+    connected: false,
+    archived: false,
+    opened_on: "2024-02-01",
+    custom_json: "[]",
+    ledger_id: ledger,
+  });
+  const rows: { key: string; cat: string; amt: number; merchant: string; day: number; person: string | null }[] = [
+    { key: "biz1", cat: "Gross receipts", amt: 420000, merchant: "Northline website", day: -20, person: avery },
+    { key: "biz2", cat: "Supplies", amt: -18600, merchant: "Blick Art Materials", day: -12, person: avery },
+    { key: "biz3", cat: "Office", amt: -6400, merchant: "Adobe", day: -8, person: null },
+    { key: "biz4", cat: "Meals", amt: -4200, merchant: "Client lunch", day: -6, person: avery },
+  ];
+  for (const row of rows) {
+    const line = LEDGER_LINES.C.find((item) => item[0] === row.cat)?.[2] ?? "";
+    await put(sql, "transactions", {
+      id: id(row.key),
+      user_id: userId,
+      account_id: studio,
+      category_id: catId(row.cat),
+      posted_on: addDays(today, row.day),
+      amount_cents: row.amt,
+      merchant: row.merchant,
+      memo: "",
+      pending: false,
+      tax_schedule: "C",
+      tax_line: line,
+      reviewed: true,
+      source: "sample",
+      person_id: row.person,
+      tags: "[]",
+      ledger_id: ledger,
+    });
+  }
+  const posted = addDays(today, -4);
+  const bizTxn = id("biz_draw");
+  const homeTxn = id("home_draw");
+  await put(sql, "transactions", {
+    id: bizTxn,
+    user_id: userId,
+    account_id: studio,
+    category_id: catId("Owner draw"),
+    posted_on: posted,
+    amount_cents: -150000,
+    merchant: "Owner draw",
+    memo: "Calder Studio",
+    pending: false,
+    tax_schedule: "",
+    tax_line: "draw",
+    reviewed: true,
+    source: "draw",
+    person_id: avery,
+    tags: "[]",
+    ledger_id: ledger,
+  });
+  await put(sql, "transactions", {
+    id: homeTxn,
+    user_id: userId,
+    account_id: checking,
+    category_id: `c_${sid}_transfer`,
+    posted_on: posted,
+    amount_cents: 150000,
+    merchant: "Owner draw",
+    memo: "Calder Studio",
+    pending: false,
+    tax_schedule: "",
+    tax_line: "",
+    reviewed: true,
+    source: "draw",
+    person_id: avery,
+    tags: "[]",
+    ledger_id: "",
+  });
+  await put(sql, "draws", {
+    id: id("draw1"),
+    user_id: userId,
+    ledger_id: ledger,
+    posted_on: posted,
+    direction: "draw",
+    amount_cents: 150000,
+    biz_account_id: studio,
+    home_account_id: checking,
+    biz_txn_id: bizTxn,
+    home_txn_id: homeTxn,
+  });
+  await sql`update accounts set balance_cents = balance_cents + 150000 where id = ${checking} and user_id = ${userId}`;
+}
 export async function ensureSampleInvestments(sql: Sql, userId: string) {
   const prof = await sql<{ seeded: boolean }>`select seeded from profiles where user_id = ${userId}`;
   if (!prof[0]?.seeded) return;

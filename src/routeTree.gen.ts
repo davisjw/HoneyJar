@@ -15,6 +15,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 import { Route as AppAdvisorRouteImport } from './routes/_app/advisor'
 import { Route as AppBillsRouteImport } from './routes/_app/bills'
+import { Route as AppBusinessRouteImport } from './routes/_app/business'
 import { Route as AppCashflowRouteImport } from './routes/_app/cashflow'
 import { Route as AppCreditRouteImport } from './routes/_app/credit'
 import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
@@ -62,6 +63,11 @@ const AppAdvisorRoute = AppAdvisorRouteImport.update({
 const AppBillsRoute = AppBillsRouteImport.update({
   id: '/bills',
   path: '/bills',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBusinessRoute = AppBusinessRouteImport.update({
+  id: '/business',
+  path: '/business',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCashflowRoute = AppCashflowRouteImport.update({
@@ -166,6 +172,7 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AppAccountsRoute
   '/advisor': typeof AppAdvisorRoute
   '/bills': typeof AppBillsRoute
+  '/business': typeof AppBusinessRoute
   '/cashflow': typeof AppCashflowRoute
   '/credit': typeof AppCreditRoute
   '/documents': typeof AppDocumentsRoute
@@ -191,6 +198,7 @@ export interface FileRoutesByTo {
   '/accounts': typeof AppAccountsRoute
   '/advisor': typeof AppAdvisorRoute
   '/bills': typeof AppBillsRoute
+  '/business': typeof AppBusinessRoute
   '/cashflow': typeof AppCashflowRoute
   '/credit': typeof AppCreditRoute
   '/documents': typeof AppDocumentsRoute
@@ -219,6 +227,7 @@ export interface FileRoutesById {
   '/_app/accounts': typeof AppAccountsRoute
   '/_app/advisor': typeof AppAdvisorRoute
   '/_app/bills': typeof AppBillsRoute
+  '/_app/business': typeof AppBusinessRoute
   '/_app/cashflow': typeof AppCashflowRoute
   '/_app/credit': typeof AppCreditRoute
   '/_app/documents': typeof AppDocumentsRoute
@@ -248,6 +257,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/advisor'
     | '/bills'
+    | '/business'
     | '/cashflow'
     | '/credit'
     | '/documents'
@@ -273,6 +283,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/advisor'
     | '/bills'
+    | '/business'
     | '/cashflow'
     | '/credit'
     | '/documents'
@@ -300,6 +311,7 @@ export interface FileRouteTypes {
     | '/_app/accounts'
     | '/_app/advisor'
     | '/_app/bills'
+    | '/_app/business'
     | '/_app/cashflow'
     | '/_app/credit'
     | '/_app/documents'
@@ -372,6 +384,13 @@ declare module '@tanstack/react-router' {
       path: '/bills'
       fullPath: '/bills'
       preLoaderRoute: typeof AppBillsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/business': {
+      id: '/_app/business'
+      path: '/business'
+      fullPath: '/business'
+      preLoaderRoute: typeof AppBusinessRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/cashflow': {
@@ -514,6 +533,7 @@ interface AppRouteChildren {
   AppAccountsRoute: typeof AppAccountsRoute
   AppAdvisorRoute: typeof AppAdvisorRoute
   AppBillsRoute: typeof AppBillsRoute
+  AppBusinessRoute: typeof AppBusinessRoute
   AppCashflowRoute: typeof AppCashflowRoute
   AppCreditRoute: typeof AppCreditRoute
   AppDocumentsRoute: typeof AppDocumentsRoute
@@ -537,6 +557,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountsRoute: AppAccountsRoute,
   AppAdvisorRoute: AppAdvisorRoute,
   AppBillsRoute: AppBillsRoute,
+  AppBusinessRoute: AppBusinessRoute,
   AppCashflowRoute: AppCashflowRoute,
   AppCreditRoute: AppCreditRoute,
   AppDocumentsRoute: AppDocumentsRoute,

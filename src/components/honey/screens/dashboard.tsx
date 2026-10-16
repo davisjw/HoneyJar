@@ -244,13 +244,9 @@ export function Dashboard() {
         </Card>
       </div>
       <Card>
-        <h2 className="font-display text-xl">Next jar</h2>
-        <p className="mt-1 text-sm text-muted">Portfolio is already under Wealth. What is left is a separate set of business books.</p>
-        <div className="mt-3 rounded-xl bg-paper p-3 text-sm">
-          <p className="font-medium">Business</p>
-          <p className="text-muted">Invoices, mileage, profit and loss, and Schedule C. Those rows stay out of this household.</p>
-          <Link to="/portfolio" className="mt-2 inline-block text-honey-deep">Open Portfolio</Link>
-        </div>
+        <h2 className="font-display text-xl">Business</h2>
+        <p className="mt-1 text-sm text-muted">The household and the business are separate books. Profit and loss, Schedule C, and owner draws are on their own page. Invoices and mileage are still later.</p>
+        <Link to="/business" className="mt-2 inline-block text-sm text-honey-deep">Open Business</Link>
       </Card>
     </div>
   );

@@ -332,6 +332,29 @@ export type ApiKeyPublic = {
   lastUsed: string | null;
 };
 
+export type Draw = {
+  id: string;
+  ledgerId: string;
+  postedOn: string;
+  direction: string;
+  amountCents: number;
+  bizAccountId: string;
+  homeAccountId: string;
+};
+
+export type LedgerBook = {
+  id: string;
+  name: string;
+  taxForm: string;
+  activity: string;
+  archived: boolean;
+  accounts: Account[];
+  categories: Category[];
+  transactions: Txn[];
+  bills: Bill[];
+  draws: Draw[];
+};
+
 export type AiMessage = {
   id: string;
   role: string;
@@ -369,6 +392,7 @@ export type Workspace = {
   prices: SecurityPrice[];
   flows: PortfolioFlow[];
   sketches: RetirementSketch[];
+  ledgers: LedgerBook[];
   reports: Report[];
   keys: ApiKeyPublic[];
   messages: AiMessage[];
@@ -429,4 +453,10 @@ export type Action =
   | { type: "apikey.revoke"; id: string; ownerId?: string }
   | { type: "sample.clear"; ownerId?: string }
   | { type: "sample.load"; ownerId?: string }
-  | { type: "advisor.log"; question: string; answer: string; ownerId?: string };
+  | { type: "advisor.log"; question: string; answer: string; ownerId?: string }
+  | { type: "ledger.save"; ledger: { id?: string; name: string; taxForm?: string; activity?: string }; ownerId?: string }
+  | { type: "biz.account.save"; ledgerId: string; account: { id?: string; name: string; kind?: string }; ownerId?: string }
+  | { type: "biz.txn.save"; ledgerId: string; txn: Partial<Txn> & { accountId: string; postedOn: string; amountCents: number; merchant: string }; ownerId?: string }
+  | { type: "biz.txn.delete"; id: string; ownerId?: string }
+  | { type: "biz.draw"; ledgerId: string; direction: "draw" | "contribution"; amountCents: number; postedOn: string; bizAccountId: string; homeAccountId: string; ownerId?: string }
+  | { type: "biz.draw.delete"; id: string; ownerId?: string };
