@@ -1200,7 +1200,7 @@ export function advisorBrief(input: {
   ].join("\n");
 }
 
-export const CHART_COLORS = ["#c4841d", "#2f6b4f", "#8c5a10", "#a33b2b", "#6f6458", "#1c1612", "#d7b56a", "#4e8f6d"];
+export const CHART_COLORS = ["#c4a894", "#e2c98a", "#8eae98", "#b08968", "#7f9788", "#d4c4a8", "#8c6a4a", "#a89080"];
 
 const SHARE_MICROS = 1_000_000;
 

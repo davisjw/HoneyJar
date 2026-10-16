@@ -1,6 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
-import { Area, AreaChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ChartTip, INK, RULE, axisTick, shortMoney } from "../charts";
 import {
   assetEquity,
   centsToInput,
@@ -21,14 +22,6 @@ import { Button, Card, Field, Modal, PageIntro, fieldClass } from "../kit";
 
 function param(search: string, key: string) {
   return new URLSearchParams(search.replace(/^\?/, "")).get(key) ?? "";
-}
-
-function shortMoney(cents: number) {
-  const n = cents / 100;
-  const sign = n < 0 ? "−" : "";
-  const abs = Math.abs(n);
-  if (abs >= 1000) return `${sign}$${Math.round(abs / 1000)}k`;
-  return `${sign}$${Math.round(abs)}`;
 }
 
 export function NetWorthPage() {
@@ -64,21 +57,23 @@ export function NetWorthPage() {
         <div className="mt-3 h-64">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={series.points}>
-              <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(0, 7)} minTickGap={28} />
-              <YAxis width={48} tickFormatter={(v) => shortMoney(Number(v))} />
-              <Tooltip formatter={(v, name) => [money(Number(v), cur), name]} labelFormatter={(l) => prettyDate(String(l))} />
-              <Area type="monotone" dataKey="cash" name="Cash" stackId="worth" stroke="#3e7a58" fill="#3e7a58" fillOpacity={0.92} />
-              <Area type="monotone" dataKey="investments" name="Investments" stackId="worth" stroke="#d4a017" fill="#d4a017" fillOpacity={0.92} />
-              <Area type="monotone" dataKey="property" name="Property equity" stackId="worth" stroke="#8c4e32" fill="#8c4e32" fillOpacity={0.92} />
+              <CartesianGrid vertical={false} stroke={RULE} />
+              <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(0, 7)} minTickGap={28} tick={axisTick} tickLine={false} axisLine={false} />
+              <YAxis width={44} tickFormatter={(v) => shortMoney(Number(v))} tick={axisTick} tickLine={false} axisLine={false} />
+              <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} total />} />
+              <Area type="linear" dataKey="property" name="Property equity" stackId="worth" stroke="none" fill="#c4a894" />
+              <Area type="linear" dataKey="investments" name="Investments" stackId="worth" stroke="none" fill="#e2c98a" />
+              <Area type="linear" dataKey="cash" name="Cash" stackId="worth" stroke="none" fill="#8eae98" />
+              <Line type="linear" dataKey="net" stroke={INK} strokeWidth={1.25} dot={false} legendType="none" tooltipType="none" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
         <ul className="mt-3 space-y-1 text-sm">
-          <li className="flex justify-between gap-3"><span><i className="mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-[#3e7a58]" />Cash</span><span className="num">{money(band.cash, cur)}</span></li>
-          <li className="pl-4 text-xs text-muted">{money(band.liquid, cur)} in the bank − {money(band.cards, cur)} on cards{band.otherDebt ? ` − ${money(band.otherDebt, cur)} in loans that aren’t tied to a home or car` : ""}</li>
-          <li className="flex justify-between gap-3"><span><i className="mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-[#d4a017]" />Investments</span><span className="num">{money(band.investments, cur)}</span></li>
-          <li className="flex justify-between gap-3"><span><i className="mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-[#8c4e32]" />Property equity</span><span className="num">{money(band.property, cur)}</span></li>
+          <li className="flex justify-between gap-3"><span><i className="mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-[#c4a894]" />Property equity</span><span className="num">{money(band.property, cur)}</span></li>
           <li className="pl-4 text-xs text-muted">{money(band.propertyGross, cur)} of homes and cars − {money(band.linkedLoans, cur)} in loans on them</li>
+          <li className="flex justify-between gap-3"><span><i className="mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-[#e2c98a]" />Investments</span><span className="num">{money(band.investments, cur)}</span></li>
+          <li className="flex justify-between gap-3"><span><i className="mr-2 inline-block h-2.5 w-2.5 rounded-sm bg-[#8eae98]" />Cash</span><span className="num">{money(band.cash, cur)}</span></li>
+          <li className="pl-4 text-xs text-muted">{money(band.liquid, cur)} in the bank − {money(band.cards, cur)} on cards{band.otherDebt ? ` − ${money(band.otherDebt, cur)} in loans that aren’t tied to a home or car` : ""}</li>
         </ul>
       </Card>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -482,11 +477,12 @@ export function CreditPage() {
           <div className="mt-3 h-40">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={series}>
-                <XAxis dataKey="asOf" tickFormatter={(v) => String(v).slice(0, 7)} />
-                <YAxis domain={[600, 850]} width={36} />
-                <Tooltip />
+                <CartesianGrid vertical={false} stroke={RULE} />
+                <XAxis dataKey="asOf" tickFormatter={(v) => String(v).slice(0, 7)} tick={axisTick} tickLine={false} axisLine={false} />
+                <YAxis domain={[600, 850]} width={36} tick={axisTick} tickLine={false} axisLine={false} />
+                <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} />} />
                 {(bureaus.length ? bureaus : ["Experian"]).map((name, i) => (
-                  <Line key={name} dataKey={name} stroke={["#2f6b4f", "#c4841d", "#a33b2b"][i % 3]} strokeWidth={2} dot={false} connectNulls />
+                  <Line key={name} type="linear" dataKey={name} stroke={["#7f9788", "#c4a06a", "#a67c6d"][i % 3]} strokeWidth={1.5} dot={false} connectNulls />
                 ))}
               </LineChart>
             </ResponsiveContainer>

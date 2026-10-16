@@ -1,6 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ChartTip, axisTick } from "../charts";
 import { askAdvisor } from "@/lib/honey/fns";
 import {
   centsToInput,
@@ -102,10 +103,11 @@ export function ReportsPage() {
         </div>
         <div className="mt-3 h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={rows.slice(0, 8)}>
-              <XAxis dataKey="label" interval={0} tick={{ fontSize: 11 }} hide={rows.length > 6} />
-              <Tooltip formatter={(v) => money(Number(v), cur)} />
-              <Bar dataKey="cents" fill="#c4841d" radius={4} />
+            <BarChart data={[...rows].sort((a, b) => b.cents - a.cents).slice(0, 8)} layout="vertical" margin={{ left: 8, right: 12 }}>
+              <XAxis type="number" hide />
+              <YAxis type="category" dataKey="label" width={108} tick={axisTick} tickLine={false} axisLine={false} />
+              <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} />} cursor={{ fill: "#f3eee4" }} />
+              <Bar dataKey="cents" name={spec.metric === "income" ? "Income" : "Spending"} fill="#c4a06a" radius={[0, 3, 3, 0]} barSize={14} />
             </BarChart>
           </ResponsiveContainer>
         </div>

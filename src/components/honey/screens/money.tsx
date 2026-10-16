@@ -1,6 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { ChartTip, RULE, axisTick } from "../charts";
 import {
   CHART_COLORS,
   centsToInput,
@@ -673,6 +674,7 @@ export function CashflowPage() {
   if (!data || !chart) return null;
   const cur = data.profile.currency;
   const sampled = chart.points.filter((_, i) => i % Math.ceil(chart.points.length / 80) === 0);
+  const cashBands = [...chart.accounts].sort((a, b) => (chart.points[0]?.byAccount[b.id] ?? 0) - (chart.points[0]?.byAccount[a.id] ?? 0));
   return (
     <div>
       <PageIntro
@@ -692,26 +694,26 @@ export function CashflowPage() {
         <p className="text-sm text-muted">{prettyDate(chart.low.date)} · {chart.low.label}</p>
         <div className="mt-4 h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={sampled.map((p) => ({ date: p.date, label: p.label, ...p.byAccount }))}>
-              <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} minTickGap={24} />
-              <Tooltip formatter={(v, name) => [money(Number(v), cur), name]} labelFormatter={(l) => prettyDate(String(l))} />
-              {chart.accounts.map((account, i) => (
+            <AreaChart data={sampled.map((p) => ({ date: p.date, ...p.byAccount }))}>
+              <CartesianGrid vertical={false} stroke={RULE} />
+              <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} minTickGap={24} tick={axisTick} tickLine={false} axisLine={false} />
+              <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} total />} />
+              {cashBands.map((account, i) => (
                 <Area
                   key={account.id}
-                  type="monotone"
+                  type="linear"
                   dataKey={account.id}
                   name={account.name}
                   stackId="cash"
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  stroke="none"
                   fill={CHART_COLORS[i % CHART_COLORS.length]}
-                  fillOpacity={0.9}
                 />
               ))}
             </AreaChart>
           </ResponsiveContainer>
         </div>
         <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-          {chart.accounts.map((account, i) => (
+          {cashBands.map((account, i) => (
             <li key={account.id}><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />{account.name}</li>
           ))}
         </ul>

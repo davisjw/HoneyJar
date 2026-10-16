@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, Area, AreaChart, XAxis } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, Area, AreaChart, CartesianGrid, XAxis } from "recharts";
+import { ChartTip, RULE, axisTick } from "../charts";
 import {
   CHART_COLORS,
   allTags,
@@ -57,6 +58,7 @@ export function Dashboard() {
     categories: data.categories,
     startDay: data.profile.monthStartDay,
   });
+  const cashBands = [...cash.accounts].sort((a, b) => (cash.points[0]?.byAccount[b.id] ?? 0) - (cash.points[0]?.byAccount[a.id] ?? 0));
   const merchants = topMerchants(data.transactions, from, data.today);
   const upcoming = data.bills
     .filter((b) => b.status === "active")
@@ -135,12 +137,12 @@ export function Dashboard() {
               <div className="h-52">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={spend} dataKey="cents" nameKey="name" innerRadius={48} outerRadius={76} stroke="none">
+                    <Pie data={spend} dataKey="cents" nameKey="name" innerRadius={52} outerRadius={78} paddingAngle={1} stroke="#fffdf8" strokeWidth={2}>
                       {spend.map((s, i) => (
                         <Cell key={s.id} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v) => money(Number(v), cur)} />
+                    <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} />} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -184,26 +186,26 @@ export function Dashboard() {
         <p className="mb-2 text-xs text-muted">Each band is an account. A bill comes out of the account it is paid from.</p>
         <div className="h-52">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={cash.points.filter((_, i) => i % 3 === 0 || i === cash.points.length - 1).map((p) => ({ date: p.date, label: p.label, ...p.byAccount }))}>
-              <XAxis dataKey="date" hide />
-              <Tooltip formatter={(v, name) => [money(Number(v), cur), name]} labelFormatter={(l) => prettyDate(String(l))} />
-              {cash.accounts.map((account, i) => (
+            <AreaChart data={cash.points.filter((_, i) => i % 3 === 0 || i === cash.points.length - 1).map((p) => ({ date: p.date, ...p.byAccount }))}>
+              <CartesianGrid vertical={false} stroke={RULE} />
+              <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} minTickGap={28} tick={axisTick} tickLine={false} axisLine={false} />
+              <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} total />} />
+              {cashBands.map((account, i) => (
                 <Area
                   key={account.id}
-                  type="monotone"
+                  type="linear"
                   dataKey={account.id}
                   name={account.name}
                   stackId="cash"
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  stroke="none"
                   fill={CHART_COLORS[i % CHART_COLORS.length]}
-                  fillOpacity={0.9}
                 />
               ))}
             </AreaChart>
           </ResponsiveContainer>
         </div>
         <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-          {cash.accounts.map((account, i) => (
+          {cashBands.map((account, i) => (
             <li key={account.id}><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />{account.name}</li>
           ))}
         </ul>
