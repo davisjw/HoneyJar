@@ -1,7 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { INK, MUTED, RULE, axisTick } from "../charts";
+import { MUTED, RULE, axisTick } from "../charts";
 import { money, prettyDate } from "@/lib/honey/calc";
 import type { UtilityColumn, UtilityMeter, UtilityReading } from "@/lib/honey/types";
 import {
@@ -9,12 +9,12 @@ import {
   buildSheet,
   chargeCompare,
   cellMount,
+  historySeries,
+  historyYear,
   previousMonth,
   templateUnit,
   hasMeter,
   tierChargeCents,
-  trendPoints,
-  yearPoints,
   type ReadLike,
   type SheetRow,
   type UtilColumn,
@@ -138,7 +138,14 @@ export function UtilitiesPage() {
             {canEdit ? <Button tone="quiet" onClick={() => setEditing(meter)}>Edit meter</Button> : null}
             {canEdit ? <Button tone="quiet" onClick={() => setReading(true)}>Add read</Button> : null}
           </div>
-          {tab === "graphs" ? <Graphs meter={meter} columns={columns.map(engineColumn)} rows={rows} /> : null}
+          {tab === "graphs" ? (
+            <Graphs
+              meter={meter}
+              columns={columns.map(engineColumn)}
+              rows={rows}
+              payments={data.payments}
+            />
+          ) : null}
           {tab === "workbook" ? (
             <Workbook
               meter={meter}
@@ -165,46 +172,77 @@ export function UtilitiesPage() {
   );
 }
 
-function Graphs({ meter, columns, rows }: { meter: UtilityMeter; columns: UtilColumn[]; rows: SheetRow[] }) {
-  const trend = trendPoints(rows, columns).filter((p) => p.usage != null || p.bill != null);
-  const year = new Date().getFullYear();
-  const bars = yearPoints(rows, columns, year);
-  const usageKey = columns.find((c) => c.rollup === "usage")?.key;
-  const latest = [...rows].reverse().find((r) => usageKey && r.computed[usageKey] != null);
+function Graphs({
+  meter,
+  columns,
+  rows,
+  payments,
+}: {
+  meter: UtilityMeter;
+  columns: UtilColumn[];
+  rows: SheetRow[];
+  payments: { readingId: string | null; amountCents: number }[];
+}) {
+  const series = historySeries(columns);
+  const preferred =
+    series.find((item) => columns.some((column) => column.key === item.key && column.rollup === "usage"))?.key ??
+    series.find((item) => columns.some((column) => column.key === item.key && column.rollup === "bill"))?.key ??
+    series[0]?.key ??
+    "";
+  const [picked, setPicked] = useState("");
+  const key = series.some((item) => item.key === picked) ? picked : preferred;
+  const chosen = series.find((item) => item.key === key);
+  const year = Number(rows[rows.length - 1]?.date.slice(0, 4)) || new Date().getFullYear();
+  const points = historyYear(
+    rows,
+    columns,
+    key,
+    year,
+    payments.flatMap((payment) => (payment.readingId ? [{ readingId: payment.readingId, amountCents: payment.amountCents }] : [])),
+  );
+  const gaps = points.filter((point) => point.lineGap).map((point) => point.label);
+  const usageKey = columns.find((column) => column.rollup === "usage")?.key;
+  const latest = [...rows].reverse().find((row) => usageKey && row.computed[usageKey] != null);
   const used = latest && usageKey ? latest.computed[usageKey]! : null;
   const tier = used != null && meter.tiers.length ? tierChargeCents(used, meter.tiers) : null;
+  if (!chosen) return <Card><p className="text-muted">Nothing to chart yet.</p></Card>;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       <Card>
-        <p className="mb-2 text-sm text-muted">Usage and bill</p>
-        {tier != null && used != null ? <p className="mb-2 text-sm">Tier energy on {Math.round(used)} {meter.unit}: {money(tier)}</p> : null}
-        <div className="h-64">
-          <ResponsiveContainer>
-            <ComposedChart data={trend}>
-              <CartesianGrid stroke={RULE} vertical={false} />
-              <XAxis dataKey="label" tick={axisTick} />
-              <YAxis yAxisId="u" tick={axisTick} />
-              <YAxis yAxisId="b" orientation="right" tick={axisTick} />
-              <Tooltip />
-              <Legend />
-              <Bar yAxisId="u" dataKey="usage" name={meter.unit} fill="#c4841d" />
-              <Line yAxisId="b" dataKey="bill" name="Bill $" stroke={INK} dot={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted">{year} against {year - 1}</p>
+          <select className={fieldClass + " max-w-[14rem]"} value={key} onChange={(e) => setPicked(e.target.value)}>
+            {series.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+          </select>
         </div>
-      </Card>
-      <Card>
-        <p className="mb-2 text-sm text-muted">{year} usage against last year</p>
+        {tier != null && used != null ? <p className="mb-2 text-sm">Latest tier energy on {Math.round(used)} {meter.unit}: {money(tier)}</p> : null}
         <div className="h-64">
           <ResponsiveContainer>
-            <BarChart data={bars}>
+            <ComposedChart data={points}>
               <CartesianGrid stroke={RULE} vertical={false} />
               <XAxis dataKey="label" tick={axisTick} />
               <YAxis tick={axisTick} />
               <Tooltip />
               <Legend />
               <Bar dataKey="lastYear" name={String(year - 1)} fill={MUTED} />
-              <Bar dataKey="thisYear" name={String(year)} fill="#c4841d" />
+              <Line dataKey="thisYear" name={String(year)} stroke="#c4841d" strokeWidth={2} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+      <Card>
+        <p className="mb-2 text-sm text-muted">Paid against the statement</p>
+        {gaps.length ? <p className="mb-2 text-sm text-clay">{gaps.join(", ")} line items don't match the statement.</p> : <p className="mb-2 text-sm text-muted">A month with no paid bar is not paid yet.</p>}
+        <div className="h-64">
+          <ResponsiveContainer>
+            <BarChart data={points}>
+              <CartesianGrid stroke={RULE} vertical={false} />
+              <XAxis dataKey="label" tick={axisTick} />
+              <YAxis tick={axisTick} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="statement" name="Statement" fill={MUTED} />
+              <Bar dataKey="paid" name="Paid" fill="#c4841d" />
             </BarChart>
           </ResponsiveContainer>
         </div>

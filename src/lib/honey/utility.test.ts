@@ -6,6 +6,8 @@ import {
   calderUtilityHistory,
   daysBetweenReads,
   evaluateFormula,
+  historySeries,
+  historyYear,
   starterColumns,
   tierChargeCents,
   type ReadLike,
@@ -125,5 +127,53 @@ describe("calder utility history", () => {
     assert.equal(water.payments.some((p) => p.stamp === "202609"), true);
     assert.equal(phone.payments.find((p) => p.stamp === "202610")?.amountCents, 9500);
     assert.equal(phone.bill?.amountCents, 9500);
+  });
+
+  it("charts this year against last year and marks an unpaid month", () => {
+    const columns = starterColumns(pge.key, pge.template, pge.unit);
+    for (const edit of pge.formulaEdits ?? []) {
+      const column = columns.find((item) => item.key === edit.key);
+      if (column) column.formula = edit.formula;
+    }
+    for (const extra of pge.extraColumns ?? []) {
+      columns.push({
+        id: extra.key,
+        utilityId: pge.key,
+        key: extra.key,
+        label: extra.label,
+        kind: extra.kind,
+        unit: extra.unit ?? "",
+        formula: extra.formula ?? "",
+        rollup: extra.rollup ?? "",
+        fromChildren: false,
+      });
+    }
+    const readings: ReadLike[] = pge.readings.map((reading) => ({
+      id: reading.stamp,
+      utilityId: pge.key,
+      date: reading.readOn,
+      meter: reading.meter,
+      amountCents: reading.amountCents,
+      opening: reading.opening,
+      cells: reading.cells,
+    }));
+    const rows = buildSheet(pge.key, columns, readings, [], pge.tiers, []);
+    const series = historySeries(columns);
+    assert.ok(series.some((item) => item.key === "usage_kwh"));
+    assert.ok(series.some((item) => item.key === "gas_therms"));
+    assert.equal(series.some((item) => item.key === "meter_read"), false);
+    const points = historyYear(
+      rows,
+      columns,
+      "usage_kwh",
+      2026,
+      pge.payments.map((payment) => ({ readingId: payment.stamp, amountCents: payment.amountCents })),
+    );
+    assert.equal(points[7]?.label, "Aug");
+    assert.equal(points[7]?.lineGap, true);
+    assert.equal(points[8]?.paid, points[8]?.statement);
+    assert.equal(points[9]?.paid, null);
+    assert.ok((points[9]?.thisYear ?? 0) > 0);
+    assert.ok((points[0]?.lastYear ?? 0) > 0);
   });
 });
