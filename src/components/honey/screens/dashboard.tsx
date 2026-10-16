@@ -181,15 +181,32 @@ export function Dashboard() {
           <h2 className="font-display text-xl">Cash ahead</h2>
           <Link to="/cashflow" className="text-sm text-honey-deep">Full year</Link>
         </div>
-        <div className="h-40">
+        <p className="mb-2 text-xs text-muted">Each band is an account. A bill comes out of the account it is paid from.</p>
+        <div className="h-52">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={cash.points.filter((_, i) => i % 3 === 0 || i === cash.points.length - 1)}>
+            <AreaChart data={cash.points.filter((_, i) => i % 3 === 0 || i === cash.points.length - 1).map((p) => ({ date: p.date, label: p.label, ...p.byAccount }))}>
               <XAxis dataKey="date" hide />
-              <Tooltip formatter={(v) => money(Number(v), cur)} labelFormatter={(l) => prettyDate(String(l))} />
-              <Area dataKey="balance" stroke="#8c5a10" fill="#f6e7c8" strokeWidth={2} />
+              <Tooltip formatter={(v, name) => [money(Number(v), cur), name]} labelFormatter={(l) => prettyDate(String(l))} />
+              {cash.accounts.map((account, i) => (
+                <Area
+                  key={account.id}
+                  type="monotone"
+                  dataKey={account.id}
+                  name={account.name}
+                  stackId="cash"
+                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  fillOpacity={0.9}
+                />
+              ))}
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+          {cash.accounts.map((account, i) => (
+            <li key={account.id}><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />{account.name}</li>
+          ))}
+        </ul>
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

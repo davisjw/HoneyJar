@@ -11,6 +11,7 @@ import type {
   Reminder,
   Rule,
   Txn,
+  Valuation,
   Watch,
 } from "./types";
 
@@ -293,6 +294,112 @@ export function assetEquity(asset: Asset, accounts: Account[]): number {
   return asset.valueCents - (loan ? loan.balanceCents : 0);
 }
 
+export type WorthPoint = {
+  date: string;
+  cash: number;
+  investments: number;
+  property: number;
+  net: number;
+};
+
+export type WorthToday = {
+  cash: number;
+  liquid: number;
+  cards: number;
+  investments: number;
+  property: number;
+  propertyGross: number;
+  linkedLoans: number;
+  otherDebt: number;
+  net: number;
+};
+
+/** Cash is bank balances minus cards and any loan that is not tied to a home or car. Property is equity. The three bands add up to net worth. */
+export function netWorthSeries(opts: {
+  today: string;
+  accounts: Account[];
+  assets: Asset[];
+  txns: Txn[];
+  valuations: Valuation[];
+  months?: number;
+}): { points: WorthPoint[]; today: WorthToday } {
+  const months = opts.months ?? 12;
+  const dates: string[] = [];
+  for (let i = months; i >= 1; i -= 1) dates.push(addMonths(opts.today, -i).slice(0, 8) + "01");
+  dates.push(opts.today);
+  const txnsByAccount = new Map<string, Txn[]>();
+  for (const txn of opts.txns) {
+    const list = txnsByAccount.get(txn.accountId) ?? [];
+    list.push(txn);
+    txnsByAccount.set(txn.accountId, list);
+  }
+  const linked = new Set(opts.assets.map((a) => a.loanAccountId).filter((id): id is string => !!id));
+  const onDate = (date: string) => {
+    const bal = (account: Account) => {
+      if (account.archived) return 0;
+      if (account.openedOn && date < account.openedOn) return 0;
+      let value = account.balanceCents;
+      for (const txn of txnsByAccount.get(account.id) ?? []) {
+        if (txn.postedOn > date) value -= balanceDelta(account.kind, txn.amountCents);
+      }
+      return value;
+    };
+    let liquid = 0;
+    let cards = 0;
+    let investments = 0;
+    let otherDebt = 0;
+    let linkedLoans = 0;
+    for (const account of opts.accounts) {
+      const value = bal(account);
+      if (isLiquid(account.kind)) liquid += value;
+      else if (account.kind === "investment") investments += value;
+      else if (account.kind === "credit") cards += value;
+      else if (linked.has(account.id)) linkedLoans += value;
+      else if (DEBT.has(account.kind)) otherDebt += value;
+    }
+    let propertyGross = 0;
+    for (const asset of opts.assets) {
+      const history = opts.valuations
+        .filter((v) => v.assetId === asset.id)
+        .sort((a, b) => a.asOf.localeCompare(b.asOf));
+      const prior = history.filter((v) => v.asOf <= date);
+      if (prior.length) propertyGross += prior[prior.length - 1].valueCents;
+      else if (history.length) propertyGross += history[0].valueCents;
+      else propertyGross += asset.valueCents;
+    }
+    const property = propertyGross - linkedLoans;
+    const cash = liquid - cards - otherDebt;
+    return {
+      date,
+      cash,
+      investments,
+      property,
+      net: cash + investments + property,
+      liquid,
+      cards,
+      propertyGross,
+      linkedLoans,
+      otherDebt,
+    };
+  };
+  const detailed = dates.map(onDate);
+  const last = detailed[detailed.length - 1];
+  return {
+    points: detailed.map(({ date, cash, investments, property, net }) => ({ date, cash, investments, property, net })),
+    today: {
+      cash: last.cash,
+      liquid: last.liquid,
+      cards: last.cards,
+      investments: last.investments,
+      property: last.property,
+      propertyGross: last.propertyGross,
+      linkedLoans: last.linkedLoans,
+      otherDebt: last.otherDebt,
+      net: last.net,
+    },
+  };
+}
+
 export type SpendSlice = { id: string; name: string; cents: number };
 
 export function parseTags(raw: unknown): string[] {
@@ -487,7 +594,7 @@ export function planModel(
   return { rows, income, assignedTotal, leftToAssign: rta(month), leftInPlan };
 }
 
-export type CashPoint = { date: string; balance: number; label: string };
+export type CashPoint = { date: string; balance: number; label: string; byAccount: Record<string, number> };
 
 export function projectCash(opts: {
   today: string;
@@ -496,16 +603,35 @@ export function projectCash(opts: {
   bills: Bill[];
   categories: Category[];
   startDay: number;
-}): { points: CashPoint[]; events: { date: string; label: string; cents: number }[]; low: CashPoint } {
+}): { points: CashPoint[]; events: { date: string; label: string; cents: number; accountId: string | null }[]; low: CashPoint; accounts: { id: string; name: string }[] } {
   const liquid = opts.accounts.filter((a) => !a.archived && isLiquid(a.kind));
-  let balance = liquid.reduce((s, a) => s + a.balanceCents, 0);
+  const balances = new Map(liquid.map((a) => [a.id, a.balanceCents]));
+  const checking = liquid.filter((a) => a.kind === "checking");
+  const pool = checking.length ? checking : liquid;
+  const primary = pool.slice().sort((a, b) => b.balanceCents - a.balanceCents)[0];
+  const bucket = (accountId: string | null) => {
+    if (accountId && balances.has(accountId)) return accountId;
+    if (!accountId) return primary?.id ?? null;
+    return null;
+  };
+  const snap = (date: string, label: string): CashPoint => {
+    const byAccount: Record<string, number> = {};
+    let balance = 0;
+    for (const account of liquid) {
+      const value = balances.get(account.id) ?? 0;
+      byAccount[account.id] = value;
+      balance += value;
+    }
+    return { date, balance, label, byAccount };
+  };
   const until = addDays(opts.today, opts.days);
-  const events: { date: string; label: string; cents: number }[] = [];
+  const events: { date: string; label: string; cents: number; accountId: string | null }[] = [];
   for (const bill of opts.bills) {
     if (bill.status !== "active") continue;
     const signed = bill.direction === "in" ? bill.amountCents : -bill.amountCents;
+    const accountId = bucket(bill.accountId);
     for (const date of occurrences(bill.nextDue, bill.cadence, opts.today, until)) {
-      events.push({ date, label: bill.name, cents: signed });
+      events.push({ date, label: bill.name, cents: signed, accountId });
     }
   }
   const monthCursor = periodOf(opts.today, opts.startDay);
@@ -519,11 +645,11 @@ export function projectCash(opts: {
         .filter((b) => b.status === "active" && b.categoryId === cat.id && b.direction !== "in")
         .reduce((s, b) => s + monthlyEquivalent(b.amountCents, b.cadence), 0);
       const extra = cat.monthlyCents - billed;
-      if (extra > 0) events.push({ date: when, label: `Planned · ${cat.name}`, cents: -extra });
+      if (extra > 0) events.push({ date: when, label: `Planned · ${cat.name}`, cents: -extra, accountId: primary?.id ?? null });
     }
   }
   events.sort((a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label));
-  const points: CashPoint[] = [{ date: opts.today, balance, label: "Today" }];
+  const points: CashPoint[] = [snap(opts.today, "Today")];
   let low = points[0];
   const byDate = new Map<string, typeof events>();
   for (const e of events) {
@@ -535,14 +661,15 @@ export function projectCash(opts: {
     const date = addDays(opts.today, i);
     const dayEvents = byDate.get(date);
     if (!dayEvents) continue;
-    const delta = dayEvents.reduce((s, e) => s + e.cents, 0);
-    balance += delta;
-    const label = dayEvents.map((e) => e.label).join(", ");
-    const point = { date, balance, label };
+    for (const event of dayEvents) {
+      if (!event.accountId || !balances.has(event.accountId)) continue;
+      balances.set(event.accountId, (balances.get(event.accountId) ?? 0) + event.cents);
+    }
+    const point = snap(date, dayEvents.map((e) => e.label).join(", "));
     points.push(point);
     if (point.balance < low.balance) low = point;
   }
-  return { points, events, low };
+  return { points, events, low, accounts: liquid.map((a) => ({ id: a.id, name: a.name })) };
 }
 
 export function federalTaxCents(taxableCents: number, status: FilingStatus): number {

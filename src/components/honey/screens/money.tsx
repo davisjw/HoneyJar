@@ -2,6 +2,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import {
+  CHART_COLORS,
   centsToInput,
   dollarsToCents,
   matchCategory,
@@ -676,7 +677,7 @@ export function CashflowPage() {
     <div>
       <PageIntro
         title="Projected cash"
-        lede="Checking, savings, and cash, plus bills and whatever the plan still expects that isn’t already a bill. Up to a year out."
+        lede="Checking, savings, and cash, one band per account. Bills land on the account they’re paid from. Anything without an account comes out of the largest checking account."
         action={
           <div className="flex gap-2">
             {[90, 180, 365].map((d) => (
@@ -691,13 +692,29 @@ export function CashflowPage() {
         <p className="text-sm text-muted">{prettyDate(chart.low.date)} · {chart.low.label}</p>
         <div className="mt-4 h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={sampled}>
+            <AreaChart data={sampled.map((p) => ({ date: p.date, label: p.label, ...p.byAccount }))}>
               <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} minTickGap={24} />
-              <Tooltip formatter={(v) => money(Number(v), cur)} labelFormatter={(l) => prettyDate(String(l))} />
-              <Area dataKey="balance" stroke="#8c5a10" fill="#f6e7c8" strokeWidth={2} />
+              <Tooltip formatter={(v, name) => [money(Number(v), cur), name]} labelFormatter={(l) => prettyDate(String(l))} />
+              {chart.accounts.map((account, i) => (
+                <Area
+                  key={account.id}
+                  type="monotone"
+                  dataKey={account.id}
+                  name={account.name}
+                  stackId="cash"
+                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  fillOpacity={0.9}
+                />
+              ))}
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+          {chart.accounts.map((account, i) => (
+            <li key={account.id}><span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />{account.name}</li>
+          ))}
+        </ul>
       </Card>
       <Card className="mt-4">
         <h2 className="font-display text-xl">Events</h2>
