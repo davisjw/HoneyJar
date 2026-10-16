@@ -10,6 +10,7 @@ import {
   chargeCompare,
   previousMonth,
   templateUnit,
+  hasMeter,
   tierChargeCents,
   trendPoints,
   yearPoints,
@@ -139,6 +140,7 @@ export function UtilitiesPage() {
               focus={focus}
               canEdit={canEdit}
               onCell={(id, cells) => run({ type: "reading.cells", id, cells })}
+              onDate={(id, readOn) => run({ type: "reading.date", id, readOn })}
             />
           ) : null}
           {tab === "columns" ? <ColumnsTab meter={meter} columns={columns} canEdit={canEdit} run={run} /> : null}
@@ -211,6 +213,7 @@ function Workbook({
   focus,
   canEdit,
   onCell,
+  onDate,
 }: {
   meter: UtilityMeter;
   columns: UtilityColumn[];
@@ -221,9 +224,11 @@ function Workbook({
   focus: string;
   canEdit: boolean;
   onCell: (id: string, cells: Record<string, number>) => void;
+  onDate: (id: string, readOn: string) => void;
 }) {
   const engine = columns.map(engineColumn);
   const shown = [...rows].reverse();
+  const metered = hasMeter(columns, meter.unit);
   return (
     <Card className="overflow-x-auto">
       <table className="w-full min-w-[720px] text-left text-sm">
@@ -241,27 +246,38 @@ function Workbook({
             const compare = chargeCompare(row, engine);
             return (
               <tr key={row.id} className={row.id === focus ? "bg-honey-soft" : "border-t border-line"}>
-                {columns.map((c) => (
+                {columns.map((c) => {
+                  const locked = c.kind === "calculated" || (metered && c.rollup === "days");
+                  const dated = c.kind === "date" || c.rollup === "readDate";
+                  return (
                   <td key={c.id} className="px-2 py-1">
-                    {canEdit && c.kind !== "calculated" && c.kind !== "date" && c.rollup !== "days" && c.rollup !== "usage" && !c.fromChildren ? (
+                    {reading?.opening && c.rollup === "usage" ? (
+                      <span className="text-muted">opening</span>
+                    ) : dated && canEdit ? (
+                      <input
+                        type="date"
+                        className="w-36 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
+                        value={row.date}
+                        onChange={(e) => {
+                          if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) onDate(row.id, e.target.value);
+                        }}
+                      />
+                    ) : canEdit && !locked ? (
                       <Cell
-                        value={row.entered[c.key]}
+                        value={row.computed[c.key]}
                         onCommit={(value) => {
-                          const next: Record<string, number> = {};
-                          for (const col of columns) {
-                            if (col.kind === "calculated" || col.kind === "date" || col.rollup || col.fromChildren) continue;
-                            if (row.entered[col.key] != null) next[col.key] = row.entered[col.key]!;
-                          }
-                          if (value == null || Number.isNaN(value)) delete next[c.key];
+                          const next = { ...row.entered };
+                          if (value == null) delete next[c.key];
                           else next[c.key] = value;
                           onCell(row.id, next);
                         }}
                       />
                     ) : (
-                      <span title={row.errors[c.key] ?? ""}>{reading?.opening && c.rollup === "usage" ? "opening" : cellText(row, engineColumn(c))}</span>
+                      <span className={locked ? "text-muted" : ""} title={row.errors[c.key] || (c.kind === "calculated" ? c.formula : "")}>{cellText(row, engineColumn(c))}</span>
                     )}
                   </td>
-                ))}
+                  );
+                })}
                 <td className="px-2 py-1 text-xs text-muted">
                   {pay && bill ? (
                     <a className="text-honey hover:underline" href={`/bills?bill=${bill.id}`}>
@@ -281,15 +297,28 @@ function Workbook({
 }
 
 function Cell({ value, onCommit }: { value: number | undefined; onCommit: (value: number | null) => void }) {
-  const [text, setText] = useState(value == null ? "" : String(value));
+  const shown = value == null ? "" : String(value);
+  const [text, setText] = useState(shown);
+  const [seen, setSeen] = useState(shown);
+  if (seen !== shown) {
+    setSeen(shown);
+    setText(shown);
+  }
   return (
     <input
+      inputMode="decimal"
       className="w-24 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
       value={text}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {
         const trimmed = text.trim();
-        onCommit(trimmed === "" ? null : Number(trimmed));
+        if (!trimmed) {
+          onCommit(null);
+          return;
+        }
+        const next = Number(trimmed);
+        if (!Number.isFinite(next)) return;
+        onCommit(next);
       }}
     />
   );
@@ -306,21 +335,35 @@ function ColumnsTab({
   canEdit: boolean;
   run: ReturnType<typeof useBook>["run"];
 }) {
-  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<UtilityColumn | "new" | null>(null);
   const [tiers, setTiers] = useState(meter.tiers.map((t) => `${t.upTo ?? ""} ${t.rateCents}`).join("\n"));
+  const metered = hasMeter(columns, meter.unit);
   return (
     <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <Card>
-        <div className="mb-3 flex items-center justify-between">
-          <p className="font-medium">Columns</p>
-          {canEdit ? <Button tone="quiet" onClick={() => setOpen(true)}>Add column</Button> : null}
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <p className="font-medium">Columns</p>
+            <p className="text-xs text-muted">Select a column to rename it, change its kind, or edit the formula. Calculated cells are not stored.</p>
+          </div>
+          {canEdit ? <Button tone="quiet" onClick={() => setEditing("new")}>Add column</Button> : null}
         </div>
         <ul className="space-y-2">
           {columns.map((c, i) => (
-            <li key={c.id} className="flex items-center justify-between gap-2 border-b border-line py-2 text-sm">
-              <span>{c.label} <span className="text-muted">{c.kind}{c.formula ? ` · ${c.formula}` : ""}{c.fromChildren ? " · sum children" : ""}</span></span>
+            <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-line py-2 text-sm">
+              <button type="button" className="min-w-0 text-left" onClick={() => canEdit && setEditing(c)}>
+                <span className="font-medium">{c.label}</span>
+                <span className="mt-0.5 block text-muted">
+                  {c.kind}
+                  {c.unit ? ` · ${c.unit}` : ""}
+                  {c.rollup ? ` · from ${c.rollup}` : ""}
+                  {c.fromChildren ? " · sum children" : ""}
+                  {c.formula ? ` · ${c.formula}` : ""}
+                </span>
+              </button>
               {canEdit ? (
-                <span className="flex gap-1">
+                <span className="flex flex-wrap gap-1">
+                  <Button tone="quiet" onClick={() => setEditing(c)}>Edit</Button>
                   <Button tone="ghost" disabled={i === 0} onClick={() => run({ type: "column.move", id: c.id, direction: "up" })}>Up</Button>
                   <Button tone="ghost" disabled={i === columns.length - 1} onClick={() => run({ type: "column.move", id: c.id, direction: "down" })}>Down</Button>
                   <Button tone="danger" onClick={() => run({ type: "column.delete", id: c.id })}>Remove</Button>
@@ -329,7 +372,15 @@ function ColumnsTab({
             </li>
           ))}
         </ul>
-        {open ? <ColumnDialog meterId={meter.id} onClose={() => setOpen(false)} /> : null}
+        {editing ? (
+          <ColumnDialog
+            key={editing === "new" ? "new" : editing.id}
+            meterId={meter.id}
+            column={editing === "new" ? undefined : editing}
+            metered={metered}
+            onClose={() => setEditing(null)}
+          />
+        ) : null}
       </Card>
       <Card>
         <p className="mb-2 font-medium">Rate tiers</p>
@@ -341,29 +392,75 @@ function ColumnsTab({
   );
 }
 
-function ColumnDialog({ meterId, onClose }: { meterId: string; onClose: () => void }) {
+function ColumnDialog({
+  meterId,
+  column,
+  metered,
+  onClose,
+}: {
+  meterId: string;
+  column?: UtilityColumn;
+  metered: boolean;
+  onClose: () => void;
+}) {
   const { run } = useBook();
-  const [label, setLabel] = useState("");
-  const [key, setKey] = useState("");
-  const [kind, setKind] = useState<"number" | "money" | "calculated">("number");
-  const [formula, setFormula] = useState("");
-  const [fromChildren, setFromChildren] = useState(false);
+  const structural = column?.rollup === "meter" || column?.rollup === "usage" || column?.rollup === "bill" || column?.rollup === "days" || column?.rollup === "charges";
+  const [label, setLabel] = useState(column?.label ?? "");
+  const [kind, setKind] = useState<"number" | "money" | "calculated" | "date">(column?.kind ?? "number");
+  const [unit, setUnit] = useState(column?.unit ?? "");
+  const [formula, setFormula] = useState(column?.formula ?? "");
+  const [fromChildren, setFromChildren] = useState(column?.fromChildren ?? false);
   return (
-    <Modal open title="Add column" onClose={onClose}>
+    <Modal open title={column ? "Edit column" : "Add column"} onClose={onClose}>
       <Field label="Label"><input className={fieldClass} value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
-      <Field label="Key"><input className={fieldClass} value={key} onChange={(e) => setKey(e.target.value)} /></Field>
       <Field label="Kind">
-        <select className={fieldClass} value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+        <select
+          className={fieldClass}
+          value={kind}
+          onChange={(e) => {
+            const next = e.target.value as typeof kind;
+            setKind(next);
+            if (next === "date" && !label.trim()) setLabel("Meter read date");
+          }}
+        >
           <option value="number">Number</option>
           <option value="money">Money</option>
           <option value="calculated">Calculated</option>
+          {metered && !structural ? <option value="date">Meter read date</option> : null}
         </select>
       </Field>
-      {kind === "calculated" ? <Field label="Formula"><input className={fieldClass} value={formula} onChange={(e) => setFormula(e.target.value)} /></Field> : null}
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={fromChildren} onChange={(e) => setFromChildren(e.target.checked)} /> Sum children</label>
+      {kind === "date" ? (
+        <p className="text-xs text-muted">The bill month is the month of this date. Days in the period are the gap back to the previous read, not a number you type.</p>
+      ) : (
+        <Field label="Unit"><input className={fieldClass} value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="kWh, $, days" /></Field>
+      )}
+      {kind === "calculated" ? (
+        <Field label="Formula">
+          <input className={fieldClass} value={formula} onChange={(e) => setFormula(e.target.value)} placeholder="{usage_kwh} - {generation_kwh}" />
+        </Field>
+      ) : null}
+      {kind === "calculated" ? (
+        <p className="text-xs text-muted">Use {"{field}"}, {"{prev.field}"}, days, avg_daily, yoy, avg_same_month, max_same_month, avg, and tier_charge. A bad formula shows an em dash.</p>
+      ) : null}
+      {kind !== "date" ? (
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={fromChildren} onChange={(e) => setFromChildren(e.target.checked)} /> Sum children</label>
+      ) : null}
+      {structural ? <p className="text-xs text-muted">The source stays {column?.rollup}. The key stays put so formulas that mention it keep working.</p> : null}
       <Button onClick={async () => {
-        if (!label.trim() || !key.trim()) return;
-        await run({ type: "column.save", column: { meterId, label, key, kind, formula, fromChildren, rollup: "" } });
+        if (!label.trim()) return;
+        await run({
+          type: "column.save",
+          column: {
+            id: column?.id,
+            meterId,
+            label: label.trim(),
+            kind,
+            unit: kind === "date" ? "" : unit.trim(),
+            formula: kind === "calculated" ? formula.trim() : "",
+            rollup: kind === "date" ? "readDate" : (column?.rollup ?? ""),
+            fromChildren: kind === "date" ? false : fromChildren,
+          },
+        });
         onClose();
       }}>Save</Button>
     </Modal>
