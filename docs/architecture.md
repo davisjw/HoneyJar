@@ -431,4 +431,4 @@ Transaction and bill editors are mounted only while open and keyed by id, so a n
 
 ## What this shape is not ready for
 
-Investments need lots, dated cash flows, and prices. Business books need a second ledger id, not another `if` on the household tables. Both should land as new tables and screens that call the same `applyAction` style, instead of overloading `transactions`.
+Investments have their own lots, prices, and cash flows (`lots`, `prices`, `portfolio_flows`, `retirement_sketches`). Market value is shares times the latest typed price. Net worth still uses the investment account balance until `portfolio.sync` copies it. Dietz and IRR live in `portfolioPerformance`. Business books still need a second ledger id, not another `if` on the household tables.

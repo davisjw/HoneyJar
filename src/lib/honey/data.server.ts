@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
-import { balanceDelta, matchCategory, packTags, parseTags, stepDue, todayISO } from "./calc";
-import { clearHousehold, ensureSamplePeople, ensureSampleTags, seedHousehold, seedStarter } from "./seed";
+import { balanceDelta, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
+import { clearHousehold, ensureSampleInvestments, ensureSamplePeople, ensureSampleTags, seedHousehold, seedStarter } from "./seed";
 import type {
   AccessRow,
   Account,
@@ -17,15 +17,19 @@ import type {
   DocumentRow,
   FilingStatus,
   Goal,
+  Lot,
   Milestone,
   Payment,
   Person,
   PlanMonth,
+  PortfolioFlow,
   Profile,
   Reminder,
   Report,
+  RetirementSketch,
   Role,
   Rule,
+  SecurityPrice,
   Snapshot,
   Txn,
   Valuation,
@@ -49,6 +53,9 @@ function dateOr(v: unknown, fallback: string): string {
 }
 function nid(): string {
   return randomBytes(9).toString("hex");
+}
+function symbolOf(v: unknown): string {
+  return str(v, 12).toUpperCase().replace(/[^A-Z0-9.-]/g, "");
 }
 function stamp(v: unknown): string | null {
   if (v == null) return null;
@@ -87,6 +94,7 @@ async function ensureSeed(sql: Sql, userId: string) {
   if (!rows[0]?.initialized) await seedHousehold(sql, userId);
   await ensureSamplePeople(sql, userId);
   await ensureSampleTags(sql, userId);
+  await ensureSampleInvestments(sql, userId);
 }
 
 function mapProfile(row: Record<string, unknown>): Profile {
@@ -132,7 +140,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
   const profileRows = await sql<Record<string, unknown>>`select * from profiles where user_id = ${owner}`;
   if (!profileRows[0]) throw new Error("Household not found.");
 
-  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, reports, keys, messages, invites, shared] =
+  const [accounts, categories, rules, people, transactions, bills, payments, assets, valuations, snapshots, goals, contributions, plan, watches, reads, reminders, documents, scores, milestones, lots, prices, flows, sketches, reports, keys, messages, invites, shared] =
     await Promise.all([
       sql<Record<string, unknown>>`select * from accounts where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select * from categories where user_id = ${owner} order by sort, name`,
@@ -153,6 +161,10 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
       sql<Record<string, unknown>>`select * from documents where user_id = ${owner} order by title`,
       sql<Record<string, unknown>>`select * from credit_scores where user_id = ${owner} order by as_of`,
       sql<Record<string, unknown>>`select * from milestones where user_id = ${owner} order by name`,
+      sql<Record<string, unknown>>`select * from lots where user_id = ${owner} order by acquired_on, symbol`,
+      sql<Record<string, unknown>>`select * from prices where user_id = ${owner} order by as_of, symbol`,
+      sql<Record<string, unknown>>`select * from portfolio_flows where user_id = ${owner} order by posted_on, symbol`,
+      sql<Record<string, unknown>>`select * from retirement_sketches where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select * from reports where user_id = ${owner} order by name`,
       sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used from api_keys where user_id = ${owner} order by created_at desc`,
       sql<Record<string, unknown>>`select * from ai_messages where user_id = ${owner} order by created_at desc limit 40`,
@@ -208,6 +220,10 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     documents: documents.map(mapDocument),
     scores: scores.map(mapScore),
     milestones: milestones.map(mapMilestone),
+    lots: lots.map(mapLot),
+    prices: prices.map(mapPrice),
+    flows: flows.map(mapFlow),
+    sketches: sketches.map(mapSketch),
     reports: reports.map(mapReport),
     keys: keys.map(mapKey),
     messages: messages.map(mapMessage).reverse(),
@@ -410,6 +426,53 @@ function mapMilestone(r: Record<string, unknown>): Milestone {
     monthlyCents: num(r.monthly_cents),
     annualReturnBps: num(r.annual_return_bps),
     notes: String(r.notes ?? ""),
+  };
+}
+function mapLot(r: Record<string, unknown>): Lot {
+  return {
+    id: String(r.id),
+    accountId: r.account_id ? String(r.account_id) : null,
+    symbol: String(r.symbol ?? "").toUpperCase(),
+    name: String(r.name ?? ""),
+    acquiredOn: String(r.acquired_on).slice(0, 10),
+    sharesMicros: num(r.shares_micros),
+    costCents: num(r.cost_cents),
+    closedOn: r.closed_on ? String(r.closed_on).slice(0, 10) : null,
+    notes: String(r.notes ?? ""),
+  };
+}
+function mapPrice(r: Record<string, unknown>): SecurityPrice {
+  return {
+    id: String(r.id),
+    symbol: String(r.symbol ?? "").toUpperCase(),
+    asOf: String(r.as_of).slice(0, 10),
+    priceCents: num(r.price_cents),
+  };
+}
+function mapFlow(r: Record<string, unknown>): PortfolioFlow {
+  return {
+    id: String(r.id),
+    lotId: r.lot_id ? String(r.lot_id) : null,
+    accountId: r.account_id ? String(r.account_id) : null,
+    symbol: String(r.symbol ?? "").toUpperCase(),
+    kind: String(r.kind),
+    postedOn: String(r.posted_on).slice(0, 10),
+    amountCents: num(r.amount_cents),
+    external: Boolean(r.external),
+    transactionId: r.transaction_id ? String(r.transaction_id) : null,
+    memo: String(r.memo ?? ""),
+  };
+}
+function mapSketch(r: Record<string, unknown>): RetirementSketch {
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    monthlyCents: num(r.monthly_cents),
+    annualReturnBps: num(r.annual_return_bps, 500),
+    years: Math.min(60, Math.max(1, num(r.years, 30))),
+    targetCents: num(r.target_cents),
+    usePortfolio: Boolean(r.use_portfolio),
+    startCents: num(r.start_cents),
   };
 }
 function mapReport(r: Record<string, unknown>): Report {
@@ -947,6 +1010,157 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     }
     case "milestone.delete": {
       await sql`delete from milestones where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "lot.save": {
+      const lot = action.lot;
+      const id = str(lot.id, 80) || nid();
+      const symbol = symbolOf(lot.symbol);
+      if (!symbol) throw new Error("A lot needs a ticker.");
+      const acquired = dateOr(lot.acquiredOn, "");
+      if (!acquired) throw new Error("A lot needs the date you bought it.");
+      const shares = Math.max(0, num(lot.sharesMicros));
+      const cost = Math.max(0, num(lot.costCents));
+      if (shares <= 0) throw new Error("Enter the number of shares.");
+      const closed = lot.closedOn ? dateOr(lot.closedOn, "") || null : null;
+      const accountId = str(lot.accountId, 80) || null;
+      const existing = await sql`select id from lots where id = ${id} and user_id = ${owner}`;
+      if (existing.length) {
+        await sql`
+          update lots set
+            account_id = ${accountId}, symbol = ${symbol}, name = ${str(lot.name, 80)},
+            acquired_on = ${acquired}, shares_micros = ${shares}, cost_cents = ${cost},
+            closed_on = ${closed}, notes = ${str(lot.notes, 240)}
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        await sql`
+          insert into lots (id, user_id, account_id, symbol, name, acquired_on, shares_micros, cost_cents, closed_on, notes)
+          values (${id}, ${owner}, ${accountId}, ${symbol}, ${str(lot.name, 80)}, ${acquired}, ${shares}, ${cost}, ${closed}, ${str(lot.notes, 240)})
+        `;
+        if (action.recordBuy !== false && cost > 0) {
+          await sql`
+            insert into portfolio_flows (id, user_id, lot_id, account_id, symbol, kind, posted_on, amount_cents, external, transaction_id, memo)
+            values (${nid()}, ${owner}, ${id}, ${accountId}, ${symbol}, 'buy', ${acquired}, ${cost}, true, null, ${"Cost of " + symbol})
+          `;
+        }
+      }
+      return {};
+    }
+    case "lot.delete": {
+      await sql`update portfolio_flows set lot_id = null where lot_id = ${action.id} and user_id = ${owner}`;
+      await sql`delete from lots where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "price.save": {
+      const p = action.price;
+      const id = str(p.id, 80) || nid();
+      const symbol = symbolOf(p.symbol);
+      const asOf = dateOr(p.asOf, "");
+      if (!symbol || !asOf) throw new Error("A price needs a ticker and a date.");
+      const cents = Math.max(0, num(p.priceCents));
+      const existing = await sql`select id from prices where id = ${id} and user_id = ${owner}`;
+      if (existing.length) {
+        await sql`update prices set symbol = ${symbol}, as_of = ${asOf}, price_cents = ${cents} where id = ${id} and user_id = ${owner}`;
+      } else {
+        await sql`insert into prices (id, user_id, symbol, as_of, price_cents) values (${id}, ${owner}, ${symbol}, ${asOf}, ${cents})`;
+      }
+      return {};
+    }
+    case "price.delete": {
+      await sql`delete from prices where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "flow.save": {
+      const f = action.flow;
+      const kinds = ["buy", "contribution", "withdrawal", "dividend", "fee"];
+      const kind = kinds.includes(String(f.kind)) ? String(f.kind) : "";
+      if (!kind) throw new Error("Pick what kind of cash flow this is.");
+      const posted = dateOr(f.postedOn, "");
+      if (!posted) throw new Error("A cash flow needs a date.");
+      const amount = Math.max(0, num(f.amountCents));
+      if (amount <= 0) throw new Error("Enter an amount.");
+      const id = str(f.id, 80) || nid();
+      const symbol = symbolOf(f.symbol);
+      const accountId = str(f.accountId, 80) || null;
+      const external = f.external !== false;
+      const existing = await sql<{ transaction_id: string | null }>`select transaction_id from portfolio_flows where id = ${id} and user_id = ${owner}`;
+      let transactionId = existing[0]?.transaction_id ?? null;
+      if (!existing.length && action.recordInBooks && kind === "dividend") {
+        if (!accountId) throw new Error("Pick the cash account that received the dividend.");
+        const cats = await sql<{ id: string }>`select id from categories where user_id = ${owner} and lower(name) = 'dividends' limit 1`;
+        transactionId = nid();
+        const merchant = symbol ? `${symbol} dividend` : "Dividend";
+        await adjust(sql, owner, accountId, amount);
+        await sql`
+          insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id)
+          values (${transactionId}, ${owner}, ${accountId}, ${cats[0]?.id ?? null}, ${posted}, ${amount}, ${merchant}, ${str(f.memo, 240) || "Portfolio dividend"}, false, 'B', 'dividends', true, 'investment', null)
+        `;
+      }
+      if (existing.length) {
+        await sql`
+          update portfolio_flows set
+            lot_id = ${str(f.lotId, 80) || null}, account_id = ${accountId}, symbol = ${symbol},
+            kind = ${kind}, posted_on = ${posted}, amount_cents = ${amount}, external = ${external}, memo = ${str(f.memo, 240)}
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        await sql`
+          insert into portfolio_flows (id, user_id, lot_id, account_id, symbol, kind, posted_on, amount_cents, external, transaction_id, memo)
+          values (${id}, ${owner}, ${str(f.lotId, 80) || null}, ${accountId}, ${symbol}, ${kind}, ${posted}, ${amount}, ${external}, ${transactionId}, ${str(f.memo, 240)})
+        `;
+      }
+      return {};
+    }
+    case "flow.delete": {
+      const rows = await sql<{ transaction_id: string | null }>`select transaction_id from portfolio_flows where id = ${action.id} and user_id = ${owner}`;
+      const txnId = rows[0]?.transaction_id;
+      if (txnId) {
+        const txn = await sql<{ account_id: string; amount_cents: number }>`select account_id, amount_cents from transactions where id = ${txnId} and user_id = ${owner}`;
+        if (txn[0]) await adjust(sql, owner, txn[0].account_id, -num(txn[0].amount_cents));
+        await sql`delete from transactions where id = ${txnId} and user_id = ${owner}`;
+      }
+      await sql`delete from portfolio_flows where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "sketch.save": {
+      const s = action.sketch;
+      const id = str(s.id, 80) || nid();
+      const name = str(s.name, 80);
+      if (!name) throw new Error("Name the sketch.");
+      const years = Math.min(60, Math.max(1, num(s.years, 30)));
+      const bps = Math.max(0, Math.min(3000, num(s.annualReturnBps, 500)));
+      const existing = await sql`select id from retirement_sketches where id = ${id} and user_id = ${owner}`;
+      if (existing.length) {
+        await sql`
+          update retirement_sketches set
+            name = ${name}, monthly_cents = ${Math.max(0, num(s.monthlyCents))}, annual_return_bps = ${bps},
+            years = ${years}, target_cents = ${Math.max(0, num(s.targetCents))},
+            use_portfolio = ${s.usePortfolio !== false}, start_cents = ${Math.max(0, num(s.startCents))}
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        await sql`
+          insert into retirement_sketches (id, user_id, name, monthly_cents, annual_return_bps, years, target_cents, use_portfolio, start_cents)
+          values (${id}, ${owner}, ${name}, ${Math.max(0, num(s.monthlyCents))}, ${bps}, ${years}, ${Math.max(0, num(s.targetCents))}, ${s.usePortfolio !== false}, ${Math.max(0, num(s.startCents))})
+        `;
+      }
+      return {};
+    }
+    case "sketch.delete": {
+      await sql`delete from retirement_sketches where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "portfolio.sync": {
+      const accountId = str(action.accountId, 80);
+      const acct = await sql`select id from accounts where id = ${accountId} and user_id = ${owner}`;
+      if (!acct[0]) throw new Error("Pick an account that belongs to this household.");
+      const lotRows = await sql<Record<string, unknown>>`select * from lots where user_id = ${owner} and account_id = ${accountId}`;
+      const priceRows = await sql<Record<string, unknown>>`select * from prices where user_id = ${owner}`;
+      const open = lotRows.map(mapLot).filter((lot) => !lot.closedOn);
+      if (!open.length) throw new Error("That account has no open lots.");
+      const perf = portfolioPerformance({ lots: open, prices: priceRows.map(mapPrice), flows: [], today: todayISO() });
+      await sql`update accounts set balance_cents = ${perf.marketCents} where id = ${accountId} and user_id = ${owner}`;
       return {};
     }
     case "report.save": {

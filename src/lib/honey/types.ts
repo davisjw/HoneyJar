@@ -272,6 +272,49 @@ export type Milestone = {
   notes: string;
 };
 
+export type Lot = {
+  id: string;
+  accountId: string | null;
+  symbol: string;
+  name: string;
+  acquiredOn: string;
+  sharesMicros: number;
+  costCents: number;
+  closedOn: string | null;
+  notes: string;
+};
+
+export type SecurityPrice = {
+  id: string;
+  symbol: string;
+  asOf: string;
+  priceCents: number;
+};
+
+export type PortfolioFlow = {
+  id: string;
+  lotId: string | null;
+  accountId: string | null;
+  symbol: string;
+  kind: string;
+  postedOn: string;
+  amountCents: number;
+  external: boolean;
+  transactionId: string | null;
+  memo: string;
+};
+
+export type RetirementSketch = {
+  id: string;
+  name: string;
+  monthlyCents: number;
+  annualReturnBps: number;
+  years: number;
+  targetCents: number;
+  usePortfolio: boolean;
+  startCents: number;
+};
+
 export type Report = {
   id: string;
   name: string;
@@ -322,6 +365,10 @@ export type Workspace = {
   documents: DocumentRow[];
   scores: CreditScore[];
   milestones: Milestone[];
+  lots: Lot[];
+  prices: SecurityPrice[];
+  flows: PortfolioFlow[];
+  sketches: RetirementSketch[];
   reports: Report[];
   keys: ApiKeyPublic[];
   messages: AiMessage[];
@@ -364,6 +411,15 @@ export type Action =
   | { type: "score.delete"; id: string; ownerId?: string }
   | { type: "milestone.save"; milestone: Partial<Milestone> & { name: string; kind: string; targetCents: number }; ownerId?: string }
   | { type: "milestone.delete"; id: string; ownerId?: string }
+  | { type: "lot.save"; lot: Partial<Lot> & { symbol: string; acquiredOn: string; sharesMicros: number; costCents: number }; recordBuy?: boolean; ownerId?: string }
+  | { type: "lot.delete"; id: string; ownerId?: string }
+  | { type: "price.save"; price: Partial<SecurityPrice> & { symbol: string; asOf: string; priceCents: number }; ownerId?: string }
+  | { type: "price.delete"; id: string; ownerId?: string }
+  | { type: "flow.save"; flow: Partial<PortfolioFlow> & { kind: string; postedOn: string; amountCents: number }; recordInBooks?: boolean; ownerId?: string }
+  | { type: "flow.delete"; id: string; ownerId?: string }
+  | { type: "sketch.save"; sketch: Partial<RetirementSketch> & { name: string }; ownerId?: string }
+  | { type: "sketch.delete"; id: string; ownerId?: string }
+  | { type: "portfolio.sync"; accountId: string; ownerId?: string }
   | { type: "report.save"; report: Partial<Report> & { name: string; metric: string }; ownerId?: string }
   | { type: "report.delete"; id: string; ownerId?: string }
   | { type: "invite.create"; role: string; email: string; ownerId?: string }

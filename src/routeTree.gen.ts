@@ -23,6 +23,7 @@ import { Route as AppMilestonesRouteImport } from './routes/_app/milestones'
 import { Route as AppNetworthRouteImport } from './routes/_app/networth'
 import { Route as AppPeopleRouteImport } from './routes/_app/people'
 import { Route as AppPlanRouteImport } from './routes/_app/plan'
+import { Route as AppPortfolioRouteImport } from './routes/_app/portfolio'
 import { Route as AppRemindersRouteImport } from './routes/_app/reminders'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
@@ -103,6 +104,11 @@ const AppPlanRoute = AppPlanRouteImport.update({
   path: '/plan',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPortfolioRoute = AppPortfolioRouteImport.update({
+  id: '/portfolio',
+  path: '/portfolio',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppRemindersRoute = AppRemindersRouteImport.update({
   id: '/reminders',
   path: '/reminders',
@@ -168,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/networth': typeof AppNetworthRoute
   '/people': typeof AppPeopleRoute
   '/plan': typeof AppPlanRoute
+  '/portfolio': typeof AppPortfolioRoute
   '/reminders': typeof AppRemindersRoute
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
@@ -192,6 +199,7 @@ export interface FileRoutesByTo {
   '/networth': typeof AppNetworthRoute
   '/people': typeof AppPeopleRoute
   '/plan': typeof AppPlanRoute
+  '/portfolio': typeof AppPortfolioRoute
   '/reminders': typeof AppRemindersRoute
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
@@ -219,6 +227,7 @@ export interface FileRoutesById {
   '/_app/networth': typeof AppNetworthRoute
   '/_app/people': typeof AppPeopleRoute
   '/_app/plan': typeof AppPlanRoute
+  '/_app/portfolio': typeof AppPortfolioRoute
   '/_app/reminders': typeof AppRemindersRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/settings': typeof AppSettingsRoute
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
     | '/networth'
     | '/people'
     | '/plan'
+    | '/portfolio'
     | '/reminders'
     | '/reports'
     | '/settings'
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/networth'
     | '/people'
     | '/plan'
+    | '/portfolio'
     | '/reminders'
     | '/reports'
     | '/settings'
@@ -297,6 +308,7 @@ export interface FileRouteTypes {
     | '/_app/networth'
     | '/_app/people'
     | '/_app/plan'
+    | '/_app/portfolio'
     | '/_app/reminders'
     | '/_app/reports'
     | '/_app/settings'
@@ -418,6 +430,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPlanRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/portfolio': {
+      id: '/_app/portfolio'
+      path: '/portfolio'
+      fullPath: '/portfolio'
+      preLoaderRoute: typeof AppPortfolioRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/reminders': {
       id: '/_app/reminders'
       path: '/reminders'
@@ -503,6 +522,7 @@ interface AppRouteChildren {
   AppNetworthRoute: typeof AppNetworthRoute
   AppPeopleRoute: typeof AppPeopleRoute
   AppPlanRoute: typeof AppPlanRoute
+  AppPortfolioRoute: typeof AppPortfolioRoute
   AppRemindersRoute: typeof AppRemindersRoute
   AppReportsRoute: typeof AppReportsRoute
   AppSettingsRoute: typeof AppSettingsRoute
@@ -525,6 +545,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNetworthRoute: AppNetworthRoute,
   AppPeopleRoute: AppPeopleRoute,
   AppPlanRoute: AppPlanRoute,
+  AppPortfolioRoute: AppPortfolioRoute,
   AppRemindersRoute: AppRemindersRoute,
   AppReportsRoute: AppReportsRoute,
   AppSettingsRoute: AppSettingsRoute,

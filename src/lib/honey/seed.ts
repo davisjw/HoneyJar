@@ -30,6 +30,10 @@ export async function clearHousehold(sql: Sql, userId: string) {
     "reports",
     "ai_messages",
     "categories",
+    "portfolio_flows",
+    "prices",
+    "lots",
+    "retirement_sketches",
     "accounts",
     "people",
   ];
@@ -404,6 +408,7 @@ export async function seedHousehold(sql: Sql, userId: string) {
   await put(sql, "reports", { id: id("rp2"), user_id: userId, name: "Income sources", metric: "income", range_key: "ytd", group_by: "category", filters_json: "{}" });
   await put(sql, "reports", { id: id("rp3"), user_id: userId, name: "Merchants, 90 days", metric: "merchant", range_key: "quarter", group_by: "merchant", filters_json: "{}" });
   await put(sql, "reports", { id: id("rp4"), user_id: userId, name: "Spending by person", metric: "spending", range_key: "month", group_by: "person", filters_json: "{}" });
+  await insertSamplePortfolio(sql, userId);
 }
 
 function sampleTags(merchant: string): string[] {
@@ -527,6 +532,115 @@ export async function ensureSamplePeople(sql: Sql, userId: string) {
 
 function slug(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "x";
+}
+
+async function insertSamplePortfolio(sql: Sql, userId: string) {
+  const sid = slug(userId);
+  const id = (s: string) => `s_${sid}_${s}`;
+  const today = todayISO();
+  const broker = id("brok");
+  await put(sql, "accounts", {
+    id: broker,
+    user_id: userId,
+    name: "Brokerage",
+    institution: "First Harbor",
+    kind: "investment",
+    mask: "7741",
+    balance_cents: 1352600,
+    limit_cents: null,
+    apr_bps: null,
+    connected: false,
+    archived: false,
+    opened_on: "2022-03-15",
+    custom_json: "[]",
+  });
+  await put(sql, "lots", {
+    id: id("lot_vti"),
+    user_id: userId,
+    account_id: broker,
+    symbol: "VTI",
+    name: "Total US stock",
+    acquired_on: "2022-03-15",
+    shares_micros: 40500000,
+    cost_cents: 820000,
+    closed_on: null,
+    notes: "40.5 shares. Price is whatever you type on Portfolio.",
+  });
+  await put(sql, "lots", {
+    id: id("lot_vxus"),
+    user_id: userId,
+    account_id: broker,
+    symbol: "VXUS",
+    name: "Total international",
+    acquired_on: "2023-01-10",
+    shares_micros: 25000000,
+    cost_cents: 140000,
+    closed_on: null,
+    notes: "",
+  });
+  await put(sql, "prices", { id: id("px_vti_old"), user_id: userId, symbol: "VTI", as_of: "2024-01-02", price_cents: 25200 });
+  await put(sql, "prices", { id: id("px_vti"), user_id: userId, symbol: "VTI", as_of: today, price_cents: 29200 });
+  await put(sql, "prices", { id: id("px_vxus_old"), user_id: userId, symbol: "VXUS", as_of: "2024-01-02", price_cents: 5900 });
+  await put(sql, "prices", { id: id("px_vxus"), user_id: userId, symbol: "VXUS", as_of: today, price_cents: 6800 });
+  await put(sql, "portfolio_flows", {
+    id: id("fl_vti"),
+    user_id: userId,
+    lot_id: id("lot_vti"),
+    account_id: broker,
+    symbol: "VTI",
+    kind: "buy",
+    posted_on: "2022-03-15",
+    amount_cents: 820000,
+    external: true,
+    transaction_id: null,
+    memo: "Opened the lot",
+  });
+  await put(sql, "portfolio_flows", {
+    id: id("fl_vxus"),
+    user_id: userId,
+    lot_id: id("lot_vxus"),
+    account_id: broker,
+    symbol: "VXUS",
+    kind: "buy",
+    posted_on: "2023-01-10",
+    amount_cents: 140000,
+    external: true,
+    transaction_id: null,
+    memo: "Opened the lot",
+  });
+  await put(sql, "portfolio_flows", {
+    id: id("fl_div"),
+    user_id: userId,
+    lot_id: null,
+    account_id: broker,
+    symbol: "VTI",
+    kind: "dividend",
+    posted_on: addDays(today, -40),
+    amount_cents: 8400,
+    external: true,
+    transaction_id: null,
+    memo: "Cash dividend. The books already include this as Index fund dividend.",
+  });
+  await put(sql, "retirement_sketches", {
+    id: id("rs1"),
+    user_id: userId,
+    name: "Index sketch",
+    monthly_cents: 40000,
+    annual_return_bps: 600,
+    years: 25,
+    target_cents: 10000000,
+    use_portfolio: true,
+    start_cents: 0,
+  });
+}
+
+/** Sample households created before the portfolio existed get one brokerage once. */
+export async function ensureSampleInvestments(sql: Sql, userId: string) {
+  const prof = await sql<{ seeded: boolean }>`select seeded from profiles where user_id = ${userId}`;
+  if (!prof[0]?.seeded) return;
+  const rows = await sql<{ n: number }>`select count(*) as n from lots where user_id = ${userId}`;
+  if (Number(rows[0]?.n ?? 0) > 0) return;
+  await insertSamplePortfolio(sql, userId);
 }
 
 function nextDom(today: string, day: number): string {

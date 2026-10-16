@@ -16,6 +16,7 @@ import {
   Share2,
   Sparkles,
   Target,
+  TrendingUp,
   Users,
   Wallet,
   X,
@@ -41,6 +42,7 @@ const NAV = [
     group: "Wealth",
     items: [
       { to: "/networth", id: "networth", label: "Net worth", icon: Landmark },
+      { to: "/portfolio", id: "portfolio", label: "Portfolio", icon: TrendingUp },
       { to: "/goals", id: "goals", label: "Goals", icon: PiggyBank },
       { to: "/milestones", id: "milestones", label: "Milestones", icon: Flag },
       { to: "/credit", id: "credit", label: "Credit", icon: Scale },

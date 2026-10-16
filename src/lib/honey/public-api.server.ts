@@ -8,6 +8,7 @@ import {
   planModel,
   spendingByCategory,
   periodStart,
+  portfolioPerformance,
 } from "./calc";
 import { applyAction, loadWorkspace } from "./data.server";
 
@@ -54,7 +55,7 @@ export async function handlePublicApi(request: Request): Promise<Response> {
       return json({
         name: "HoneyJar",
         household: ws.profile.displayName,
-        endpoints: ["/summary", "/accounts", "/transactions", "/bills", "/goals", "/networth", "/alerts"],
+        endpoints: ["/summary", "/accounts", "/transactions", "/bills", "/goals", "/networth", "/portfolio", "/alerts"],
       });
     }
     if (request.method === "GET" && path === "/summary") {
@@ -84,6 +85,16 @@ export async function handlePublicApi(request: Request): Promise<Response> {
     if (request.method === "GET" && path === "/goals") return json({ goals: ws.goals });
     if (request.method === "GET" && path === "/networth") {
       return json({ ...netWorthParts(ws.accounts, ws.assets), assetsDetail: ws.assets });
+    }
+    if (request.method === "GET" && path === "/portfolio") {
+      const perf = portfolioPerformance({ lots: ws.lots, prices: ws.prices, flows: ws.flows, today: ws.today });
+      return json({
+        ...perf,
+        lots: ws.lots,
+        prices: ws.prices,
+        flows: ws.flows,
+        sketches: ws.sketches,
+      });
     }
     if (request.method === "GET" && path === "/alerts") {
       const month = periodOf(ws.today, ws.profile.monthStartDay);
@@ -146,6 +157,7 @@ const TOOLS = [
   { name: "list_transactions", description: "Recent transactions. Optional from, to, limit." },
   { name: "upcoming_bills", description: "Bills, subscriptions, and expected income." },
   { name: "net_worth", description: "Assets, debts, and net worth." },
+  { name: "portfolio", description: "Lots, typed prices, Dietz and IRR, and dividend flows. Not a live quote." },
   { name: "list_goals", description: "Savings goals and progress." },
   { name: "list_alerts", description: "Open watchlist and bill alerts, each with a path inside HoneyJar." },
 ];
@@ -191,6 +203,7 @@ function toolPath(name: string): string {
   if (name === "list_transactions") return "transactions";
   if (name === "upcoming_bills") return "bills";
   if (name === "net_worth") return "networth";
+  if (name === "portfolio") return "portfolio";
   if (name === "list_goals") return "goals";
   if (name === "list_alerts") return "alerts";
   return "summary";

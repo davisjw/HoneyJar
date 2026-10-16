@@ -32,7 +32,7 @@ export const askAdvisor = createServerFn({ method: "POST" })
   })
   .handler(async ({ context, data }) => {
     const { advisorContext } = await import("./data.server");
-    const { advisorBrief } = await import("./calc");
+    const { advisorBrief, portfolioPerformance } = await import("./calc");
     const { getSql } = await import("@/lib/db");
     const ws = await advisorContext(context.userId, data.ownerId);
     const brief = advisorBrief({
@@ -44,12 +44,18 @@ export const askAdvisor = createServerFn({ method: "POST" })
       bills: ws.bills,
       goals: ws.goals,
       assets: ws.assets,
+      portfolio: ws.lots.length
+        ? (() => {
+            const perf = portfolioPerformance({ lots: ws.lots, prices: ws.prices, flows: ws.flows, today: ws.today });
+            return { marketCents: perf.marketCents, irr: perf.irr, dietz: perf.dietz, dietzAnnual: perf.dietzAnnual };
+          })()
+        : undefined,
     });
     const system = [
       "You are HoneyJar, a calm guide for this household's money.",
       "Use only the figures in the brief. If a number is not there, say you don't have it.",
       "Give a short answer with one or two concrete next steps.",
-      "When a screen in the app would help, name it: Spending, Transactions, Bills, Spending plan, Cash flow, Net worth, Goals, Milestones, Reports, Taxes, Credit, Watchlists, Reminders, Documents, Accounts.",
+      "When a screen in the app would help, name it: Spending, Transactions, Bills, Spending plan, Cash flow, Net worth, Portfolio, Goals, Milestones, Reports, Taxes, Credit, Watchlists, Reminders, Documents, Accounts.",
       "You are not filing a return and you are not a broker.",
       "",
       brief,

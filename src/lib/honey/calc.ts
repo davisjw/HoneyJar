@@ -1034,6 +1034,7 @@ export function advisorBrief(input: {
   bills: Bill[];
   goals: Goal[];
   assets: Asset[];
+  portfolio?: { marketCents: number; irr: number | null; dietz: number | null; dietzAnnual: number | null };
 }): string {
   const nw = netWorthParts(input.accounts, input.assets);
   const month = periodOf(input.today, input.profile.monthStartDay);
@@ -1065,8 +1066,189 @@ export function advisorBrief(input: {
     `Spending so far in ${month}: ${spendLine || "none"}.`,
     `Upcoming bills and income: ${upcoming || "none"}.`,
     `Goals: ${goalLine || "none"}.`,
+    input.portfolio
+      ? `Portfolio market value ${money(input.portfolio.marketCents, input.profile.currency)}. Modified Dietz since inception ${input.portfolio.dietz == null ? "n/a" : `${(input.portfolio.dietz * 100).toFixed(1)}%`} (${input.portfolio.dietzAnnual == null ? "n/a" : `${(input.portfolio.dietzAnnual * 100).toFixed(1)}%`} annualized). Money-weighted ${input.portfolio.irr == null ? "n/a" : `${(input.portfolio.irr * 100).toFixed(1)}%`} annualized. Prices were typed by the household, not a live feed.`
+      : "No portfolio lots on file.",
     `Filing status ${input.profile.filingStatus}. Do not invent numbers that are not here. If something is missing, say so.`,
   ].join("\n");
 }
 
 export const CHART_COLORS = ["#c4841d", "#2f6b4f", "#8c5a10", "#a33b2b", "#6f6458", "#1c1612", "#d7b56a", "#4e8f6d"];
+
+const SHARE_MICROS = 1_000_000;
+
+export function sharesToMicros(raw: string): number {
+  const n = Number(String(raw).replace(/,/g, "").trim());
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * SHARE_MICROS);
+}
+
+export function formatShares(micros: number): string {
+  const n = micros / SHARE_MICROS;
+  return n.toLocaleString("en-US", { maximumFractionDigits: 4 });
+}
+
+export type LotLike = {
+  symbol: string;
+  name?: string;
+  acquiredOn: string;
+  sharesMicros: number;
+  costCents: number;
+  closedOn: string | null;
+  accountId?: string | null;
+};
+
+export type PriceLike = { symbol: string; asOf: string; priceCents: number };
+
+export type FlowLike = {
+  kind: string;
+  postedOn: string;
+  amountCents: number;
+  external: boolean;
+  symbol?: string;
+};
+
+function utcDay(iso: string): number {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return Date.UTC(y, (m || 1) - 1, d || 1) / 86_400_000;
+}
+
+export function latestPrice(prices: PriceLike[], symbol: string, today: string): number | null {
+  const want = symbol.toUpperCase();
+  let best: PriceLike | null = null;
+  for (const p of prices) {
+    if (p.symbol.toUpperCase() !== want || p.asOf > today) continue;
+    if (!best || p.asOf > best.asOf) best = p;
+  }
+  return best ? best.priceCents : null;
+}
+
+export function lotMarketCents(lot: LotLike, priceCents: number | null): { cents: number; priced: boolean } {
+  if (lot.closedOn) return { cents: 0, priced: true };
+  if (lot.sharesMicros <= 0) return { cents: 0, priced: true };
+  if (priceCents == null) return { cents: lot.costCents, priced: false };
+  return { cents: Math.round((lot.sharesMicros / SHARE_MICROS) * priceCents), priced: true };
+}
+
+/** Money into the portfolio is positive. Money back to the household is negative. */
+export function flowToPortfolio(kind: string, amountCents: number): number {
+  const amt = Math.abs(amountCents);
+  if (kind === "buy" || kind === "contribution") return amt;
+  return -amt;
+}
+
+export function portfolioPerformance(opts: {
+  lots: LotLike[];
+  prices: PriceLike[];
+  flows: FlowLike[];
+  today: string;
+}): {
+  marketCents: number;
+  costCents: number;
+  gainCents: number;
+  unpriced: string[];
+  dietz: number | null;
+  dietzAnnual: number | null;
+  irr: number | null;
+  dividendsYtd: number;
+  since: string | null;
+} {
+  const unpriced = new Set<string>();
+  let marketCents = 0;
+  let costCents = 0;
+  for (const lot of opts.lots) {
+    if (lot.closedOn) continue;
+    costCents += lot.costCents;
+    const price = latestPrice(opts.prices, lot.symbol, opts.today);
+    const valued = lotMarketCents(lot, price);
+    marketCents += valued.cents;
+    if (!valued.priced) unpriced.add(lot.symbol.toUpperCase());
+  }
+  const year = opts.today.slice(0, 4);
+  const dividendsYtd = opts.flows
+    .filter((f) => f.kind === "dividend" && f.postedOn.slice(0, 4) === year && f.postedOn <= opts.today)
+    .reduce((s, f) => s + Math.abs(f.amountCents), 0);
+  const external = opts.flows
+    .filter((f) => f.external && f.amountCents !== 0 && f.postedOn <= opts.today)
+    .map((f) => ({ date: f.postedOn, into: flowToPortfolio(f.kind, f.amountCents) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const since = external[0]?.date ?? null;
+  const dietz = since ? modifiedDietz(since, opts.today, marketCents, external) : null;
+  return {
+    marketCents,
+    costCents,
+    gainCents: marketCents - costCents,
+    unpriced: [...unpriced],
+    dietz,
+    dietzAnnual: since && dietz != null ? annualize(dietz, since, opts.today) : null,
+    irr: since ? xirr(irrRows(external, opts.today, marketCents)) : null,
+    dividendsYtd,
+    since,
+  };
+}
+
+function annualize(total: number, start: string, end: string): number | null {
+  const days = utcDay(end) - utcDay(start);
+  if (days <= 0) return null;
+  const ann = Math.pow(1 + total, 365 / days) - 1;
+  return Number.isFinite(ann) ? ann : null;
+}
+
+function irrRows(external: { date: string; into: number }[], today: string, marketCents: number) {
+  const rows = external.map((f) => ({ date: f.date, amountCents: -f.into }));
+  const last = rows[rows.length - 1];
+  if (last && last.date === today) last.amountCents += marketCents;
+  else rows.push({ date: today, amountCents: marketCents });
+  return rows;
+}
+
+export function modifiedDietz(
+  start: string,
+  end: string,
+  endValueCents: number,
+  flows: { date: string; into: number }[],
+): number | null {
+  const days = utcDay(end) - utcDay(start);
+  if (days <= 0) return null;
+  let net = 0;
+  let weighted = 0;
+  for (const f of flows) {
+    if (f.date < start || f.date > end) continue;
+    const remain = utcDay(end) - utcDay(f.date);
+    net += f.into;
+    weighted += f.into * (remain / days);
+  }
+  if (weighted === 0) return null;
+  const gain = endValueCents - net;
+  const rate = gain / weighted;
+  return Number.isFinite(rate) ? rate : null;
+}
+
+/** Annual money-weighted return. Null when the cash flows do not change sign. */
+export function xirr(flows: { date: string; amountCents: number }[]): number | null {
+  const rows = flows.filter((f) => f.amountCents !== 0).sort((a, b) => a.date.localeCompare(b.date));
+  if (rows.length < 2) return null;
+  if (!rows.some((r) => r.amountCents > 0) || !rows.some((r) => r.amountCents < 0)) return null;
+  const t0 = utcDay(rows[0].date);
+  const npv = (rate: number) =>
+    rows.reduce((sum, row) => {
+      const years = (utcDay(row.date) - t0) / 365;
+      return sum + row.amountCents / Math.pow(1 + rate, years);
+    }, 0);
+  const slope = (rate: number) =>
+    rows.reduce((sum, row) => {
+      const years = (utcDay(row.date) - t0) / 365;
+      return sum + (-years * row.amountCents) / Math.pow(1 + rate, years + 1);
+    }, 0);
+  let rate = 0.1;
+  for (let i = 0; i < 60; i += 1) {
+    const y = npv(rate);
+    const dy = slope(rate);
+    if (!Number.isFinite(y) || !Number.isFinite(dy) || Math.abs(dy) < 1e-8) return null;
+    const next = rate - y / dy;
+    if (!Number.isFinite(next) || next <= -0.999) return null;
+    if (Math.abs(next - rate) < 1e-8) return next;
+    rate = next;
+  }
+  return Number.isFinite(rate) ? rate : null;
+}

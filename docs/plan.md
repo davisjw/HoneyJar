@@ -41,8 +41,7 @@ The sample household is the Calders in Oakland: Jordan, Avery, and Remy. It is d
 ## Explicitly not in version 2
 
 - Live bank, card, or brokerage sync.
-- A live Zillow or market-data feed.
-- Portfolio lots, TWR, IRR, dividends, and retirement scenarios.
+- A live quote feed. Portfolio prices are typed.
 - Business books, invoices, mileage, Schedule C.
 - The Excel workbook. It stays out of git.
 
@@ -54,15 +53,11 @@ The sample household is the Calders in Oakland: Jordan, Avery, and Remy. It is d
 - **The advisor does not invent figures.** If the brief does not contain a number, the answer should say so.
 - **Tax output is a worksheet.** It is not a return and not tax advice. Brackets in code are tax year 2026 (Rev. Proc. 2025-32).
 
-## Next, when personal books stay put
+## Investments
 
-Investments, as their own screens and tables, not columns stuffed into the checking register:
+The first slice is in. Portfolio holds lots, typed prices, and dated cash flows. Modified Dietz is the time-weighted figure. IRR is the money-weighted figure, treating today’s market value as a sale. A dividend can post cash and a Schedule B line. The retirement card is a straight-line sketch, not a plan. Net worth does not pick up lot value until you copy it onto an account.
 
-- Holdings and lots, separate from the cash accounts that already exist (`kind = investment` is only a balance today).
-- Cash flows into and out of the portfolio so IRR and TWR have dates, not just an end balance.
-- Dividends as income that can also land on the tax worksheet.
-- A retirement sketch: contribution, a stated return, a target date. The milestone screen already does a straight-line version of this. Do not pretend that is a plan.
-- Market data only when a source is named. Until then, the household types the price, the same way they type a Zillow value.
+Still later, not this slice: a live quote feed, realized-gain lots for Schedule D, and a daily valuation series that would make Dietz more than an inception estimate.
 
 After that, business books: a second profile of books, invoices, mileage, profit and loss, Schedule C. Do not mix those rows into the Calder personal seed.
 
