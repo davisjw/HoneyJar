@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   isLiquid,
@@ -15,7 +14,7 @@ import {
   spendingByCategory,
 } from "@/lib/honey/calc";
 import type { LedgerBook } from "@/lib/honey/types";
-import { SUMMARY, useBook } from "../book";
+import { useBook } from "../book";
 import { Card, PageIntro } from "../kit";
 
 function spent(book: LedgerBook, from: string, to: string) {
@@ -42,11 +41,8 @@ function openInvoices(book: LedgerBook) {
 }
 
 export function SummaryPage() {
-  const { data, jars, summary, setJar } = useBook();
+  const { data, jars, setJar } = useBook();
   const navigate = useNavigate();
-  useEffect(() => {
-    if (!summary) setJar(SUMMARY);
-  }, [setJar, summary]);
   if (!data) return null;
   const startDay = data.profile.monthStartDay;
   const period = periodOf(data.today, startDay);

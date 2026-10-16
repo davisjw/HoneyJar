@@ -254,12 +254,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const home = summary ? "/summary" : jar?.kind === "business" || jar?.kind === "property" ? "/business" : "/";
 
   useEffect(() => {
-    if (summary) {
-      if (path !== "/summary" && path !== "/jars") navigate({ to: "/summary" });
-      return;
-    }
+    if (summary || path === "/summary") return;
     if (!jar) return;
-    if (path === "/summary") return;
     if ((jar.kind === "business" || jar.kind === "property") && !BUSINESS_PATHS.has(path)) navigate({ to: "/business" });
     if (jar.kind === "personal" && path === "/business") navigate({ to: "/" });
   }, [jar, navigate, path, summary]);
