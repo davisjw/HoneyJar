@@ -12,7 +12,7 @@ import {
   taxLines,
 } from "./calc.ts";
 import type { Account, Asset, Bill, Category, PlanMonth, Profile, Txn } from "./types.ts";
-import { buildSheet, calderUtilityHistory, starterColumns, type ReadLike, type UtilColumn } from "./utility.ts";
+import { buildSheet, calderUtilityHistory, cellMount, hasMeter, starterColumns, type ReadLike, type UtilColumn } from "./utility.ts";
 
 /**
  * Budgets for the math each screen runs after the household is already loaded.
@@ -320,5 +320,36 @@ describe("page work stays cheap as the book grows", () => {
     });
     assert.ok(paid > 12, "expected a year of linked PG&E payments");
     assert.ok(ms < 400, `PG&E sheet rebuilt ${paid} times in ${ms.toFixed(1)}ms`);
+  });
+
+  it("the utility grid mounts one editor, and only while a cell is open", () => {
+    const { columns, readings } = utilityBooks();
+    const own = columns.filter((column) => column.utilityId === "pge");
+    const rows = readings.filter((reading) => reading.utilityId === "pge");
+    const metered = hasMeter(own, "kWh");
+    let resting = 0;
+    for (const row of rows) {
+      for (const column of own) {
+        const mode = cellMount(column, {
+          metered,
+          openingUsage: Boolean(row.opening && column.rollup === "usage"),
+          editing: false,
+        });
+        if (mode !== "static") resting += 1;
+      }
+    }
+    assert.equal(resting, 0);
+    const usage = own.find((column) => column.rollup === "usage");
+    assert.ok(usage);
+    assert.equal(cellMount(usage, { metered, openingUsage: false, editing: true }), "input");
+    const days = own.find((column) => column.rollup === "days");
+    assert.ok(days);
+    assert.equal(cellMount(days, { metered, openingUsage: false, editing: true }), "static");
+    const bill = own.find((column) => column.rollup === "bill");
+    assert.ok(bill);
+    assert.equal(cellMount(bill, { metered, openingUsage: false, editing: true }), "input");
+    const dated = own.find((column) => column.rollup === "readDate");
+    assert.ok(dated);
+    assert.equal(cellMount(dated, { metered, openingUsage: false, editing: true }), "date");
   });
 });

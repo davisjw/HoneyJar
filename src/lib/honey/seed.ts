@@ -110,8 +110,13 @@ export async function ensureJars(sql: Sql, userId: string) {
     values (${id}, ${userId}, ${name}, '', '', false, 0, 'personal')
     on conflict (id) do nothing
   `;
-  await sql`update ledgers set kind = 'personal' where id = ${id} and user_id = ${userId}`;
+  const ledger = await sql<{ kind: string }>`select kind from ledgers where id = ${id} and user_id = ${userId}`;
+  if (ledger[0] && ledger[0].kind !== "personal") {
+    await sql`update ledgers set kind = 'personal' where id = ${id} and user_id = ${userId}`;
+  }
   for (const table of ["accounts", "categories", "transactions", "bills", "rules", "plan_months", "goals", "milestones", "watchlists", "reminders", "documents", "reports", "utility_meters"]) {
+    const blank = await sql.query(`select 1 from ${table} where user_id = $1 and ledger_id = '' limit 1`, [userId]);
+    if (!blank.length) continue;
     await sql.query(`update ${table} set ledger_id = $1 where user_id = $2 and ledger_id = ''`, [id, userId]);
   }
 }
@@ -977,6 +982,8 @@ async function insertSampleBilling(sql: Sql, userId: string) {
   const ledger = id("studio");
   const existing = await sql<{ id: string }>`select id from ledgers where id = ${ledger} and user_id = ${userId}`;
   if (!existing.length) return;
+  const ready = await sql<{ id: string }>`select id from mileage where id = ${id("mile3")} and user_id = ${userId}`;
+  if (ready.length) return;
   const today = todayISO();
   const studio = id("studio_chk");
   const avery = id("p_avery");
@@ -1290,28 +1297,35 @@ async function ensureMapleLease(sql: Sql, userId: string) {
   if (!found.length) return;
   const today = todayISO();
   const leaseId = `s_${sid}_lease`;
-  await put(sql, "leases", {
-    id: leaseId,
-    user_id: userId,
-    ledger_id: ledger,
-    tenant: "Jordan Hale",
-    email: "jordan.hale@example",
-    address: "418 Maple Street",
-    city: "Portland",
-    region: "ME",
-    postal: "04102",
-    unit: "",
-    rent_cents: 180000,
-    due_day: 1,
-    start_on: "2024-06-01",
-    end_on: null,
-    deposit_cents: 180000,
-    deposit_held_cents: 180000,
-    status: "active",
-    last_invoiced: today.slice(0, 7),
-    notes: "Deposit is already in rent checking. October rent was recorded as income.",
-  });
-  await sql`update invoices set lease_id = ${leaseId} where id = ${`s_${sid}_rent_inv`} and user_id = ${userId}`;
+  const have = await sql<{ id: string }>`select id from leases where id = ${leaseId}`;
+  if (!have.length) {
+    await put(sql, "leases", {
+      id: leaseId,
+      user_id: userId,
+      ledger_id: ledger,
+      tenant: "Jordan Hale",
+      email: "jordan.hale@example",
+      address: "418 Maple Street",
+      city: "Portland",
+      region: "ME",
+      postal: "04102",
+      unit: "",
+      rent_cents: 180000,
+      due_day: 1,
+      start_on: "2024-06-01",
+      end_on: null,
+      deposit_cents: 180000,
+      deposit_held_cents: 180000,
+      status: "active",
+      last_invoiced: today.slice(0, 7),
+      notes: "Deposit is already in rent checking. October rent was recorded as income.",
+    });
+  }
+  const rentInv = `s_${sid}_rent_inv`;
+  const linked = await sql<{ lease_id: string | null }>`select lease_id from invoices where id = ${rentInv} and user_id = ${userId}`;
+  if (linked[0] && !linked[0].lease_id) {
+    await sql`update invoices set lease_id = ${leaseId} where id = ${rentInv} and user_id = ${userId}`;
+  }
 }
 
 export async function ensureLeaseInvoices(sql: Sql, userId: string) {

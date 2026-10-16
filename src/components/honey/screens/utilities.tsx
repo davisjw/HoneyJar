@@ -8,6 +8,7 @@ import {
   UTILITY_TEMPLATES,
   buildSheet,
   chargeCompare,
+  cellMount,
   previousMonth,
   templateUnit,
   hasMeter,
@@ -74,8 +75,14 @@ export function UtilitiesPage() {
   if (!data) return null;
   const roots = data.meters.filter((m) => !m.parentId);
   const meter = data.meters.find((m) => m.id === (picked || roots[0]?.id)) ?? roots[0] ?? null;
-  const kids = meter ? data.meters.filter((m) => m.parentId === meter.id) : [];
-  const columns = meter ? data.columns.filter((c) => c.meterId === meter.id).slice().sort((a, b) => a.sort - b.sort) : [];
+  const kids = useMemo(
+    () => (meter ? data.meters.filter((m) => m.parentId === meter.id) : []),
+    [data.meters, meter],
+  );
+  const columns = useMemo(
+    () => (meter ? data.columns.filter((c) => c.meterId === meter.id).slice().sort((a, b) => a.sort - b.sort) : []),
+    [data.columns, meter],
+  );
   const rows = useMemo(() => {
     if (!meter) return [];
     return buildSheet(
@@ -88,7 +95,10 @@ export function UtilitiesPage() {
     );
   }, [meter, columns, kids, data.readings, data.columns]);
   const focus = param(search, "reading");
-  const weather = data.meters.filter((m) => data.readings.filter((r) => r.meterId === m.id && r.meter != null && !r.opening).length >= 2);
+  const weather = useMemo(
+    () => data.meters.filter((m) => data.readings.filter((r) => r.meterId === m.id && r.meter != null && !r.opening).length >= 2),
+    [data.meters, data.readings],
+  );
 
   return (
     <div>
@@ -226,9 +236,17 @@ function Workbook({
   onCell: (id: string, cells: Record<string, number>) => void;
   onDate: (id: string, readOn: string) => void;
 }) {
-  const engine = columns.map(engineColumn);
-  const shown = [...rows].reverse();
+  const [editing, setEditing] = useState<string | null>(null);
+  const engine = useMemo(() => columns.map(engineColumn), [columns]);
+  const shown = useMemo(() => [...rows].reverse(), [rows]);
   const metered = hasMeter(columns, meter.unit);
+  const readingById = useMemo(() => new Map(readings.map((reading) => [reading.id, reading])), [readings]);
+  const payByReading = useMemo(() => {
+    const map = new Map<string, (typeof payments)[number]>();
+    for (const payment of payments) if (payment.readingId) map.set(payment.readingId, payment);
+    return map;
+  }, [payments]);
+  const billById = useMemo(() => new Map(bills.map((bill) => [bill.id, bill])), [bills]);
   return (
     <Card className="overflow-x-auto">
       <table className="w-full min-w-[720px] text-left text-sm">
@@ -240,31 +258,34 @@ function Workbook({
         </thead>
         <tbody>
           {shown.map((row) => {
-            const reading = readings.find((r) => r.id === row.id);
-            const pay = payments.find((p) => p.readingId === row.id);
-            const bill = pay ? bills.find((b) => b.id === pay.billId) : undefined;
+            const reading = readingById.get(row.id);
+            const pay = payByReading.get(row.id);
+            const bill = pay ? billById.get(pay.billId) : undefined;
             const compare = chargeCompare(row, engine);
             return (
               <tr key={row.id} className={row.id === focus ? "bg-honey-soft" : "border-t border-line"}>
                 {columns.map((c) => {
-                  const locked = c.kind === "calculated" || (metered && c.rollup === "days");
-                  const dated = c.kind === "date" || c.rollup === "readDate";
+                  const key = `${row.id}:${c.id}`;
+                  const openingUsage = Boolean(reading?.opening && c.rollup === "usage");
+                  const mount = cellMount(c, { metered, openingUsage, editing: canEdit && editing === key });
+                  const text = cellText(row, engineColumn(c));
                   return (
                   <td key={c.id} className="px-2 py-1">
-                    {reading?.opening && c.rollup === "usage" ? (
-                      <span className="text-muted">opening</span>
-                    ) : dated && canEdit ? (
+                    {mount === "date" ? (
                       <input
                         type="date"
+                        autoFocus
                         className="w-36 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
                         value={row.date}
                         onChange={(e) => {
-                          if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) onDate(row.id, e.target.value);
+                          if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value) && e.target.value !== row.date) onDate(row.id, e.target.value);
                         }}
+                        onBlur={() => setEditing(null)}
                       />
-                    ) : canEdit && !locked ? (
+                    ) : mount === "input" ? (
                       <Cell
                         value={row.computed[c.key]}
+                        onDone={() => setEditing(null)}
                         onCommit={(value) => {
                           const next = { ...row.entered };
                           if (value == null) delete next[c.key];
@@ -272,8 +293,16 @@ function Workbook({
                           onCell(row.id, next);
                         }}
                       />
+                    ) : canEdit && cellMount(c, { metered, openingUsage, editing: true }) !== "static" ? (
+                      <button
+                        type="button"
+                        className="w-28 rounded border border-transparent bg-transparent px-1 py-1 text-left hover:border-line"
+                        onClick={() => setEditing(key)}
+                      >
+                        {text}
+                      </button>
                     ) : (
-                      <span className={locked ? "text-muted" : ""} title={row.errors[c.key] || (c.kind === "calculated" ? c.formula : "")}>{cellText(row, engineColumn(c))}</span>
+                      <span className={c.kind === "calculated" || (metered && c.rollup === "days") ? "text-muted" : ""} title={row.errors[c.key] || (c.kind === "calculated" ? c.formula : "")}>{text}</span>
                     )}
                   </td>
                   );
@@ -296,7 +325,7 @@ function Workbook({
   );
 }
 
-function Cell({ value, onCommit }: { value: number | undefined; onCommit: (value: number | null) => void }) {
+function Cell({ value, onCommit, onDone }: { value: number | undefined; onCommit: (value: number | null) => void; onDone: () => void }) {
   const shown = value == null ? "" : String(value);
   const [text, setText] = useState(shown);
   const [seen, setSeen] = useState(shown);
@@ -306,6 +335,7 @@ function Cell({ value, onCommit }: { value: number | undefined; onCommit: (value
   }
   return (
     <input
+      autoFocus
       inputMode="decimal"
       className="w-24 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
       value={text}
@@ -313,12 +343,17 @@ function Cell({ value, onCommit }: { value: number | undefined; onCommit: (value
       onBlur={() => {
         const trimmed = text.trim();
         if (!trimmed) {
-          onCommit(null);
+          if (value != null) onCommit(null);
+          onDone();
           return;
         }
         const next = Number(trimmed);
-        if (!Number.isFinite(next)) return;
-        onCommit(next);
+        if (!Number.isFinite(next)) {
+          onDone();
+          return;
+        }
+        if (next !== value) onCommit(next);
+        onDone();
       }}
     />
   );

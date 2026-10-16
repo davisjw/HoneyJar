@@ -324,6 +324,18 @@ export function hasMeter(columns: { rollup: Rollup }[], unit = ""): boolean {
   return Boolean(unit) && unit !== "none";
 }
 
+/** How a workbook cell is drawn. Only the cell being edited mounts an input. */
+export function cellMount(
+  column: { kind: string; rollup: string },
+  opts: { metered: boolean; openingUsage: boolean; editing: boolean },
+): "static" | "input" | "date" {
+  if (opts.openingUsage) return "static";
+  const dated = column.kind === "date" || column.rollup === "readDate";
+  const locked = column.kind === "calculated" || (opts.metered && column.rollup === "days");
+  if (!opts.editing || locked) return "static";
+  return dated ? "date" : "input";
+}
+
 type FormulaOk = { ok: true; value: number };
 type FormulaErr = { ok: false; error: string };
 type FormulaResult = FormulaOk | FormulaErr;
