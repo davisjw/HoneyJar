@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   SAMPLE_POWER_TIERS,
   buildSheet,
+  calderUtilityHistory,
   daysBetweenReads,
   evaluateFormula,
   starterColumns,
@@ -90,5 +91,39 @@ describe("utility sheet", () => {
     assert.equal(last.computed.tesla_kwh, 54);
     assert.equal(last.computed.plan_amount, 25);
     assert.notEqual(last.computed.plan_amount, 54);
+  });
+});
+
+describe("calder utility history", () => {
+  const books = calderUtilityHistory("2026-10-16");
+  const pge = books.find((b) => b.key === "pge")!;
+  const ev = books.find((b) => b.key === "ev")!;
+  const water = books.find((b) => b.key === "water")!;
+  const phone = books.find((b) => b.key === "phone")!;
+
+  it("covers a prior year and leaves the open October electric bill unpaid", () => {
+    const billed = pge.readings.filter((r) => !r.opening);
+    assert.equal(billed[0]?.readOn, "2025-01-06");
+    assert.equal(billed.at(-1)?.readOn, "2026-10-06");
+    assert.equal(pge.payments.some((p) => p.stamp === "202610"), false);
+    assert.equal(pge.payments.some((p) => p.stamp === "202609"), true);
+    assert.equal(pge.bill?.amountCents, billed.at(-1)?.amountCents);
+  });
+
+  it("keeps the charger under the house and shows the August line-item gap", () => {
+    const aug = pge.readings.find((r) => r.stamp === "202608")!;
+    const charger = ev.readings.find((r) => r.stamp === "202608")!;
+    const house = (aug.meter ?? 0) - (pge.readings.find((r) => r.stamp === "202607")?.meter ?? 0);
+    const evUse = (charger.meter ?? 0) - (ev.readings.find((r) => r.stamp === "202607")?.meter ?? 0);
+    assert.ok(evUse > 0 && evUse < house);
+    const lines = Math.round((aug.cells.energy_charge! + aug.cells.delivery_charge! + aug.cells.riders! + aug.cells.taxes_fees! + aug.cells.gas_charge!) * 100);
+    assert.equal(aug.amountCents - lines, 640);
+  });
+
+  it("links water, phone, and internet statements to a payment once the due date has passed", () => {
+    assert.equal(water.payments.some((p) => p.stamp === "202610"), false);
+    assert.equal(water.payments.some((p) => p.stamp === "202609"), true);
+    assert.equal(phone.payments.find((p) => p.stamp === "202610")?.amountCents, 9500);
+    assert.equal(phone.bill?.amountCents, 9500);
   });
 });

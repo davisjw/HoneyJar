@@ -851,3 +851,289 @@ export function previousMonth(iso: string): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+/** Seasonal Calder household history. Payments exist only once the due date has arrived. */
+export type CalderReading = {
+  stamp: string;
+  readOn: string;
+  meter: number | null;
+  amountCents: number;
+  opening: boolean;
+  cells: Record<string, number>;
+};
+
+export type CalderUtility = {
+  key: string;
+  name: string;
+  unit: string;
+  provider: string;
+  parentKey: string | null;
+  template: string;
+  tiers: RateTier[];
+  renames?: { key: string; label: string }[];
+  extraColumns?: { key: string; label: string; kind: ColumnKind; unit?: string; formula?: string; rollup?: Rollup }[];
+  formulaEdits?: { key: string; formula: string }[];
+  dropRollups?: Rollup[];
+  readings: CalderReading[];
+  payments: { stamp: string; paidOn: string; amountCents: number }[];
+  bill: { id: string; merchant: string; category: string; account: "checking" | "card"; memo: string; amountCents: number } | null;
+};
+
+const POWER: RateTier[] = [
+  { name: "First 400", upTo: 400, rateCents: 12.4 },
+  { name: "Over 400", upTo: null, rateCents: 18.6 },
+];
+
+const HOUSE: Record<number, { kwh: number; ev: number; gen: number; therms: number }> = {
+  1: { kwh: 820, ev: 248, gen: 42, therms: 68 },
+  2: { kwh: 760, ev: 232, gen: 71, therms: 55 },
+  3: { kwh: 680, ev: 214, gen: 118, therms: 41 },
+  4: { kwh: 540, ev: 196, gen: 162, therms: 27 },
+  5: { kwh: 490, ev: 184, gen: 188, therms: 16 },
+  6: { kwh: 570, ev: 172, gen: 206, therms: 11 },
+  7: { kwh: 750, ev: 168, gen: 214, therms: 9 },
+  8: { kwh: 810, ev: 164, gen: 198, therms: 10 },
+  9: { kwh: 690, ev: 176, gen: 154, therms: 14 },
+  10: { kwh: 560, ev: 182, gen: 112, therms: 22 },
+  11: { kwh: 610, ev: 204, gen: 68, therms: 36 },
+  12: { kwh: 790, ev: 236, gen: 40, therms: 62 },
+};
+
+const WATER_CCF: Record<number, number> = { 1: 8, 2: 7, 3: 7, 4: 8, 5: 11, 6: 15, 7: 19, 8: 18, 9: 14, 10: 11, 11: 8, 12: 8 };
+
+function onDay(today: string, monthsBack: number, day: number): string {
+  const [y, m] = today.split("-").map(Number);
+  const cursor = new Date(Date.UTC(y!, (m ?? 1) - 1 - monthsBack, 1));
+  const last = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0)).getUTCDate();
+  cursor.setUTCDate(Math.min(day, last));
+  return cursor.toISOString().slice(0, 10);
+}
+
+function addIsoDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const cursor = new Date(Date.UTC(y!, (m ?? 1) - 1, d ?? 1));
+  cursor.setUTCDate(cursor.getUTCDate() + n);
+  return cursor.toISOString().slice(0, 10);
+}
+
+function datesOn(today: string, day: number): string[] {
+  const out: string[] = [];
+  for (let back = 21; back >= 0; back -= 1) {
+    const date = onDay(today, back, day);
+    if (date <= today) out.push(date);
+  }
+  return out;
+}
+
+function dollars(cents: number): number {
+  return Math.round(cents) / 100;
+}
+
+function electricParts(month: number, usage: number, therms: number) {
+  const energy = tierChargeCents(usage, POWER);
+  const delivery = Math.round((usage * 0.108 + 14.2) * 100);
+  const riders = Math.round((usage * 0.031 + 3.5) * 100);
+  const gas = therms ? Math.round((therms * 2.18 + 11.5) * 100) : 0;
+  const taxes = Math.round((energy + delivery + riders + gas) * 0.072);
+  const shownTaxes = month === 8 ? taxes - 640 : taxes;
+  return { energy, delivery, riders, gas, taxes: shownTaxes, statement: energy + delivery + riders + gas + taxes };
+}
+
+function waterParts(ccf: number) {
+  const water = Math.round((ccf * 4.15 + 22) * 100);
+  const sewer = Math.round((ccf * 1.85 + 31) * 100);
+  const storm = 540;
+  const taxes = Math.round((water + sewer + storm) * 0.05);
+  return { water, sewer, storm, taxes, statement: water + sewer + storm + taxes };
+}
+
+export function calderUtilityHistory(today: string): CalderUtility[] {
+  const electricDates = datesOn(today, 6);
+  const waterDates = datesOn(today, 8);
+  const billDates = datesOn(today, 1);
+  let electricMeter = 41280;
+  let evMeter = 860;
+  let waterMeter = 2214;
+  const electric: CalderReading[] = [];
+  const ev: CalderReading[] = [];
+  const electricPays: CalderUtility["payments"] = [];
+  const firstElectric = electricDates[0];
+  if (firstElectric) {
+    const open = addIsoDays(firstElectric, -32);
+    electric.push({ stamp: "open", readOn: open, meter: electricMeter, amountCents: 0, opening: true, cells: {} });
+    ev.push({ stamp: "open", readOn: open, meter: evMeter, amountCents: 0, opening: true, cells: {} });
+  }
+  for (const readOn of electricDates) {
+    const month = Number(readOn.slice(5, 7));
+    const use = HOUSE[month]!;
+    electricMeter += use.kwh;
+    evMeter += use.ev;
+    const parts = electricParts(month, use.kwh, use.therms);
+    const stamp = readOn.slice(0, 7).replace("-", "");
+    electric.push({
+      stamp,
+      readOn,
+      meter: electricMeter,
+      amountCents: parts.statement,
+      opening: false,
+      cells: {
+        generation_kwh: use.gen,
+        energy_charge: dollars(parts.energy),
+        delivery_charge: dollars(parts.delivery),
+        riders: dollars(parts.riders),
+        taxes_fees: dollars(parts.taxes),
+        gas_therms: use.therms,
+        gas_charge: dollars(parts.gas),
+      },
+    });
+    ev.push({ stamp, readOn, meter: evMeter, amountCents: 0, opening: false, cells: {} });
+    const paidOn = addIsoDays(readOn, 12);
+    if (paidOn <= today) electricPays.push({ stamp, paidOn, amountCents: parts.statement });
+  }
+  const water: CalderReading[] = [];
+  const waterPays: CalderUtility["payments"] = [];
+  const firstWater = waterDates[0];
+  if (firstWater) water.push({ stamp: "open", readOn: addIsoDays(firstWater, -31), meter: waterMeter, amountCents: 0, opening: true, cells: {} });
+  for (const readOn of waterDates) {
+    const ccf = WATER_CCF[Number(readOn.slice(5, 7))] ?? 8;
+    waterMeter += ccf;
+    const parts = waterParts(ccf);
+    const stamp = readOn.slice(0, 7).replace("-", "");
+    water.push({
+      stamp,
+      readOn,
+      meter: waterMeter,
+      amountCents: parts.statement,
+      opening: false,
+      cells: {
+        water_charge: dollars(parts.water),
+        sewer_charge: dollars(parts.sewer),
+        stormwater: dollars(parts.storm),
+        taxes_fees: dollars(parts.taxes),
+      },
+    });
+    const paidOn = addIsoDays(readOn, 14);
+    if (paidOn <= today) waterPays.push({ stamp, paidOn, amountCents: parts.statement });
+  }
+  const phone: CalderReading[] = [];
+  const net: CalderReading[] = [];
+  const phonePays: CalderUtility["payments"] = [];
+  const netPays: CalderUtility["payments"] = [];
+  for (const readOn of billDates) {
+    const month = Number(readOn.slice(5, 7));
+    const stamp = readOn.slice(0, 7).replace("-", "");
+    const equipment = month === 6 ? 18 : 0;
+    const phoneCents = (80 + 15 + equipment) * 100;
+    phone.push({
+      stamp,
+      readOn,
+      meter: null,
+      amountCents: phoneCents,
+      opening: false,
+      cells: {
+        plan_amount: 80,
+        equipment,
+        surcharges: 15,
+        minutes: 760 + month * 18,
+        data_mb: 24000 + month * 900,
+      },
+    });
+    const netEquipment = month === 3 ? 15 : 10;
+    const netTaxes = month % 6 === 0 ? 4.8 : 0;
+    const netCents = Math.round((70 + netEquipment + netTaxes) * 100);
+    net.push({
+      stamp,
+      readOn,
+      meter: null,
+      amountCents: netCents,
+      opening: false,
+      cells: { subscription: 70, add_ons: netEquipment, taxes_fees: netTaxes },
+    });
+    const phonePaid = `${readOn.slice(0, 8)}06`;
+    const netPaid = `${readOn.slice(0, 8)}09`;
+    if (phonePaid <= today) phonePays.push({ stamp, paidOn: phonePaid, amountCents: phoneCents });
+    if (netPaid <= today) netPays.push({ stamp, paidOn: netPaid, amountCents: netCents });
+  }
+  const latest = (rows: CalderReading[]) => rows.filter((r) => !r.opening).at(-1)?.amountCents ?? 0;
+  return [
+    {
+      key: "pge",
+      name: "PG&E electric",
+      unit: "kWh",
+      provider: "PG&E",
+      parentKey: null,
+      template: "electric",
+      tiers: POWER,
+      extraColumns: [
+        { key: "gas_therms", label: "Gas therms", kind: "number", unit: "therms" },
+        { key: "gas_charge", label: "Gas charge", kind: "money", unit: "$" },
+      ],
+      formulaEdits: [{ key: "bill_sum", formula: "{energy_charge} + {delivery_charge} + {riders} + {taxes_fees} + {gas_charge}" }],
+      readings: electric,
+      payments: electricPays,
+      bill: { id: "b_pge", merchant: "PG&E", category: "Utilities", account: "checking", memo: "Electric and gas", amountCents: latest(electric) },
+    },
+    {
+      key: "ev",
+      name: "Garage charger",
+      unit: "kWh",
+      provider: "Home charger",
+      parentKey: "pge",
+      template: "blank",
+      tiers: [],
+      dropRollups: ["bill"],
+      readings: ev,
+      payments: [],
+      bill: null,
+    },
+    {
+      key: "water",
+      name: "EBMUD water",
+      unit: "CCF",
+      provider: "EBMUD",
+      parentKey: null,
+      template: "water",
+      tiers: [],
+      readings: water,
+      payments: waterPays,
+      bill: { id: "b_water", merchant: "EBMUD", category: "Utilities", account: "checking", memo: "Water and wastewater", amountCents: latest(water) },
+    },
+    {
+      key: "phone",
+      name: "T-Mobile",
+      unit: "none",
+      provider: "T-Mobile",
+      parentKey: null,
+      template: "cellular",
+      tiers: [],
+      extraColumns: [
+        { key: "read_on", label: "Bill date", kind: "date", rollup: "readDate" },
+        { key: "charges_sum", label: "Charges sum", kind: "calculated", unit: "$", formula: "{plan_amount} + {equipment} + {surcharges}", rollup: "charges" },
+      ],
+      readings: phone,
+      payments: phonePays,
+      bill: { id: "b_phone", merchant: "T-Mobile", category: "Phone", account: "card", memo: "Family plan", amountCents: latest(phone) },
+    },
+    {
+      key: "net",
+      name: "Xfinity",
+      unit: "none",
+      provider: "Xfinity",
+      parentKey: null,
+      template: "streaming",
+      tiers: [],
+      renames: [
+        { key: "subscription", label: "Internet" },
+        { key: "add_ons", label: "Equipment" },
+        { key: "taxes_fees", label: "Taxes" },
+      ],
+      extraColumns: [
+        { key: "read_on", label: "Bill date", kind: "date", rollup: "readDate" },
+        { key: "charges_sum", label: "Charges sum", kind: "calculated", unit: "$", formula: "{subscription} + {add_ons} + {taxes_fees}", rollup: "charges" },
+      ],
+      readings: net,
+      payments: netPays,
+      bill: { id: "b_net", merchant: "Xfinity", category: "Internet", account: "checking", memo: "Internet", amountCents: latest(net) },
+    },
+  ];
+}
+

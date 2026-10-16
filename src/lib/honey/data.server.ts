@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
 import { parseTiers, starterColumns, templateUnit } from "./utility";
-import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
+import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import type {
   AccessRow,
   Account,
@@ -105,6 +105,7 @@ async function ensureSeed(sql: Sql, userId: string) {
   await ensureSampleInvestments(sql, userId);
   await ensureSampleBusiness(sql, userId);
   await ensureSampleSale(sql, userId);
+  await ensureSampleUtilities(sql, userId);
   await ensureJars(sql, userId);
   await ensureLeaseInvoices(sql, userId);
 }

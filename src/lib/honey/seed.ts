@@ -1,6 +1,6 @@
 import type { Sql } from "@/lib/db";
 import { addDays, addMonths, LEDGER_LINES, periodOf, todayISO } from "./calc";
-import { starterColumns } from "./utility";
+import { calderUtilityHistory, starterColumns } from "./utility";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -64,7 +64,7 @@ const STARTER: [string, string, string, string, string, number][] = [
   ["Mortgage", "Home", "out", "", "", 0],
   ["Mortgage interest", "Home", "out", "A", "mortgage_interest", 0],
   ["Property tax", "Home", "out", "A", "salt", 0],
-  ["Utilities", "Home", "out", "", "", 19000],
+  ["Utilities", "Home", "out", "", "", 40000],
   ["Internet", "Home", "out", "", "", 8000],
   ["Insurance", "Home", "out", "", "", 17000],
   ["Gas", "Transport", "out", "", "", 15000],
@@ -275,11 +275,6 @@ export async function seedHousehold(sql: Sql, userId: string) {
     [-980, "Blue Bottle"],
   ];
   dining.forEach(([amt, merchant], i) => txns.push({ day: -3 - i * 8, acct: card, cat: "Dining", amt, merchant }));
-  txns.push({ day: -12, acct: checking, cat: "Utilities", amt: -18640, merchant: "PG&E", memo: "Electric & gas" });
-  txns.push({ day: -40, acct: checking, cat: "Utilities", amt: -17220, merchant: "PG&E" });
-  txns.push({ day: -9, acct: checking, cat: "Internet", amt: -8000, merchant: "Xfinity" });
-  txns.push({ day: -39, acct: checking, cat: "Internet", amt: -8000, merchant: "Xfinity" });
-  txns.push({ day: -6, acct: card, cat: "Phone", amt: -9500, merchant: "T-Mobile" });
   txns.push({ day: -11, acct: checking, cat: "Insurance", amt: -16400, merchant: "State Farm", memo: "Home + auto" });
   txns.push({ day: -41, acct: checking, cat: "Insurance", amt: -16400, merchant: "State Farm" });
   txns.push({ day: -4, acct: card, cat: "Subscriptions", amt: -1549, merchant: "Netflix" });
@@ -304,7 +299,6 @@ export async function seedHousehold(sql: Sql, userId: string) {
   txns.push({ day: -33, acct: checking, cat: "Property tax", amt: -210000, merchant: "Alameda County Tax", tax: "A", line: "salt" });
   txns.push({ day: -19, acct: card, cat: "Shopping", amt: -2460, merchant: "Home Depot" });
   txns.push({ day: -50, acct: card, cat: "Groceries", amt: -7340, merchant: "Costco" });
-  txns.push({ day: -55, acct: checking, cat: "Utilities", amt: -4200, merchant: "EBMUD", memo: "Water" });
 
   let n = 0;
   for (const t of txns) {
@@ -341,7 +335,7 @@ export async function seedHousehold(sql: Sql, userId: string) {
     ["Shopping", 20000],
     ["Health", 8000],
     ["Charity", 10000],
-    ["Utilities", 19000],
+    ["Utilities", 40000],
     ["Internet", 8000],
     ["Insurance", 17000],
     ["Gas", 15000],
@@ -459,85 +453,148 @@ export async function seedHousehold(sql: Sql, userId: string) {
   await put(sql, "reports", { id: id("rp3"), user_id: userId, name: "Merchants, 90 days", metric: "merchant", range_key: "quarter", group_by: "merchant", filters_json: "{}" });
   await put(sql, "reports", { id: id("rp4"), user_id: userId, name: "Spending by person", metric: "spending", range_key: "month", group_by: "person", filters_json: "{}" });
   await insertSamplePortfolio(sql, userId);
-  await seedSampleMeters(sql, userId, id, checking, today);
+  await seedSampleMeters(sql, userId, id, checking, card, today);
 }
 
-async function seedSampleMeters(sql: Sql, userId: string, id: (s: string) => string, checking: string, today: string) {
-  const pge = id("m_pge");
-  const ev = id("m_ev");
-  await put(sql, "utility_meters", {
-    id: pge,
-    user_id: userId,
-    ledger_id: "",
-    name: "PG&E electric",
-    unit: "kWh",
-    provider: "PG&E",
-    parent_id: null,
-    tiers_json: JSON.stringify([
-      { name: "First 400", upTo: 400, rateCents: 12.4 },
-      { name: "Over 400", upTo: null, rateCents: 18.6 },
-    ]),
-  });
-  await put(sql, "utility_meters", {
-    id: ev,
-    user_id: userId,
-    ledger_id: "",
-    name: "Garage charger",
-    unit: "kWh",
-    provider: "Home charger",
-    parent_id: pge,
-    tiers_json: "[]",
-  });
-  const packs = [
-    { meter: pge, short: "pge", columns: starterColumns(pge, "electric") },
-    { meter: ev, short: "ev", columns: starterColumns(ev, "blank", "kWh") },
-  ];
-  for (const pack of packs) {
+async function seedSampleMeters(sql: Sql, userId: string, id: (s: string) => string, checking: string, card: string, today: string) {
+  const history = calderUtilityHistory(today);
+  const sid = checking.startsWith("s_") && checking.endsWith("_chk") ? checking.slice(2, -4) : slug(userId);
+  const cat = (name: string) => `c_${sid}_${slug(name)}`;
+  const ids = new Map<string, string>();
+  for (const book of history) {
+    const meterId = id(`m_${book.key}`);
+    ids.set(book.key, meterId);
+    await put(sql, "utility_meters", {
+      id: meterId,
+      user_id: userId,
+      ledger_id: "",
+      name: book.name,
+      unit: book.unit,
+      provider: book.provider,
+      parent_id: book.parentKey ? ids.get(book.parentKey) ?? null : null,
+      tiers_json: JSON.stringify(book.tiers),
+    });
     let sort = 0;
-    for (const column of pack.columns) {
+    for (const column of starterColumns(meterId, book.template, book.unit)) {
+      if (book.dropRollups?.includes(column.rollup)) continue;
       sort += 1;
+      const rename = book.renames?.find((r) => r.key === column.key);
+      const formula = book.formulaEdits?.find((r) => r.key === column.key)?.formula ?? column.formula;
       await put(sql, "utility_columns", {
-        id: id(`${pack.short}_${column.key}`),
+        id: id(`${book.key}_${column.key}`),
         user_id: userId,
-        meter_id: pack.meter,
+        meter_id: meterId,
         key: column.key,
-        label: column.label,
+        label: rename?.label ?? column.label,
         kind: column.kind,
         unit: column.unit,
-        formula: column.formula,
+        formula,
         rollup: column.rollup,
-        from_children: column.fromChildren,
+        from_children: column.key === "bill_amount" ? false : column.fromChildren,
         sort,
       });
     }
+    for (const column of book.extraColumns ?? []) {
+      sort += 1;
+      await put(sql, "utility_columns", {
+        id: id(`${book.key}_${column.key}`),
+        user_id: userId,
+        meter_id: meterId,
+        key: column.key,
+        label: column.label,
+        kind: column.kind,
+        unit: column.unit ?? "",
+        formula: column.formula ?? "",
+        rollup: column.rollup ?? "",
+        from_children: false,
+        sort,
+      });
+    }
+    for (const reading of book.readings) {
+      await put(sql, "utility_readings", {
+        id: id(`rd_${book.key}_${reading.stamp}`),
+        user_id: userId,
+        meter_id: meterId,
+        read_on: reading.readOn,
+        meter_value: reading.meter,
+        amount_cents: reading.amountCents,
+        opening: reading.opening,
+        cells_json: JSON.stringify(reading.cells),
+      });
+    }
+    if (!book.bill) continue;
+    const accountId = book.bill.account === "card" ? card : checking;
+    await sql`
+      update bills set meter_id = ${meterId}, amount_cents = ${book.bill.amountCents}, notes = ${book.bill.memo}
+      where id = ${id(book.bill.id)} and user_id = ${userId}
+    `;
+    for (const payment of book.payments) {
+      const reading = book.readings.find((r) => r.stamp === payment.stamp);
+      if (!reading) continue;
+      const txnId = id(`tu_${book.key}_${payment.stamp}`);
+      await put(sql, "transactions", {
+        id: txnId,
+        user_id: userId,
+        account_id: accountId,
+        category_id: cat(book.bill.category),
+        posted_on: payment.paidOn,
+        amount_cents: -payment.amountCents,
+        merchant: book.bill.merchant,
+        memo: book.bill.memo,
+        pending: false,
+        tax_schedule: "",
+        tax_line: "",
+        reviewed: true,
+        source: "sample",
+        person_id: null,
+        tags: JSON.stringify(["house"]),
+        ledger_id: "",
+      });
+      await put(sql, "bill_payments", {
+        id: id(`pay_${book.key}_${payment.stamp}`),
+        user_id: userId,
+        bill_id: id(book.bill.id),
+        paid_on: payment.paidOn,
+        amount_cents: payment.amountCents,
+        account_id: accountId,
+        transaction_id: txnId,
+        status: "paid",
+        reading_id: id(`rd_${book.key}_${reading.stamp}`),
+      });
+    }
   }
-  const older = addDays(today, -70);
-  const mid = addDays(today, -40);
-  const latest = addDays(today, -12);
-  const reads: Row[] = [
-    { id: id("r0"), user_id: userId, meter_id: pge, read_on: older, meter_value: 10000, amount_cents: 0, opening: true, cells_json: "{}" },
-    { id: id("r1"), user_id: userId, meter_id: pge, read_on: mid, meter_value: 10154, amount_cents: 17220, opening: false, cells_json: JSON.stringify({ generation_kwh: 12, energy_charge: 62, delivery_charge: 38, riders: 14, taxes_fees: 12 }) },
-    { id: id("r2"), user_id: userId, meter_id: pge, read_on: latest, meter_value: 10324, amount_cents: 18640, opening: false, cells_json: JSON.stringify({ generation_kwh: 20, energy_charge: 110, delivery_charge: 42, riders: 18.4, taxes_fees: 10.4 }) },
-    { id: id("e0"), user_id: userId, meter_id: ev, read_on: older, meter_value: 200, amount_cents: 0, opening: true, cells_json: "{}" },
-    { id: id("e1"), user_id: userId, meter_id: ev, read_on: mid, meter_value: 238, amount_cents: 0, opening: false, cells_json: "{}" },
-    { id: id("e2"), user_id: userId, meter_id: ev, read_on: latest, meter_value: 292, amount_cents: 0, opening: false, cells_json: "{}" },
-  ];
-  for (const row of reads) await put(sql, "utility_readings", row);
-  await sql`update bills set meter_id = ${pge} where id = ${id("b_pge")} and user_id = ${userId}`;
-  const txn = await sql<{ id: string; posted_on: string }>`select id, posted_on from transactions where user_id = ${userId} and merchant = 'PG&E' order by posted_on desc limit 1`;
-  if (txn[0]) {
-    await put(sql, "bill_payments", {
-      id: id("pay_pge"),
-      user_id: userId,
-      bill_id: id("b_pge"),
-      paid_on: String(txn[0].posted_on).slice(0, 10),
-      amount_cents: 18640,
-      account_id: checking,
-      transaction_id: txn[0].id,
-      status: "paid",
-      reading_id: id("r2"),
-    });
+  await sql`update categories set monthly_cents = 40000 where user_id = ${userId} and name = 'Utilities' and monthly_cents = 19000`;
+  await sql`update plan_months set assigned_cents = 40000 where user_id = ${userId} and assigned_cents = 19000 and category_id = ${cat("Utilities")}`;
+}
+
+/** Sample books created with only two PG&E reads pick up a year of linked utility history once. */
+export async function ensureSampleUtilities(sql: Sql, userId: string) {
+  const prof = await sql<{ seeded: boolean }>`select seeded from profiles where user_id = ${userId}`;
+  if (!prof[0]?.seeded) return;
+  const water = await sql<{ id: string }>`select id from utility_meters where user_id = ${userId} and name = 'EBMUD water'`;
+  if (water.length) return;
+  const sid = slug(userId);
+  const id = (s: string) => `s_${sid}_${s}`;
+  const thin = await sql<{ id: string }>`select id from utility_meters where user_id = ${userId} and name in ('PG&E electric', 'Garage charger')`;
+  for (const meter of thin) {
+    const reads = await sql<{ id: string }>`select id from utility_readings where user_id = ${userId} and meter_id = ${meter.id}`;
+    for (const read of reads) {
+      await sql`update bill_payments set reading_id = null where user_id = ${userId} and reading_id = ${read.id}`;
+    }
+    await sql`delete from utility_readings where user_id = ${userId} and meter_id = ${meter.id}`;
+    await sql`delete from utility_columns where user_id = ${userId} and meter_id = ${meter.id}`;
+    await sql`update bills set meter_id = null where user_id = ${userId} and meter_id = ${meter.id}`;
+    await sql`delete from utility_meters where user_id = ${userId} and id = ${meter.id}`;
   }
+  const billIds = ["b_pge", "b_water", "b_phone", "b_net"].map((key) => id(key));
+  for (const billId of billIds) {
+    await sql`delete from bill_payments where user_id = ${userId} and bill_id = ${billId}`;
+  }
+  await sql`delete from transactions where user_id = ${userId} and source = 'sample' and merchant in ('PG&E', 'EBMUD', 'Xfinity', 'T-Mobile')`;
+  const accounts = await sql<{ id: string; kind: string }>`select id, kind from accounts where user_id = ${userId} and archived = false`;
+  const checking = accounts.find((a) => a.kind === "checking")?.id ?? id("chk");
+  const card = accounts.find((a) => a.kind === "credit")?.id ?? id("card");
+  await seedSampleMeters(sql, userId, id, checking, card, todayISO());
 }
 
 function sampleTags(merchant: string): string[] {
