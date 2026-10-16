@@ -200,7 +200,7 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     householdName: String(row.household_name ?? "Household"),
   });
 
-  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan);
+  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports);
   const primary = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
 
   return {
@@ -220,21 +220,21 @@ export async function loadWorkspace(userId: string, ownerId?: string): Promise<W
     assets: assets.map(mapAsset),
     valuations: valuations.map(mapValuation),
     snapshots: snapshots.map(mapSnapshot),
-    goals: goals.map(mapGoal),
+    goals: primary?.goals ?? [],
     contributions: contributions.map(mapContribution),
     plan: primary?.plan ?? [],
-    watches: watches.map(mapWatch),
+    watches: primary?.watches ?? [],
     readAlerts: reads.map((r) => r.alert_key),
-    reminders: reminders.map(mapReminder),
-    documents: documents.map(mapDocument),
+    reminders: primary?.reminders ?? [],
+    documents: primary?.documents ?? [],
     scores: scores.map(mapScore),
-    milestones: milestones.map(mapMilestone),
+    milestones: primary?.milestones ?? [],
     lots: lots.map(mapLot),
     prices: prices.map(mapPrice),
     flows: flows.map(mapFlow),
     sketches: sketches.map(mapSketch),
     ledgers: books,
-    reports: reports.map(mapReport),
+    reports: primary?.reports ?? [],
     keys: keys.map(mapKey),
     messages: messages.map(mapMessage).reverse(),
   };
@@ -516,6 +516,12 @@ function assembleLedgers(
   draws: Record<string, unknown>[],
   rules: Record<string, unknown>[],
   plan: Record<string, unknown>[],
+  goals: Record<string, unknown>[],
+  milestones: Record<string, unknown>[],
+  watches: Record<string, unknown>[],
+  reminders: Record<string, unknown>[],
+  documents: Record<string, unknown>[],
+  reports: Record<string, unknown>[],
 ): LedgerBook[] {
   return ledgers.map((row) => {
     const id = String(row.id);
@@ -534,6 +540,12 @@ function assembleLedgers(
       bills: bills.filter((b) => String(b.ledger_id) === id).map(mapBill),
       rules: rules.filter((r) => String(r.ledger_id ?? "") === id).map(mapRule),
       plan: plan.filter((p) => String(p.ledger_id ?? "") === id).map(mapPlan),
+      goals: goals.filter((g) => String(g.ledger_id ?? "") === id).map(mapGoal),
+      milestones: milestones.filter((m) => String(m.ledger_id ?? "") === id).map(mapMilestone),
+      watches: watches.filter((w) => String(w.ledger_id ?? "") === id).map(mapWatch),
+      reminders: reminders.filter((r) => String(r.ledger_id ?? "") === id).map(mapReminder),
+      documents: documents.filter((d) => String(d.ledger_id ?? "") === id).map(mapDocument),
+      reports: reports.filter((r) => String(r.ledger_id ?? "") === id).map(mapReport),
       draws: draws.filter((d) => String(d.ledger_id) === id).map(mapDraw),
     };
   });
@@ -950,8 +962,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         `;
       } else {
         await sql`
-          insert into goals (id, user_id, name, target_cents, saved_cents, target_date, monthly_cents, priority, notes, archived)
-          values (${id}, ${owner}, ${str(g.name, 80)}, ${Math.max(0, num(g.targetCents))}, ${Math.max(0, num(g.savedCents))}, ${g.targetDate ? dateOr(g.targetDate, todayISO()) : null}, ${Math.max(0, num(g.monthlyCents))}, ${num(g.priority)}, ${str(g.notes, 400)}, false)
+          insert into goals (id, user_id, name, target_cents, saved_cents, target_date, monthly_cents, priority, notes, archived, ledger_id)
+          values (${id}, ${owner}, ${str(g.name, 80)}, ${Math.max(0, num(g.targetCents))}, ${Math.max(0, num(g.savedCents))}, ${g.targetDate ? dateOr(g.targetDate, todayISO()) : null}, ${Math.max(0, num(g.monthlyCents))}, ${num(g.priority)}, ${str(g.notes, 400)}, false, ${await openJar()})
         `;
       }
       return {};
@@ -996,8 +1008,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         `;
       } else {
         await sql`
-          insert into watchlists (id, user_id, name, kind, ref_id, ref_name, comparator, threshold_cents, enabled, note)
-          values (${id}, ${owner}, ${str(w.name, 80)}, ${kind}, ${str(w.refId, 80)}, ${str(w.refName, 80)}, ${str(w.comparator, 8) || "gt"}, ${num(w.thresholdCents)}, true, ${str(w.note, 240)})
+          insert into watchlists (id, user_id, name, kind, ref_id, ref_name, comparator, threshold_cents, enabled, note, ledger_id)
+          values (${id}, ${owner}, ${str(w.name, 80)}, ${kind}, ${str(w.refId, 80)}, ${str(w.refName, 80)}, ${str(w.comparator, 8) || "gt"}, ${num(w.thresholdCents)}, true, ${str(w.note, 240)}, ${await openJar()})
         `;
       }
       return {};
@@ -1023,8 +1035,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         `;
       } else {
         await sql`
-          insert into reminders (id, user_id, title, due_on, href, related_type, related_id, done, repeat, notes)
-          values (${id}, ${owner}, ${str(r.title, 120)}, ${dateOr(r.dueOn, todayISO())}, ${str(r.href, 200)}, ${str(r.relatedType, 20)}, ${str(r.relatedId, 80)}, ${Boolean(r.done)}, ${str(r.repeat, 20) || "none"}, ${str(r.notes, 400)})
+          insert into reminders (id, user_id, title, due_on, href, related_type, related_id, done, repeat, notes, ledger_id)
+          values (${id}, ${owner}, ${str(r.title, 120)}, ${dateOr(r.dueOn, todayISO())}, ${str(r.href, 200)}, ${str(r.relatedType, 20)}, ${str(r.relatedId, 80)}, ${Boolean(r.done)}, ${str(r.repeat, 20) || "none"}, ${str(r.notes, 400)}, ${await openJar()})
         `;
       }
       return {};
@@ -1047,8 +1059,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         `;
       } else {
         await sql`
-          insert into documents (id, user_id, title, kind, year, related_type, related_id, notes, body, encrypted, file_name)
-          values (${id}, ${owner}, ${str(d.title, 120)}, ${str(d.kind, 20) || "other"}, ${d.year == null ? null : num(d.year)}, ${str(d.relatedType, 20)}, ${str(d.relatedId, 80)}, ${str(d.notes, 500)}, ${body}, ${Boolean(d.encrypted)}, ${str(d.fileName, 120)})
+          insert into documents (id, user_id, title, kind, year, related_type, related_id, notes, body, encrypted, file_name, ledger_id)
+          values (${id}, ${owner}, ${str(d.title, 120)}, ${str(d.kind, 20) || "other"}, ${d.year == null ? null : num(d.year)}, ${str(d.relatedType, 20)}, ${str(d.relatedId, 80)}, ${str(d.notes, 500)}, ${body}, ${Boolean(d.encrypted)}, ${str(d.fileName, 120)}, ${await openJar()})
         `;
       }
       return {};
@@ -1087,8 +1099,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         `;
       } else {
         await sql`
-          insert into milestones (id, user_id, name, kind, target_cents, target_date, current_cents, monthly_cents, annual_return_bps, notes)
-          values (${id}, ${owner}, ${str(m.name, 80)}, ${str(m.kind, 20) || "savings"}, ${Math.max(0, num(m.targetCents))}, ${m.targetDate ? dateOr(m.targetDate, todayISO()) : null}, ${num(m.currentCents)}, ${num(m.monthlyCents)}, ${num(m.annualReturnBps, 500)}, ${str(m.notes, 400)})
+          insert into milestones (id, user_id, name, kind, target_cents, target_date, current_cents, monthly_cents, annual_return_bps, notes, ledger_id)
+          values (${id}, ${owner}, ${str(m.name, 80)}, ${str(m.kind, 20) || "savings"}, ${Math.max(0, num(m.targetCents))}, ${m.targetDate ? dateOr(m.targetDate, todayISO()) : null}, ${num(m.currentCents)}, ${num(m.monthlyCents)}, ${num(m.annualReturnBps, 500)}, ${str(m.notes, 400)}, ${await openJar()})
         `;
       }
       return {};
@@ -1261,8 +1273,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         `;
       } else {
         await sql`
-          insert into reports (id, user_id, name, metric, range_key, group_by, filters_json)
-          values (${id}, ${owner}, ${str(r.name, 80)}, ${str(r.metric, 20) || "spending"}, ${str(r.rangeKey, 20) || "month"}, ${str(r.groupBy, 20) || "category"}, ${str(r.filtersJson, 1000) || "{}"})
+          insert into reports (id, user_id, name, metric, range_key, group_by, filters_json, ledger_id)
+          values (${id}, ${owner}, ${str(r.name, 80)}, ${str(r.metric, 20) || "spending"}, ${str(r.rangeKey, 20) || "month"}, ${str(r.groupBy, 20) || "category"}, ${str(r.filtersJson, 1000) || "{}"}, ${await openJar()})
         `;
       }
       return {};

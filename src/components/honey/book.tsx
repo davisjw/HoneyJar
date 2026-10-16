@@ -43,6 +43,12 @@ function scopeJar(data: Workspace, jar: LedgerBook): Workspace {
     bills: jar.bills,
     rules: jar.rules,
     plan: jar.plan,
+    goals: jar.goals,
+    milestones: jar.milestones,
+    watches: jar.watches,
+    reminders: jar.reminders,
+    documents: jar.documents,
+    reports: jar.reports,
     payments: data.payments.filter((p) => billIds.has(p.billId)),
   };
 }

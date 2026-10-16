@@ -103,7 +103,7 @@ export async function ensureJars(sql: Sql, userId: string) {
     on conflict (id) do nothing
   `;
   await sql`update ledgers set kind = 'personal' where id = ${id} and user_id = ${userId}`;
-  for (const table of ["accounts", "categories", "transactions", "bills", "rules", "plan_months"]) {
+  for (const table of ["accounts", "categories", "transactions", "bills", "rules", "plan_months", "goals", "milestones", "watchlists", "reminders", "documents", "reports"]) {
     await sql.query(`update ${table} set ledger_id = $1 where user_id = $2 and ledger_id = ''`, [id, userId]);
   }
 }

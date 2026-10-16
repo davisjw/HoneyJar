@@ -8,6 +8,7 @@ import {
   centsToInput,
   dollarsToCents,
   estimateTax,
+  ledgerProfit,
   lineSum,
   money,
   prettyDate,
@@ -181,9 +182,45 @@ export function ReportsPage() {
   );
 }
 
+function BusinessTaxes() {
+  const { data, jar } = useBook();
+  if (!data || !jar) return null;
+  const year = Number(data.today.slice(0, 4));
+  const from = `${year}-01-01`;
+  const pl = ledgerProfit(jar.transactions, jar.categories, from, data.today);
+  const lines = taxLines(jar.transactions, jar.categories, year)[jar.taxForm as "C" | "E" | "F"] ?? [];
+  const cur = data.profile.currency;
+  return (
+    <div>
+      <PageIntro
+        title="Taxes"
+        lede={`Schedule ${jar.taxForm || "C"} for ${jar.name}. Profit is income minus expenses. Draws are not profit. The household return, with wages and every business together, stays on a personal jar. This is a worksheet, not a filed return.`}
+      />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card><p className="text-sm text-muted">Income</p><p className="font-display text-2xl num">{money(pl.income, cur)}</p></Card>
+        <Card><p className="text-sm text-muted">Expenses</p><p className="font-display text-2xl num">{money(pl.expenses, cur)}</p></Card>
+        <Card><p className="text-sm text-muted">Profit</p><p className="font-display text-2xl num">{money(pl.profit, cur)}</p></Card>
+      </div>
+      <Card className="mt-4">
+        <h2 className="font-display text-xl">Schedule {jar.taxForm || "C"}</h2>
+        <ul className="mt-2 divide-y divide-line text-sm">
+          {lines.length ? lines.map((line) => (
+            <li key={line.line} className="flex justify-between py-2">
+              <span>{line.line}</span>
+              <span className="num">{money(line.cents, cur)}</span>
+            </li>
+          )) : <li className="py-2 text-muted">Nothing tagged yet this year.</li>}
+        </ul>
+        {lines.some((line) => line.line === "meals") ? <p className="mt-2 text-xs text-muted">Meals are shown in full. Half is the usual deduction.</p> : null}
+      </Card>
+    </div>
+  );
+}
+
 export function TaxesPage() {
-  const { data, run, canEdit, isOwner } = useBook();
+  const { data, jar, run, canEdit, isOwner } = useBook();
   if (!data) return null;
+  if (jar?.kind === "business") return <BusinessTaxes />;
   const year = Number(data.today.slice(0, 4));
   const pack = taxLines(data.transactions, data.categories, year);
   const profit = booksProfit(data.ledgers, year);

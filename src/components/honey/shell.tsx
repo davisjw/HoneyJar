@@ -80,10 +80,36 @@ const BUSINESS_NAV = [
     items: [{ to: "/business", id: "overview", label: "Overview", icon: Briefcase }],
   },
   {
-    group: "Jars",
-    items: [{ to: "/jars", id: "jars", label: "Jars", icon: Boxes }],
+    group: "Money",
+    items: [
+      { to: "/transactions", id: "transactions", label: "Transactions", icon: ListChecks },
+      { to: "/bills", id: "bills", label: "Bills", icon: Receipt },
+      { to: "/plan", id: "plan", label: "Spending plan", icon: Wallet },
+      { to: "/cashflow", id: "cashflow", label: "Cash flow", icon: LineChart },
+    ],
+  },
+  {
+    group: "Planning",
+    items: [
+      { to: "/goals", id: "goals", label: "Goals", icon: PiggyBank },
+      { to: "/milestones", id: "milestones", label: "Milestones", icon: Flag },
+      { to: "/reports", id: "reports", label: "Reports", icon: HandCoins },
+      { to: "/taxes", id: "taxes", label: "Taxes", icon: FileText },
+      { to: "/watch", id: "watch", label: "Watchlists", icon: Target },
+      { to: "/reminders", id: "reminders", label: "Reminders", icon: Bell },
+    ],
+  },
+  {
+    group: "Books",
+    items: [
+      { to: "/accounts", id: "accounts", label: "Accounts", icon: Landmark },
+      { to: "/documents", id: "documents", label: "Documents", icon: FileText },
+      { to: "/jars", id: "jars", label: "Jars", icon: Boxes },
+    ],
   },
 ] as const;
+
+const BUSINESS_PATHS = new Set<string>(BUSINESS_NAV.flatMap((group) => group.items.map((item) => item.to)));
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
@@ -188,8 +214,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!jar) return;
-    const businessPath = path === "/business" || path === "/jars";
-    if (jar.kind === "business" && !businessPath) navigate({ to: "/business" });
+    if (jar.kind === "business" && !BUSINESS_PATHS.has(path)) navigate({ to: "/business" });
     if (jar.kind === "personal" && path === "/business") navigate({ to: "/" });
   }, [jar, navigate, path]);
 

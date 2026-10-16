@@ -355,6 +355,12 @@ export type LedgerBook = {
   bills: Bill[];
   rules: Rule[];
   plan: PlanMonth[];
+  goals: Goal[];
+  milestones: Milestone[];
+  watches: Watch[];
+  reminders: Reminder[];
+  documents: DocumentRow[];
+  reports: Report[];
   draws: Draw[];
 };
 
