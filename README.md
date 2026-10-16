@@ -10,4 +10,6 @@ Private personal-finance books. This repository is not public.
 
 Version 2 is the personal books: spending, bills, a plan with rollover, cash flow, net worth, goals, taxes, sharing, and an advisor. Investments and business books are not built yet.
 
+The build record, the plan, and the architecture are in [docs/](docs/README.md).
+
 Spreadsheets are not part of this repo. Excel extensions are listed in `.gitignore`.
