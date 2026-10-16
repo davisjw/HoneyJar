@@ -26,6 +26,7 @@ import {
   Users,
   Wallet,
   X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { UserButton } from "@/lib/auth/gates";
@@ -40,6 +41,7 @@ const NAV = [
       { to: "/", id: "home", label: "Spending", icon: LayoutDashboard },
       { to: "/transactions", id: "transactions", label: "Transactions", icon: ListChecks },
       { to: "/bills", id: "bills", label: "Bills", icon: Receipt },
+      { to: "/utilities", id: "utilities", label: "Utilities", icon: Zap },
       { to: "/plan", id: "plan", label: "Spending plan", icon: Wallet },
       { to: "/cashflow", id: "cashflow", label: "Cash flow", icon: LineChart },
     ],
@@ -88,6 +90,7 @@ const BUSINESS_NAV = [
       { to: "/transactions", id: "transactions", label: "Transactions", icon: ListChecks },
       { to: "/invoices", id: "invoices", label: "Invoices", icon: ScrollText },
       { to: "/bills", id: "bills", label: "Bills", icon: Receipt },
+      { to: "/utilities", id: "utilities", label: "Utilities", icon: Zap },
       { to: "/mileage", id: "mileage", label: "Mileage", icon: Car },
       { to: "/leases", id: "leases", label: "Leases", icon: KeyRound },
       { to: "/plan", id: "plan", label: "Spending plan", icon: Wallet },

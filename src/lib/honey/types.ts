@@ -146,6 +146,8 @@ export type Bill = {
   notes: string;
   url: string;
   personId: string | null;
+  meterId: string | null;
+  flatPay: boolean;
 };
 
 export type Payment = {
@@ -155,6 +157,7 @@ export type Payment = {
   amountCents: number;
   accountId: string | null;
   transactionId: string | null;
+  readingId: string | null;
   status: string;
 };
 
@@ -412,6 +415,44 @@ export type MileageTrip = {
   tollsCents: number;
 };
 
+export type RateTier = {
+  name: string;
+  upTo: number | null;
+  rateCents: number;
+};
+
+export type UtilityMeter = {
+  id: string;
+  name: string;
+  unit: string;
+  provider: string;
+  parentId: string | null;
+  tiers: RateTier[];
+};
+
+export type UtilityColumn = {
+  id: string;
+  meterId: string;
+  key: string;
+  label: string;
+  kind: "number" | "money" | "calculated" | "date";
+  unit: string;
+  formula: string;
+  rollup: "" | "meter" | "usage" | "bill" | "days" | "readDate" | "charges";
+  fromChildren: boolean;
+  sort: number;
+};
+
+export type UtilityReading = {
+  id: string;
+  meterId: string;
+  readOn: string;
+  meter: number | null;
+  amountCents: number;
+  opening: boolean;
+  cells: Record<string, number>;
+};
+
 export type LedgerBook = {
   id: string;
   name: string;
@@ -435,6 +476,9 @@ export type LedgerBook = {
   trips: MileageTrip[];
   leases: Lease[];
   draws: Draw[];
+  meters: UtilityMeter[];
+  columns: UtilityColumn[];
+  readings: UtilityReading[];
 };
 
 export type AiMessage = {
@@ -458,6 +502,9 @@ export type Workspace = {
   transactions: Txn[];
   bills: Bill[];
   payments: Payment[];
+  meters: UtilityMeter[];
+  columns: UtilityColumn[];
+  readings: UtilityReading[];
   assets: Asset[];
   valuations: Valuation[];
   snapshots: Snapshot[];
@@ -499,7 +546,17 @@ export type Action = (
   | { type: "txn.recategorize"; ownerId?: string }
   | { type: "bill.save"; bill: Partial<Bill> & { name: string; amountCents: number; nextDue: string }; ownerId?: string }
   | { type: "bill.delete"; id: string; ownerId?: string }
-  | { type: "bill.pay"; id: string; amountCents?: number; paidOn?: string; ownerId?: string }
+  | { type: "bill.pay"; id: string; amountCents?: number; paidOn?: string; readingId?: string | null; ownerId?: string }
+  | { type: "meter.save"; meter: Partial<UtilityMeter> & { name: string }; template?: string; ownerId?: string }
+  | { type: "meter.delete"; id: string; ownerId?: string }
+  | { type: "meter.tiers"; id: string; tiers: RateTier[]; ownerId?: string }
+  | { type: "column.save"; column: Partial<UtilityColumn> & { meterId: string; label: string }; ownerId?: string }
+  | { type: "column.delete"; id: string; ownerId?: string }
+  | { type: "column.move"; id: string; direction: "up" | "down"; ownerId?: string }
+  | { type: "reading.save"; reading: Partial<UtilityReading> & { meterId: string; readOn: string }; ownerId?: string }
+  | { type: "reading.cells"; id: string; cells: Record<string, number>; ownerId?: string }
+  | { type: "reading.date"; id: string; readOn: string; ownerId?: string }
+  | { type: "reading.delete"; id: string; ownerId?: string }
   | { type: "asset.save"; asset: Partial<Asset> & { name: string; kind: string; valueCents: number }; ownerId?: string }
   | { type: "asset.delete"; id: string; ownerId?: string }
   | { type: "valuation.add"; assetId: string; asOf: string; valueCents: number; source: string; ownerId?: string }
