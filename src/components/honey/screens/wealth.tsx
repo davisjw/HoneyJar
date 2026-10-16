@@ -1,7 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ChartTip, INK, RULE, axisTick, shortMoney } from "../charts";
+import { ChartTip, CashTip, INK, RULE, WorthTip, axisTick, shortMoney } from "../charts";
 import {
   assetEquity,
   centsToInput,
@@ -60,7 +60,7 @@ export function NetWorthPage() {
               <CartesianGrid vertical={false} stroke={RULE} />
               <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(0, 7)} minTickGap={28} tick={axisTick} tickLine={false} axisLine={false} />
               <YAxis width={44} tickFormatter={(v) => shortMoney(Number(v))} tick={axisTick} tickLine={false} axisLine={false} />
-              <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} total />} />
+              <Tooltip content={(props) => <WorthTip active={props.active} payload={props.payload} currency={cur} />} cursor={{ stroke: INK, strokeWidth: 1 }} />
               <Area type="linear" dataKey="property" name="Property equity" stackId="worth" stroke="none" fill="#c4a894" />
               <Area type="linear" dataKey="investments" name="Investments" stackId="worth" stroke="none" fill="#e2c98a" />
               <Area type="linear" dataKey="cash" name="Cash" stackId="worth" stroke="none" fill="#8eae98" />

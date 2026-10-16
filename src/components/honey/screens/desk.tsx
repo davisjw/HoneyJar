@@ -1,7 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ChartTip, axisTick } from "../charts";
+import { SliceTip, axisTick } from "../charts";
 import { askAdvisor } from "@/lib/honey/fns";
 import {
   centsToInput,
@@ -103,10 +103,10 @@ export function ReportsPage() {
         </div>
         <div className="mt-3 h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={[...rows].sort((a, b) => b.cents - a.cents).slice(0, 8)} layout="vertical" margin={{ left: 8, right: 12 }}>
+            <BarChart data={[...rows].sort((a, b) => b.cents - a.cents).slice(0, 8).map((row) => ({ ...row, total: rows.reduce((s, r) => s + Math.abs(r.cents), 0) }))} layout="vertical" margin={{ left: 8, right: 12 }}>
               <XAxis type="number" hide />
               <YAxis type="category" dataKey="label" width={108} tick={axisTick} tickLine={false} axisLine={false} />
-              <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} />} cursor={{ fill: "#f3eee4" }} />
+              <Tooltip content={(props) => <SliceTip active={props.active} payload={props.payload} currency={cur} noun={spec.metric === "income" ? "income" : "this report"} />} cursor={{ fill: "#f3eee4" }} />
               <Bar dataKey="cents" name={spec.metric === "income" ? "Income" : "Spending"} fill="#c4a06a" radius={[0, 3, 3, 0]} barSize={14} />
             </BarChart>
           </ResponsiveContainer>

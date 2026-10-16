@@ -1,7 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { ChartTip, RULE, axisTick } from "../charts";
+import { CashTip, RULE, axisTick } from "../charts";
 import {
   CHART_COLORS,
   centsToInput,
@@ -673,7 +673,7 @@ export function CashflowPage() {
   }, [data, days]);
   if (!data || !chart) return null;
   const cur = data.profile.currency;
-  const sampled = chart.points.filter((_, i) => i % Math.ceil(chart.points.length / 80) === 0);
+  const sampled = chart.points.filter((p, i) => i % Math.ceil(chart.points.length / 80) === 0 || p.events.length > 0 || i === chart.points.length - 1);
   const cashBands = [...chart.accounts].sort((a, b) => (chart.points[0]?.byAccount[b.id] ?? 0) - (chart.points[0]?.byAccount[a.id] ?? 0));
   return (
     <div>
@@ -694,10 +694,10 @@ export function CashflowPage() {
         <p className="text-sm text-muted">{prettyDate(chart.low.date)} · {chart.low.label}</p>
         <div className="mt-4 h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={sampled.map((p) => ({ date: p.date, ...p.byAccount }))}>
+            <AreaChart data={sampled.map((p) => ({ date: p.date, events: p.events, ...p.byAccount }))}>
               <CartesianGrid vertical={false} stroke={RULE} />
               <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} minTickGap={24} tick={axisTick} tickLine={false} axisLine={false} />
-              <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} total />} />
+              <Tooltip content={(props) => <CashTip active={props.active} payload={props.payload} currency={cur} />} cursor={{ stroke: "#1c1612", strokeWidth: 1 }} />
               {cashBands.map((account, i) => (
                 <Area
                   key={account.id}

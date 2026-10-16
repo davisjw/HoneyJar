@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, Area, AreaChart, CartesianGrid, XAxis } from "recharts";
-import { ChartTip, RULE, axisTick } from "../charts";
+import { CashTip, RULE, SliceTip, axisTick } from "../charts";
 import {
   CHART_COLORS,
   allTags,
@@ -32,7 +32,9 @@ export function Dashboard() {
   const scoped = data.transactions.filter((t) => matchTxnFilters(t, { personId, tag }));
   const spendAll = spendingByCategory(data.transactions, data.categories, from, data.today);
   const incomeAll = spendingByCategory(data.transactions, data.categories, from, data.today, "in");
-  const spend = spendingByCategory(scoped, data.categories, from, data.today);
+  const spend = spendingByCategory(scoped, data.categories, from, data.today, "out", data.people);
+  const pieTotal = spend.reduce((s, row) => s + row.cents, 0);
+  const pie = spend.map((row) => ({ ...row, total: pieTotal, who: personId ? "" : row.who }));
   const incomeTotal = incomeAll.reduce((s, r) => s + r.cents, 0);
   const spendTotal = spendAll.reduce((s, r) => s + r.cents, 0);
   const plan = planModel(data.categories, data.transactions, data.plan, month, data.profile.monthStartDay);
@@ -137,12 +139,12 @@ export function Dashboard() {
               <div className="h-52">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={spend} dataKey="cents" nameKey="name" innerRadius={52} outerRadius={78} paddingAngle={1} stroke="#fffdf8" strokeWidth={2}>
-                      {spend.map((s, i) => (
+                    <Pie data={pie} dataKey="cents" nameKey="name" innerRadius={52} outerRadius={78} paddingAngle={1} stroke="#fffdf8" strokeWidth={2}>
+                      {pie.map((s, i) => (
                         <Cell key={s.id} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} />} />
+                    <Tooltip content={(props) => <SliceTip active={props.active} payload={props.payload} currency={cur} noun="spending this month" />} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -186,10 +188,10 @@ export function Dashboard() {
         <p className="mb-2 text-xs text-muted">Each band is an account. A bill comes out of the account it is paid from.</p>
         <div className="h-52">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={cash.points.filter((_, i) => i % 3 === 0 || i === cash.points.length - 1).map((p) => ({ date: p.date, ...p.byAccount }))}>
+            <AreaChart data={cash.points.filter((p, i) => i % 3 === 0 || p.events.length > 0 || i === cash.points.length - 1).map((p) => ({ date: p.date, events: p.events, ...p.byAccount }))}>
               <CartesianGrid vertical={false} stroke={RULE} />
               <XAxis dataKey="date" tickFormatter={(v) => String(v).slice(5)} minTickGap={28} tick={axisTick} tickLine={false} axisLine={false} />
-              <Tooltip content={(props) => <ChartTip active={props.active} label={props.label} payload={props.payload} format={(n) => money(n, cur)} total />} />
+              <Tooltip content={(props) => <CashTip active={props.active} payload={props.payload} currency={cur} />} cursor={{ stroke: "#1c1612", strokeWidth: 1 }} />
               {cashBands.map((account, i) => (
                 <Area
                   key={account.id}
@@ -242,17 +244,12 @@ export function Dashboard() {
         </Card>
       </div>
       <Card>
-        <h2 className="font-display text-xl">Next jars</h2>
-        <p className="mt-1 text-sm text-muted">Personal books are the whole product right now. These two stay out of the way until they’re real.</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl bg-paper p-3 text-sm">
-            <p className="font-medium">Investments</p>
-            <p className="text-muted">Retirement what-ifs, portfolio, TWR and IRR, dividends, quotes.</p>
-          </div>
-          <div className="rounded-xl bg-paper p-3 text-sm">
-            <p className="font-medium">Business & property</p>
-            <p className="text-muted">Separate books, Schedule C/E/F, invoices, mileage, and a P&L that doesn’t mix with the household.</p>
-          </div>
+        <h2 className="font-display text-xl">Next jar</h2>
+        <p className="mt-1 text-sm text-muted">Portfolio is already under Wealth. What is left is a separate set of business books.</p>
+        <div className="mt-3 rounded-xl bg-paper p-3 text-sm">
+          <p className="font-medium">Business</p>
+          <p className="text-muted">Invoices, mileage, profit and loss, and Schedule C. Those rows stay out of this household.</p>
+          <Link to="/portfolio" className="mt-2 inline-block text-honey-deep">Open Portfolio</Link>
         </div>
       </Card>
     </div>

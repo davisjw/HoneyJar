@@ -300,6 +300,9 @@ export type WorthPoint = {
   investments: number;
   property: number;
   net: number;
+  liquid: number;
+  cards: number;
+  otherDebt: number;
 };
 
 export type WorthToday = {
@@ -385,7 +388,16 @@ export function netWorthSeries(opts: {
   const detailed = dates.map(onDate);
   const last = detailed[detailed.length - 1];
   return {
-    points: detailed.map(({ date, cash, investments, property, net }) => ({ date, cash, investments, property, net })),
+    points: detailed.map(({ date, cash, investments, property, net, liquid, cards, otherDebt }) => ({
+      date,
+      cash,
+      investments,
+      property,
+      net,
+      liquid,
+      cards,
+      otherDebt,
+    })),
     today: {
       cash: last.cash,
       liquid: last.liquid,
@@ -400,7 +412,7 @@ export function netWorthSeries(opts: {
   };
 }
 
-export type SpendSlice = { id: string; name: string; cents: number };
+export type SpendSlice = { id: string; name: string; cents: number; count?: number; who?: string };
 
 export function parseTags(raw: unknown): string[] {
   const s = Array.isArray(raw) ? raw.join(",") : String(raw ?? "").trim();
@@ -459,8 +471,9 @@ export function spendingByCategory(
   from: string,
   to: string,
   flow: "out" | "in" = "out",
+  people: { id: string; name: string }[] = [],
 ): SpendSlice[] {
-  const map = new Map<string, number>();
+  const map = new Map<string, { cents: number; count: number; people: Map<string, number> }>();
   for (const t of txns) {
     if (!inRange(t.postedOn, from, to)) continue;
     const cat = categories.find((c) => c.id === t.categoryId);
@@ -469,14 +482,32 @@ export function spendingByCategory(
     if (flow === "in" && (catFlow !== "in" || t.amountCents <= 0)) continue;
     const id = t.categoryId ?? "uncategorized";
     const amt = flow === "out" ? Math.abs(Math.min(0, t.amountCents)) : t.amountCents;
-    map.set(id, (map.get(id) ?? 0) + amt);
+    const bucket = map.get(id) ?? { cents: 0, count: 0, people: new Map<string, number>() };
+    bucket.cents += amt;
+    bucket.count += 1;
+    const personKey = t.personId ?? "";
+    bucket.people.set(personKey, (bucket.people.get(personKey) ?? 0) + amt);
+    map.set(id, bucket);
   }
   return [...map.entries()]
-    .map(([id, cents]) => ({
-      id,
-      name: categories.find((c) => c.id === id)?.name ?? "Uncategorized",
-      cents,
-    }))
+    .map(([id, bucket]) => {
+      let best = 0;
+      let bestId = "";
+      for (const [personId, cents] of bucket.people) {
+        if (cents > best) {
+          best = cents;
+          bestId = personId;
+        }
+      }
+      const who = bucket.cents > 0 && best * 2 >= bucket.cents ? (bestId ? (people.find((p) => p.id === bestId)?.name ?? "") : "the household") : "";
+      return {
+        id,
+        name: categories.find((c) => c.id === id)?.name ?? "Uncategorized",
+        cents: bucket.cents,
+        count: bucket.count,
+        who,
+      };
+    })
     .filter((s) => s.cents !== 0)
     .sort((a, b) => b.cents - a.cents);
 }
@@ -594,7 +625,13 @@ export function planModel(
   return { rows, income, assignedTotal, leftToAssign: rta(month), leftInPlan };
 }
 
-export type CashPoint = { date: string; balance: number; label: string; byAccount: Record<string, number> };
+export type CashPoint = {
+  date: string;
+  balance: number;
+  label: string;
+  byAccount: Record<string, number>;
+  events: { label: string; cents: number }[];
+};
 
 export function projectCash(opts: {
   today: string;
@@ -614,7 +651,7 @@ export function projectCash(opts: {
     if (!accountId) return primary?.id ?? null;
     return null;
   };
-  const snap = (date: string, label: string): CashPoint => {
+  const snap = (date: string, label: string, dayEvents: { label: string; cents: number }[]): CashPoint => {
     const byAccount: Record<string, number> = {};
     let balance = 0;
     for (const account of liquid) {
@@ -622,7 +659,7 @@ export function projectCash(opts: {
       byAccount[account.id] = value;
       balance += value;
     }
-    return { date, balance, label, byAccount };
+    return { date, balance, label, byAccount, events: dayEvents };
   };
   const until = addDays(opts.today, opts.days);
   const events: { date: string; label: string; cents: number; accountId: string | null }[] = [];
@@ -649,7 +686,7 @@ export function projectCash(opts: {
     }
   }
   events.sort((a, b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label));
-  const points: CashPoint[] = [snap(opts.today, "Today")];
+  const points: CashPoint[] = [snap(opts.today, "Today", [])];
   let low = points[0];
   const byDate = new Map<string, typeof events>();
   for (const e of events) {
@@ -665,7 +702,11 @@ export function projectCash(opts: {
       if (!event.accountId || !balances.has(event.accountId)) continue;
       balances.set(event.accountId, (balances.get(event.accountId) ?? 0) + event.cents);
     }
-    const point = snap(date, dayEvents.map((e) => e.label).join(", "));
+    const point = snap(
+      date,
+      dayEvents.map((e) => e.label).join(", "),
+      dayEvents.map((e) => ({ label: e.label, cents: e.cents })),
+    );
     points.push(point);
     if (point.balance < low.balance) low = point;
   }
@@ -993,7 +1034,7 @@ export function rangeFor(key: string, today: string, startDay: number): { from: 
   return { from: periodStart(period, startDay), to: periodEnd(period, startDay) };
 }
 
-export type ReportRow = { label: string; cents: number };
+export type ReportRow = { label: string; cents: number; count: number };
 
 export function runReport(opts: {
   metric: string;
@@ -1007,8 +1048,13 @@ export function runReport(opts: {
   personId?: string;
   tag?: string;
 }): ReportRow[] {
-  const rows = new Map<string, number>();
-  const add = (label: string, cents: number) => rows.set(label, (rows.get(label) ?? 0) + cents);
+  const rows = new Map<string, { cents: number; count: number }>();
+  const add = (label: string, cents: number) => {
+    const cur = rows.get(label) ?? { cents: 0, count: 0 };
+    cur.cents += cents;
+    cur.count += 1;
+    rows.set(label, cur);
+  };
   for (const t of opts.txns) {
     if (!inRange(t.postedOn, opts.from, opts.to)) continue;
     if (!matchTxnFilters(t, { personId: opts.personId, tag: opts.tag })) continue;
@@ -1036,7 +1082,7 @@ export function runReport(opts: {
     add(label, cents);
   }
   return [...rows.entries()]
-    .map(([label, cents]) => ({ label, cents }))
+    .map(([label, row]) => ({ label, cents: row.cents, count: row.count }))
     .sort((a, b) => Math.abs(b.cents) - Math.abs(a.cents));
 }
 
