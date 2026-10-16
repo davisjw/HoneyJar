@@ -24,7 +24,7 @@ export function JarsPage() {
     <div>
       <PageIntro
         title="Jars"
-        lede="Each jar is its own set of books. Personal is the household. Business is a Schedule C, E, or F activity. Property is a rental on Schedule E, kept apart from the house you live in. Archive hides a jar and does not pull a draw back."
+        lede="Each jar is its own set of books on this sign-in. A different family should have its own sign-in, so their ten years of transactions are not loaded with yours. Personal is the household. Business is a Schedule C, E, or F activity. Property is a rental on Schedule E. Archive hides a jar and does not pull a draw back."
       />
       <div className="grid gap-4 lg:grid-cols-3">
         <JarList title="Personal" rows={personal} current={jar?.id} onOpen={setJar} canEdit={canEdit} onArchive={(id) => run({ type: "ledger.archive", id, archived: true })} />

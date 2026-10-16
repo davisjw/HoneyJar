@@ -18,6 +18,7 @@ import {
   parseTags,
   periodOf,
   personFlow,
+  planModel,
   scheduleD,
 } from "./calc.ts";
 import type { Account, Asset, Category, Profile, Txn } from "./types.ts";
@@ -175,6 +176,24 @@ describe("a jar's profit", () => {
     ];
     assert.equal(mileageDeductionCents([trip], "2026-01-01", "2026-12-31"), 725);
     assert.equal(booksProfit(books, 2026), 200_000 - 725);
+  });
+});
+
+describe("left to assign", () => {
+  it("stops walking income after two years", () => {
+    const oldOnly = planModel([income], [txn({ id: "old", amountCents: 50_000, postedOn: "2024-01-15", categoryId: "in" })], [], "2026-10", 1);
+    assert.equal(oldOnly.leftToAssign, 0);
+    const kept = planModel(
+      [income],
+      [
+        txn({ id: "old", amountCents: 50_000, postedOn: "2024-01-15", categoryId: "in" }),
+        txn({ id: "new", amountCents: 12_000, postedOn: "2025-06-15", categoryId: "in" }),
+      ],
+      [],
+      "2026-10",
+      1,
+    );
+    assert.equal(kept.leftToAssign, 12_000);
   });
 });
 

@@ -132,7 +132,7 @@ function PayLine({
 }
 
 export function TransactionsPage() {
-  const { data, run, canEdit } = useBook();
+  const { data, run, canEdit, showEarlier } = useBook();
   const search = useRouterState({ select: (s) => s.location.searchStr });
   const [q, setQ] = useState(param(search, "q"));
   const category = param(search, "category");
@@ -145,6 +145,7 @@ export function TransactionsPage() {
   const [csv, setCsv] = useState("");
   const [accountId, setAccountId] = useState("");
   const [who, setWho] = useState(personFilter);
+  const [shown, setShown] = useState(200);
   const [tag, setTag] = useState(tagFilter);
   useEffect(() => {
     setWho(personFilter);
@@ -226,7 +227,7 @@ export function TransactionsPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, 200).map((t) => (
+            {rows.slice(0, shown).map((t) => (
               <tr key={t.id} className={t.id === focus ? "bg-honey-soft" : "border-t border-line"}>
                 <td className="px-4 py-3">{prettyDate(t.postedOn)}</td>
                 <td className="px-4 py-3">
@@ -253,7 +254,21 @@ export function TransactionsPage() {
         </table>
         {rows.length === 0 ? <Empty>Nothing matches.</Empty> : null}
       </Card>
-      <p className="mt-2 text-xs text-muted">{rows.length} shown · month context {monthLabel(month)}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
+        <span>
+          {Math.min(shown, rows.length)} of {rows.length} in this window · month context {monthLabel(month)}
+        </span>
+        {shown < rows.length ? (
+          <button type="button" className="text-honey hover:underline" onClick={() => setShown((count) => count + 200)}>
+            Show more
+          </button>
+        ) : null}
+        {data.txnHasMore ? (
+          <button type="button" className="text-honey hover:underline" onClick={showEarlier}>
+            Load earlier
+          </button>
+        ) : null}
+      </div>
       {open && editing ? (
         <TxnEditor
           key={editing.id ?? "new"}

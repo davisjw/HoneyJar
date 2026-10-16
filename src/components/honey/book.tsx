@@ -2,7 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { applyAction, getWorkspace } from "@/lib/honey/fns";
-import type { Action, ActionResult, LedgerBook, Workspace } from "@/lib/honey/types";
+import { addMonths, annotateJar } from "@/lib/honey/calc";
+import type { Account, Action, ActionResult, LedgerBook, Txn, Workspace } from "@/lib/honey/types";
 
 type BookValue = {
   data?: Workspace;
@@ -21,6 +22,7 @@ type BookValue = {
   vaultKey: CryptoKey | null;
   setVaultKey: (key: CryptoKey | null) => void;
   reload: () => Promise<void>;
+  showEarlier: () => void;
 };
 
 const BookContext = createContext<BookValue | null>(null);
@@ -34,6 +36,57 @@ function errText(err: unknown) {
 
 function jarKey(ownerId?: string) {
   return `honeyjar.jar.${ownerId ?? "self"}`;
+}
+
+function upsertTxn(list: Txn[], txn: Txn): Txn[] {
+  return [...list.filter((item) => item.id !== txn.id), txn].sort((a, b) => b.postedOn.localeCompare(a.postedOn) || a.merchant.localeCompare(b.merchant));
+}
+
+function mergeById<T extends { id: string }>(list: T[], next: T[] | undefined): T[] {
+  if (!next?.length) return list;
+  const map = new Map(list.map((item) => [item.id, item]));
+  for (const item of next) map.set(item.id, item);
+  return list.map((item) => map.get(item.id) ?? item).concat(next.filter((item) => !list.some((old) => old.id === item.id)));
+}
+
+function replaceAccounts(list: Account[], next: Account[] | undefined): Account[] {
+  if (!next?.length) return list;
+  const mine = next.filter((account) => list.some((old) => old.id === account.id));
+  if (!mine.length) return list;
+  const map = new Map(mine.map((account) => [account.id, account]));
+  return list.map((account) => map.get(account.id) ?? account);
+}
+
+function applyPatch(ws: Workspace, patch: NonNullable<ActionResult["patch"]>, focusId?: string): Workspace {
+  const removed = new Set(patch.deletedTransactionIds ?? []);
+  const ledgers = ws.ledgers.map((book) => {
+    const accounts = replaceAccounts(book.accounts, patch.accounts);
+    const readings = mergeById(
+      book.readings,
+      patch.readings?.filter((reading) => book.meters.some((meter) => meter.id === reading.meterId)),
+    );
+    let transactions = book.transactions.filter((txn) => !removed.has(txn.id));
+    let touched = transactions.length !== book.transactions.length || accounts !== book.accounts || readings !== book.readings;
+    for (const txn of patch.transactions ?? []) {
+      const owns = accounts.some((account) => account.id === txn.accountId);
+      const had = book.transactions.some((item) => item.id === txn.id);
+      if (!owns && !had) continue;
+      touched = true;
+      transactions = owns ? upsertTxn(transactions, txn) : transactions.filter((item) => item.id !== txn.id);
+    }
+    if (!touched) return book;
+    // A jar that was not sent (summary, or a different jar is open) already has
+    // its year totals. Rebuilding them from an empty register would zero the year.
+    const loaded = book.transactions.length > 0 || book.id === focusId;
+    if (!loaded) return { ...book, accounts, readings };
+    return annotateJar({ ...book, accounts, readings, transactions }, ws.today, ws.profile.monthStartDay);
+  });
+  return {
+    ...ws,
+    ledgers,
+    accounts: replaceAccounts(ws.accounts, patch.accounts),
+    readings: mergeById(ws.readings, patch.readings),
+  };
 }
 
 function scopeJar(data: Workspace, jar: LedgerBook): Workspace {
@@ -66,6 +119,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
+  const [txnSince, setTxnSince] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("honeyjar.owner") ?? undefined;
@@ -76,9 +130,17 @@ export function BookProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const query = useQuery({
-    queryKey: ["workspace", ownerId ?? "self"],
+    queryKey: ["workspace", ownerId ?? "self", jarId ?? "home", txnSince ?? "recent"],
     enabled: ready,
-    queryFn: () => getWorkspace({ data: { ownerId } }),
+    queryFn: () =>
+      getWorkspace({
+        data: {
+          ownerId,
+          ledgerId: jarId && jarId !== SUMMARY ? jarId : undefined,
+          txnSince,
+          window: true,
+        },
+      }),
   });
 
   const value = useMemo<BookValue>(() => {
@@ -95,6 +157,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
       summary,
       setJar: (id) => {
         window.localStorage.setItem(jarKey(ownerId), id);
+        setTxnSince(undefined);
         setJarId(id);
       },
       loading: !ready || query.isLoading,
@@ -106,6 +169,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
         if (id) window.localStorage.setItem("honeyjar.owner", id);
         else window.localStorage.removeItem("honeyjar.owner");
         setOwnerState(id);
+        setTxnSince(undefined);
         setJarId(window.localStorage.getItem(jarKey(id)) ?? undefined);
       },
       busy,
@@ -114,6 +178,11 @@ export function BookProvider({ children }: { children: ReactNode }) {
       reload: async () => {
         await qc.invalidateQueries({ queryKey: ["workspace"] });
       },
+      showEarlier: () => {
+        const oldest = jar?.transactions.reduce((min, txn) => (!min || txn.postedOn < min ? txn.postedOn : min), "");
+        if (!oldest) return;
+        setTxnSince(addMonths(oldest, -24));
+      },
       run: async (action) => {
         setBusy(true);
         try {
@@ -121,7 +190,9 @@ export function BookProvider({ children }: { children: ReactNode }) {
           const result = await applyAction({
             data: { ...action, ownerId: action.ownerId ?? ownerId, ...(ledgerId ? { ledgerId } : {}) },
           });
-          await qc.invalidateQueries({ queryKey: ["workspace"] });
+          const key = ["workspace", ownerId ?? "self", jarId ?? "home", txnSince ?? "recent"] as const;
+          if (result.patch) qc.setQueryData<Workspace>(key, (current) => (current ? applyPatch(current, result.patch!, jar?.id) : current));
+          else await qc.invalidateQueries({ queryKey: ["workspace"] });
           return result;
         } catch (err) {
           const message = errText(err);
@@ -132,7 +203,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
         }
       },
     };
-  }, [busy, jarId, ownerId, qc, query.data, query.error, query.isLoading, ready, vaultKey]);
+  }, [busy, jarId, ownerId, qc, query.data, query.error, query.isLoading, ready, txnSince, vaultKey]);
 
   return <BookContext.Provider value={value}>{children}</BookContext.Provider>;
 }
