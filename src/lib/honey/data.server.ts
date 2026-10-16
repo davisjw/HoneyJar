@@ -145,7 +145,10 @@ function mapProfile(row: Record<string, unknown>): Profile {
 }
 
 export async function loadWorkspace(userId: string, ownerId?: string): Promise<Workspace> {
-  const sql = await getSql();
+  return readWorkspace(await getSql(), userId, ownerId);
+}
+
+export async function readWorkspace(sql: Sql, userId: string, ownerId?: string): Promise<Workspace> {
   await ensureProfile(sql, userId);
   const scoped = await scope(sql, userId, ownerId);
   if (scoped.owner === userId) await ensureSeed(sql, userId);

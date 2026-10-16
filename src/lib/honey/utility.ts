@@ -324,6 +324,18 @@ export function hasMeter(columns: { rollup: Rollup }[], unit = ""): boolean {
   return Boolean(unit) && unit !== "none";
 }
 
+/** How a workbook cell is drawn. Only the cell being edited mounts an input. */
+export function cellMount(
+  column: { kind: string; rollup: string },
+  opts: { metered: boolean; openingUsage: boolean; editing: boolean },
+): "static" | "input" | "date" {
+  if (opts.openingUsage) return "static";
+  const dated = column.kind === "date" || column.rollup === "readDate";
+  const locked = column.kind === "calculated" || (opts.metered && column.rollup === "days");
+  if (!opts.editing || locked) return "static";
+  return dated ? "date" : "input";
+}
+
 type FormulaOk = { ok: true; value: number };
 type FormulaErr = { ok: false; error: string };
 type FormulaResult = FormulaOk | FormulaErr;
@@ -729,6 +741,63 @@ export function yearPoints(rows: SheetRow[], columns: UtilColumn[], year: number
       label,
       thisYear: usageKey && cur ? (cur.computed[usageKey] ?? null) : null,
       lastYear: usageKey && prev ? (prev.computed[usageKey] ?? null) : null,
+    };
+  });
+}
+
+export type HistorySeries = { key: string; label: string; money: boolean };
+
+/** Columns worth charting. Meter reads, dates, and the day count stay off the graph. */
+export function historySeries(columns: UtilColumn[]): HistorySeries[] {
+  return columns
+    .filter((column) => column.kind !== "date" && !["readDate", "meter", "days"].includes(column.rollup))
+    .map((column) => ({
+      key: column.key,
+      label: column.label,
+      money: column.kind === "money" || column.rollup === "bill" || column.rollup === "charges" || column.unit.startsWith("$"),
+    }));
+}
+
+export type HistoryPoint = {
+  label: string;
+  lastYear: number | null;
+  thisYear: number | null;
+  paid: number | null;
+  statement: number | null;
+  lineGap: boolean;
+};
+
+/** Twelve months, this year against last year, for one column. Paid and the statement are in dollars. */
+export function historyYear(
+  rows: SheetRow[],
+  columns: UtilColumn[],
+  key: string,
+  year: number,
+  payments: { readingId: string; amountCents: number }[] = [],
+): HistoryPoint[] {
+  const column = columns.find((item) => item.key === key);
+  const money = column ? column.kind === "money" || column.rollup === "bill" || column.rollup === "charges" || column.unit.startsWith("$") : false;
+  const paidByRow = new Map(payments.map((payment) => [payment.readingId, payment.amountCents]));
+  return MONTHS.map((label, i) => {
+    const month = String(i + 1).padStart(2, "0");
+    const cur = rows.find((row) => row.date.startsWith(`${year}-${month}`));
+    const prev = rows.find((row) => row.date.startsWith(`${year - 1}-${month}`));
+    const value = (row: SheetRow | undefined) => {
+      if (!row || row.computed[key] == null) return null;
+      const n = row.computed[key]!;
+      return money ? Math.round(n * 100) / 100 : Math.round(n * 1000) / 1000;
+    };
+    const compare = cur ? chargeCompare(cur, columns) : null;
+    const paidCents = cur ? paidByRow.get(cur.id) : undefined;
+    return {
+      label,
+      lastYear: value(prev),
+      thisYear: value(cur),
+      paid: paidCents != null ? paidCents / 100 : null,
+      statement: compare?.statementCents != null ? compare.statementCents / 100 : null,
+      lineGap: Boolean(
+        compare && compare.chargesCents != null && compare.statementCents != null && compare.chargesCents !== compare.statementCents,
+      ),
     };
   });
 }
