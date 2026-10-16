@@ -60,6 +60,283 @@ The client keeps one query cache of the workspace. A successful action invalidat
 
 `loadWorkspace` scopes every select by `user_id`. A shared book passes the owner’s id after `book_access` says this member may see it. Roles are `owner`, `editor`, `viewer`, and `advisor`.
 
+## How a click becomes rows
+
+Three doors reach the same books. The screens use server functions. A script uses `/api/v1`. An agent uses `/api/mcp`, which is only a thin call onto `/api/v1`. None of them query SQL from the browser.
+
+```mermaid
+flowchart LR
+  subgraph browser [Browser]
+    Screens[Screens]
+    Book[useBook]
+    Vault[vault.ts]
+    Charts[calc.ts in the page]
+  end
+  subgraph server [Server]
+    Auth[authMiddleware]
+    Fns[getWorkspace applyAction askAdvisor]
+    Api["/api/v1"]
+    Mcp["/api/mcp"]
+    Data[data.server.ts]
+    Calc[calc.ts]
+  end
+  subgraph store [Database]
+    Sql[(Postgres or PGLite)]
+  end
+  subgraph outside [Outside]
+    Grok[Grok or OpenAI]
+    Ollama[Ollama in the browser]
+    Csv[Bank CSV]
+  end
+
+  Screens --> Book
+  Screens --> Charts
+  Screens --> Vault
+  Book --> Auth --> Fns --> Data
+  Csv --> Screens
+  Api --> Data
+  Mcp --> Api
+  Data --> Calc
+  Data --> Sql
+  Fns --> Grok
+  Fns --> Ollama
+```
+
+`calc.ts` is imported on both sides. The page uses it to draw a chart from the workspace it already has. The server uses it for alerts, the tax estimate, the plan, and the advisor brief. There is no second copy of the tax brackets.
+
+### Read path
+
+Opening any signed-in screen does not fetch that screen’s table. `BookProvider` loads the whole household once.
+
+```mermaid
+sequenceDiagram
+  participant Page
+  participant Book as useBook
+  participant Auth as authMiddleware
+  participant Load as loadWorkspace
+  participant DB as SQL
+
+  Page->>Book: mount
+  Book->>Auth: getWorkspace ownerId
+  Auth->>Auth: same-site check, session to userId
+  Auth->>Load: userId plus optional ownerId
+  Load->>DB: ensure profile
+  Load->>Load: scope to owner and role
+  Load->>DB: seed if this owner is new
+  Load->>DB: select every household table by user_id
+  Load-->>Book: Workspace
+  Book-->>Page: data, role, canEdit
+```
+
+`ownerId` lives in `localStorage` under `honeyjar.owner`. Empty means “my own books.” A partner who accepted an invite sets it to the other household. The query key is `["workspace", ownerId]`, so switching books does not show the previous household’s cache.
+
+`scope` is the only place a caller becomes allowed to see someone else’s rows:
+
+- No foreign owner, or the owner is yourself: role `owner`.
+- Otherwise one active `book_access` row must name you as `editor`, `viewer`, or `advisor`. Anything else throws.
+- Seeds run only when you are the owner. Opening a shared book never writes the Calder sample into it.
+
+The OpenAI key is stripped on the way out. The client sees `openaiKeySet`, not the key. API keys come back as id, name, and prefix.
+
+### Write path
+
+A screen never updates a balance by itself. It calls `run(action)`. That posts one `Action`, then throws away the cached workspace and loads it again. The next paint is whatever SQL just stored.
+
+```mermaid
+sequenceDiagram
+  participant Page
+  participant Book as useBook
+  participant Auth as authMiddleware
+  participant Act as applyAction
+  participant DB as SQL
+
+  Page->>Book: run txn.save
+  Book->>Auth: POST action plus ownerId
+  Auth->>Act: userId
+  Act->>Act: scope, then assertEdit or assertOwner
+  Act->>DB: reverse old balance if this id exists
+  Act->>DB: apply new balance delta
+  Act->>DB: insert or update the transaction
+  Act-->>Book: empty result, or a one-time token
+  Book->>Auth: getWorkspace again
+  Auth-->>Page: fresh Workspace
+```
+
+Role gate, in order:
+
+| Action | Who |
+| --- | --- |
+| `invite.accept` | Any signed-in user. Checked before scope, because the code is the permission. |
+| Profile, invites, API keys, load or clear sample | Owner only |
+| Everything else | Owner or editor. Viewer and advisor get “view-only access.” |
+
+`canEdit` on the client hides buttons for viewers. The server check is the one that counts.
+
+Owner-only results that must not be cached: `apikey.create` returns the raw `hj_` token once. `invite.create` returns the code once. The following `getWorkspace` only has the prefix and the code list the owner already saved.
+
+### What one transaction touches
+
+Saving a transaction is the pattern the other money writes follow. Amounts are cents. Negative is money out. Positive is money in.
+
+```mermaid
+flowchart TD
+  Save[txn.save]
+  Old{Row already exists?}
+  Undo[adjust old account by the opposite amount]
+  Move[adjust the account on the form]
+  Write[upsert transactions]
+  Kind{Account kind}
+  Plus[balance plus amount]
+  Minus[balance minus amount]
+
+  Save --> Old
+  Old -->|yes| Undo --> Move
+  Old -->|no| Move
+  Move --> Kind
+  Kind -->|checking savings cash investment| Plus
+  Kind -->|credit loan mortgage| Minus
+  Plus --> Write
+  Minus --> Write
+```
+
+`adjust` refuses an account id that is not this household’s. Editing a transaction first undoes the old delta, then applies the new one, including a move between accounts. Deleting a transaction only undoes the delta and deletes the row.
+
+CSV import and `POST /api/v1/transactions` call the same `txn.save` / import path, so a file and a script move balances the same way a typed row does. Import stamps `source = import`. The API stamps `source = api`.
+
+Paying a bill writes a `bill_payments` row and a transaction, then moves the account. If the bill names a debt account, the principal portion reduces that debt too.
+
+### Who the rows belong to
+
+Every household table carries `user_id`, and that id is the owner’s user id, not the visitor’s. Sharing does not copy rows.
+
+```mermaid
+flowchart LR
+  Visitor[Signed-in user]
+  Access[book_access]
+  Profile[profiles]
+  Books[(accounts transactions bills people goals)]
+
+  Visitor -->|own books| Profile
+  Visitor -->|member_user_id and status active| Access
+  Access -->|owner_user_id| Profile
+  Profile --> Books
+```
+
+An invite starts as `pending` with a code and an email. Accept sets `member_user_id` and `status = active`. Revoke drops the grant. The visitor’s own profile stays their profile. Switching households only changes which owner id the next load uses.
+
+### How the tables connect
+
+```mermaid
+erDiagram
+  PROFILE ||--o{ ACCOUNT : owns
+  PROFILE ||--o{ PERSON : owns
+  PROFILE ||--o{ CATEGORY : owns
+  ACCOUNT ||--o{ TRANSACTION : posts
+  CATEGORY ||--o{ TRANSACTION : classifies
+  PERSON ||--o{ TRANSACTION : attributed
+  CATEGORY ||--o{ RULE : matched_by
+  CATEGORY ||--o{ BILL : classifies
+  ACCOUNT ||--o{ BILL : paid_from
+  PERSON ||--o{ BILL : attributed
+  BILL ||--o{ BILL_PAYMENT : paid
+  ACCOUNT ||--o| ASSET : loan_against
+  ASSET ||--o{ VALUATION : history
+  CATEGORY ||--o{ PLAN_MONTH : assigned
+  GOAL ||--o{ CONTRIBUTION : funded_by
+  PERSON ||--o{ CREDIT_SCORE : series
+  PROFILE ||--o{ API_KEY : hashes
+  PROFILE ||--o{ BOOK_ACCESS : invites
+```
+
+Reports, watches, reminders, documents, milestones, snapshots, and advisor messages hang off the profile only. A document may also store `related_type` and `related_id` (an asset, an account, a tax year) as text. That link is not a foreign key.
+
+Tags are not a table. They are a JSON array on the transaction. A report grouped by tag walks that array and can count one purchase under two tags.
+
+### Charts, tax, and alerts
+
+Those screens do not have their own queries. They take the workspace and call `calc.ts`:
+
+| Question | Function | Inputs |
+| --- | --- | --- |
+| Spending pie | `spendingByCategory` | transactions, categories, month window, optional person and tag |
+| By person | `personFlow` | the same window |
+| Plan leftover | `planModel` | categories, transactions, `plan_months`, month |
+| Year of cash | `projectCash` | liquid balances, bills, recent spending |
+| Net worth | `netWorthParts` | full asset values plus cash and investments, minus debt balances. A linked loan is counted once, in debts. `assetEquity` is only the per-asset card |
+| Tax worksheet | `taxLines`, `estimateTax` | categories’ schedule and line, profile wages and withholding, 2026 brackets |
+| Watchlist | `evaluateAlerts` | watches, bills, goals, scores, plan rows, reminders |
+
+A filter on the dashboard narrows the pie and the by-person bars. The headline cards for the month stay on the unfiltered set.
+
+### Advisor
+
+The model never receives the workspace. `askAdvisor` builds a few lines with `advisorBrief`: household name, net worth, account balances, this month’s top categories, the next bills, goals, filing status. History is the last eight `ai_messages`.
+
+```mermaid
+flowchart TD
+  Ask[Question]
+  Brief[advisorBrief]
+  Which{ai_provider}
+  Grok[Server calls Grok with XAI_API_KEY]
+  OpenAI[Server calls OpenAI with the key on the profile]
+  Local[Server returns the brief]
+  Browser[Browser posts brief and question to Ollama]
+  Log[ai_messages]
+
+  Ask --> Brief --> Which
+  Which -->|grok| Grok --> Log
+  Which -->|openai| OpenAI --> Log
+  Which -->|ollama| Local --> Browser --> Log
+```
+
+Ollama is the only path where the browser talks to the model. The server still writes the question and the answer after the browser reports them through `advisor.log`. Grok and OpenAI are written on the server before the answer returns.
+
+### Vault
+
+Encryption is not a column transform inside SQL. The browser encrypts, then the ciphertext is just another string in `documents.body`.
+
+```mermaid
+sequenceDiagram
+  participant Page
+  participant Vault as vault.ts
+  participant Book as useBook
+  participant DB as profiles and documents
+
+  Page->>Vault: createVault passphrase
+  Vault->>Vault: PBKDF2 salt, AES-256-GCM key
+  Vault-->>Page: salt and verifier ciphertext
+  Page->>Book: profile.update salt and verifier
+  Book->>DB: store salt and verifier, not the passphrase
+  Note over Page,Vault: key stays in React state for this visit
+  Page->>Vault: encryptText key, document body
+  Vault-->>Page: ciphertext
+  Page->>Book: document.save body encrypted true
+  Book->>DB: ciphertext only
+```
+
+Unlock derives the key again and decrypts the verifier. If the plaintext is not the marker `honeyjar-vault-ok`, the passphrase is wrong and no key is kept. Locking clears React state. A reload locks the vault. Documents saved before a vault exists are stored as plaintext with `encrypted = false`.
+
+### API and MCP
+
+`/api/v1` does not use the session cookie. It hashes the bearer token and looks up `api_keys.token_hash`. The matched user id is the owner. A partner’s key reads the partner’s own books, not a book that was shared with them in the UI.
+
+```mermaid
+sequenceDiagram
+  participant Agent
+  participant Mcp as /api/mcp
+  participant Api as /api/v1
+  participant DB as SQL
+
+  Agent->>Mcp: tools/call list_alerts
+  Mcp->>Mcp: hash bearer, find user
+  Mcp->>Api: GET /alerts with the same header
+  Api->>DB: loadWorkspace
+  Api-->>Mcp: alerts JSON
+  Mcp-->>Agent: JSON-RPC text content
+```
+
+MCP tools are the GET routes: summary, accounts, transactions, bills, goals, net worth, alerts. The only write on this door is `POST /transactions`.
+
 ## Data
 
 Migrations:
