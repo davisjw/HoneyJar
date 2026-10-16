@@ -899,7 +899,7 @@ export function SettingsPage() {
         <Card>
           <h2 className="font-display text-xl">Navigation</h2>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {NAV_IDS.filter((n) => n.id !== "home" && n.id !== "settings").map((item) => (
+            {NAV_IDS.filter((n) => n.id !== "home" && n.id !== "settings" && n.id !== "jars").map((item) => (
               <label key={item.id} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"

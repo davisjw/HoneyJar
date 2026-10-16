@@ -1,7 +1,9 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Bell,
+  Boxes,
   Briefcase,
+  ChevronDown,
   FileText,
   Flag,
   HandCoins,
@@ -22,7 +24,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { UserButton } from "@/lib/auth/gates";
 import { monthLabel, periodOf } from "@/lib/honey/calc";
 import { useBook } from "./book";
@@ -59,10 +61,6 @@ const NAV = [
     ],
   },
   {
-    group: "Business",
-    items: [{ to: "/business", id: "business", label: "Business", icon: Briefcase }],
-  },
-  {
     group: "Household",
     items: [
       { to: "/people", id: "people", label: "People", icon: Users },
@@ -71,18 +69,31 @@ const NAV = [
       { to: "/accounts", id: "accounts", label: "Accounts", icon: Landmark },
       { to: "/advisor", id: "advisor", label: "Advisor", icon: Sparkles },
       { to: "/settings", id: "settings", label: "Customize", icon: Settings },
+      { to: "/jars", id: "jars", label: "Jars", icon: Boxes },
     ],
+  },
+] as const;
+
+const BUSINESS_NAV = [
+  {
+    group: "This jar",
+    items: [{ to: "/business", id: "overview", label: "Overview", icon: Briefcase }],
+  },
+  {
+    group: "Jars",
+    items: [{ to: "/jars", id: "jars", label: "Jars", icon: Boxes }],
   },
 ] as const;
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const { data } = useBook();
+  const { data, jar } = useBook();
   const hidden = new Set((data?.profile.navHidden ?? "").split(",").filter(Boolean));
+  const nav = jar?.kind === "business" ? BUSINESS_NAV : NAV;
   return (
     <div className="space-y-5">
-      {NAV.map((group) => {
-        const items = group.items.filter((item) => item.id === "home" || item.id === "settings" || !hidden.has(item.id));
+      {nav.map((group) => {
+        const items = group.items.filter((item) => item.id === "home" || item.id === "settings" || item.id === "jars" || item.id === "overview" || !hidden.has(item.id));
         if (!items.length) return null;
         return (
           <div key={group.group}>
@@ -114,18 +125,82 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function Shell({ children }: { children: ReactNode }) {
-  const { data, loading, error, setOwnerId } = useBook();
+function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
+  const { jar, jars, setJar } = useBook();
   const [open, setOpen] = useState(false);
+  if (!jar || jars.length < 2) return null;
+  const personal = jars.filter((item) => item.kind === "personal");
+  const business = jars.filter((item) => item.kind === "business");
+  const pick = (id: string) => {
+    setJar(id);
+    setOpen(false);
+    onNavigate?.();
+  };
+  return (
+    <div className="relative mb-4">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/10"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium">{jar.name}</span>
+          <span className="block text-xs text-sidebar-muted">{jar.kind === "business" ? `Business · Schedule ${jar.taxForm}` : "Personal"}</span>
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0" />
+      </button>
+      {open ? (
+        <div className="absolute left-0 right-0 z-20 mt-1 rounded-xl border border-white/10 bg-sidebar p-1 shadow-lg">
+          {[{ label: "Personal", rows: personal }, { label: "Business", rows: business }].map((group) =>
+            group.rows.length ? (
+              <div key={group.label} className="py-1">
+                <p className="px-2 text-xs uppercase tracking-wide text-sidebar-muted">{group.label}</p>
+                {group.rows.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={cn("block w-full rounded-lg px-2 py-2 text-left text-sm", item.id === jar.id ? "bg-honey text-ink" : "hover:bg-white/10")}
+                    onClick={() => pick(item.id)}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            ) : null,
+          )}
+          <Link to="/jars" className="block rounded-lg px-2 py-2 text-sm text-honey" onClick={() => { setOpen(false); onNavigate?.(); }}>
+            Manage jars
+          </Link>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function Shell({ children }: { children: ReactNode }) {
+  const { data, jar, loading, error, setOwnerId } = useBook();
+  const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const path = useRouterState({ select: (s) => s.location.pathname });
   const period = data ? monthLabel(periodOf(data.today, data.profile.monthStartDay)) : "";
+  const home = jar?.kind === "business" ? "/business" : "/";
+
+  useEffect(() => {
+    if (!jar) return;
+    const businessPath = path === "/business" || path === "/jars";
+    if (jar.kind === "business" && !businessPath) navigate({ to: "/business" });
+    if (jar.kind === "personal" && path === "/business") navigate({ to: "/" });
+  }, [jar, navigate, path]);
 
   return (
     <div className="min-h-screen bg-paper text-ink md:grid md:grid-cols-[16.5rem_1fr]">
       <aside className="hidden bg-sidebar text-sidebar-fg md:flex md:min-h-screen md:flex-col md:p-4">
-        <Link to="/" className="mb-6 flex items-center gap-2 px-2">
+        <Link to={home} className="mb-2 flex items-center gap-2 px-2">
           <JarMark className="h-8 w-8 text-honey" />
           <span className="font-display text-2xl">HoneyJar</span>
         </Link>
+        <JarSwitcher />
         <div className="flex-1 overflow-y-auto">
           <NavLinks />
         </div>
@@ -151,6 +226,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   <X />
                 </button>
               </div>
+              <JarSwitcher onNavigate={() => setOpen(false)} />
               <div className="flex-1 overflow-y-auto">
                 <NavLinks onNavigate={() => setOpen(false)} />
               </div>

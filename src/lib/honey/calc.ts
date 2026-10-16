@@ -841,10 +841,15 @@ export function ledgerProfit(txns: Txn[], categories: Category[], from: string, 
   return { income, expenses, profit: income - expenses };
 }
 
-export function booksProfit(books: { archived: boolean; transactions: Txn[]; categories: Category[] }[], year: number) {
+export function booksProfit(
+  books: { archived: boolean; kind?: string; transactions: Txn[]; categories: Category[] }[],
+  year: number,
+) {
   const from = `${year}-01-01`;
   const to = `${year}-12-31`;
-  return books.filter((b) => !b.archived).reduce((s, b) => s + ledgerProfit(b.transactions, b.categories, from, to).profit, 0);
+  return books
+    .filter((b) => !b.archived && b.kind !== "personal")
+    .reduce((s, b) => s + ledgerProfit(b.transactions, b.categories, from, to).profit, 0);
 }
 
 export type TaxEstimate = {

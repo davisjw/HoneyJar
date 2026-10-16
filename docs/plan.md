@@ -63,7 +63,7 @@ After that, invoices, mileage, and a property ledger that reuses the same book s
 
 ## Business
 
-Each activity is its own ledger (`ledgers`), with `tax_form` of C, E, or F. Household queries only read rows whose `ledger_id` is blank, so Spending never shows studio income. Profit is income minus expenses. Draws and contributions are transfers: cash moves, profit does not. The household tax estimate adds that profit to AGI. It is still a worksheet, not a return. Business cash stays off household net worth until it is drawn.
+Each activity is its own ledger (`ledgers.kind` is `personal` or `business`). The first personal jar is the old household rows. More jars are added from Jars and archived rather than deleted. The switcher under the mark, shown when there is more than one open jar, changes the menu and the accounts, categories, transactions, bills, and plan. People, the house, the portfolio, and sharing stay with the household and only appear on a personal jar. A business jar shows its overview only. Profit from every business jar is still added to the personal tax estimate. A draw posts on both jars, and archiving the business does not pull that cash back.
 
 ## Known seams
 

@@ -20,6 +20,7 @@ import { Route as AppCashflowRouteImport } from './routes/_app/cashflow'
 import { Route as AppCreditRouteImport } from './routes/_app/credit'
 import { Route as AppDocumentsRouteImport } from './routes/_app/documents'
 import { Route as AppGoalsRouteImport } from './routes/_app/goals'
+import { Route as AppJarsRouteImport } from './routes/_app/jars'
 import { Route as AppMilestonesRouteImport } from './routes/_app/milestones'
 import { Route as AppNetworthRouteImport } from './routes/_app/networth'
 import { Route as AppPeopleRouteImport } from './routes/_app/people'
@@ -88,6 +89,11 @@ const AppDocumentsRoute = AppDocumentsRouteImport.update({
 const AppGoalsRoute = AppGoalsRouteImport.update({
   id: '/goals',
   path: '/goals',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppJarsRoute = AppJarsRouteImport.update({
+  id: '/jars',
+  path: '/jars',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMilestonesRoute = AppMilestonesRouteImport.update({
@@ -177,6 +183,7 @@ export interface FileRoutesByFullPath {
   '/credit': typeof AppCreditRoute
   '/documents': typeof AppDocumentsRoute
   '/goals': typeof AppGoalsRoute
+  '/jars': typeof AppJarsRoute
   '/milestones': typeof AppMilestonesRoute
   '/networth': typeof AppNetworthRoute
   '/people': typeof AppPeopleRoute
@@ -203,6 +210,7 @@ export interface FileRoutesByTo {
   '/credit': typeof AppCreditRoute
   '/documents': typeof AppDocumentsRoute
   '/goals': typeof AppGoalsRoute
+  '/jars': typeof AppJarsRoute
   '/milestones': typeof AppMilestonesRoute
   '/networth': typeof AppNetworthRoute
   '/people': typeof AppPeopleRoute
@@ -232,6 +240,7 @@ export interface FileRoutesById {
   '/_app/credit': typeof AppCreditRoute
   '/_app/documents': typeof AppDocumentsRoute
   '/_app/goals': typeof AppGoalsRoute
+  '/_app/jars': typeof AppJarsRoute
   '/_app/milestones': typeof AppMilestonesRoute
   '/_app/networth': typeof AppNetworthRoute
   '/_app/people': typeof AppPeopleRoute
@@ -262,6 +271,7 @@ export interface FileRouteTypes {
     | '/credit'
     | '/documents'
     | '/goals'
+    | '/jars'
     | '/milestones'
     | '/networth'
     | '/people'
@@ -288,6 +298,7 @@ export interface FileRouteTypes {
     | '/credit'
     | '/documents'
     | '/goals'
+    | '/jars'
     | '/milestones'
     | '/networth'
     | '/people'
@@ -316,6 +327,7 @@ export interface FileRouteTypes {
     | '/_app/credit'
     | '/_app/documents'
     | '/_app/goals'
+    | '/_app/jars'
     | '/_app/milestones'
     | '/_app/networth'
     | '/_app/people'
@@ -419,6 +431,13 @@ declare module '@tanstack/react-router' {
       path: '/goals'
       fullPath: '/goals'
       preLoaderRoute: typeof AppGoalsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/jars': {
+      id: '/_app/jars'
+      path: '/jars'
+      fullPath: '/jars'
+      preLoaderRoute: typeof AppJarsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/milestones': {
@@ -538,6 +557,7 @@ interface AppRouteChildren {
   AppCreditRoute: typeof AppCreditRoute
   AppDocumentsRoute: typeof AppDocumentsRoute
   AppGoalsRoute: typeof AppGoalsRoute
+  AppJarsRoute: typeof AppJarsRoute
   AppMilestonesRoute: typeof AppMilestonesRoute
   AppNetworthRoute: typeof AppNetworthRoute
   AppPeopleRoute: typeof AppPeopleRoute
@@ -562,6 +582,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCreditRoute: AppCreditRoute,
   AppDocumentsRoute: AppDocumentsRoute,
   AppGoalsRoute: AppGoalsRoute,
+  AppJarsRoute: AppJarsRoute,
   AppMilestonesRoute: AppMilestonesRoute,
   AppNetworthRoute: AppNetworthRoute,
   AppPeopleRoute: AppPeopleRoute,

@@ -68,6 +68,46 @@ const STARTER: [string, string, string, string, string, number][] = [
   ["Uncategorized", "Inbox", "out", "", "", 0],
 ];
 
+export async function seedPersonalCategories(sql: Sql, userId: string, ledgerId: string) {
+  const sid = slug(ledgerId);
+  let sort = 0;
+  for (const [name, section, flow, schedule, line, monthly] of STARTER) {
+    sort += 1;
+    await put(sql, "categories", {
+      id: `c_${sid}_${slug(name)}`,
+      user_id: userId,
+      name,
+      section,
+      flow,
+      tax_schedule: schedule,
+      tax_line: line,
+      icon: "tag",
+      monthly_cents: monthly,
+      rollover: flow === "out",
+      sort,
+      archived: false,
+      ledger_id: ledgerId,
+    });
+  }
+}
+
+/** The household's existing rows become its first personal jar. Later jars get their own ids. */
+export async function ensureJars(sql: Sql, userId: string) {
+  const sid = slug(userId);
+  const id = `p_${sid}_home`;
+  const prof = await sql<{ display_name: string }>`select display_name from profiles where user_id = ${userId}`;
+  const name = String(prof[0]?.display_name || "Personal").slice(0, 80);
+  await sql`
+    insert into ledgers (id, user_id, name, tax_form, activity, archived, sort, kind)
+    values (${id}, ${userId}, ${name}, '', '', false, 0, 'personal')
+    on conflict (id) do nothing
+  `;
+  await sql`update ledgers set kind = 'personal' where id = ${id} and user_id = ${userId}`;
+  for (const table of ["accounts", "categories", "transactions", "bills", "rules", "plan_months"]) {
+    await sql.query(`update ${table} set ledger_id = $1 where user_id = $2 and ledger_id = ''`, [id, userId]);
+  }
+}
+
 export async function seedStarter(sql: Sql, userId: string) {
   const sid = slug(userId);
   let sort = 0;

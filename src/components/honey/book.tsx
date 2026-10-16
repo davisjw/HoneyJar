@@ -2,10 +2,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { applyAction, getWorkspace } from "@/lib/honey/fns";
-import type { Action, ActionResult, Workspace } from "@/lib/honey/types";
+import type { Action, ActionResult, LedgerBook, Workspace } from "@/lib/honey/types";
 
 type BookValue = {
   data?: Workspace;
+  jar?: LedgerBook;
+  jars: LedgerBook[];
+  setJar: (id: string) => void;
   loading: boolean;
   error: string;
   canEdit: boolean;
@@ -26,16 +29,37 @@ function errText(err: unknown) {
   return "Something went wrong";
 }
 
+function jarKey(ownerId?: string) {
+  return `honeyjar.jar.${ownerId ?? "self"}`;
+}
+
+function scopeJar(data: Workspace, jar: LedgerBook): Workspace {
+  const billIds = new Set(jar.bills.map((b) => b.id));
+  return {
+    ...data,
+    accounts: jar.accounts,
+    categories: jar.categories,
+    transactions: jar.transactions,
+    bills: jar.bills,
+    rules: jar.rules,
+    plan: jar.plan,
+    payments: data.payments.filter((p) => billIds.has(p.billId)),
+  };
+}
+
 export function BookProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [ownerId, setOwnerState] = useState<string | undefined>(undefined);
+  const [jarId, setJarId] = useState<string | undefined>(undefined);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("honeyjar.owner") ?? undefined;
-    setOwnerState(saved || undefined);
+    const owner = saved || undefined;
+    setOwnerState(owner);
+    setJarId(window.localStorage.getItem(jarKey(owner)) ?? undefined);
     setReady(true);
   }, []);
 
@@ -46,10 +70,19 @@ export function BookProvider({ children }: { children: ReactNode }) {
   });
 
   const value = useMemo<BookValue>(() => {
-    const data = query.data;
-    const role = data?.role ?? "viewer";
+    const raw = query.data;
+    const open = raw?.ledgers.filter((l) => !l.archived) ?? [];
+    const jar = open.find((l) => l.id === jarId) ?? open.find((l) => l.kind === "personal") ?? open[0];
+    const data = raw && jar ? scopeJar(raw, jar) : raw;
+    const role = raw?.role ?? "viewer";
     return {
       data,
+      jar,
+      jars: open,
+      setJar: (id) => {
+        window.localStorage.setItem(jarKey(ownerId), id);
+        setJarId(id);
+      },
       loading: !ready || query.isLoading,
       error: query.error ? errText(query.error) : "",
       canEdit: role === "owner" || role === "editor",
@@ -59,6 +92,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
         if (id) window.localStorage.setItem("honeyjar.owner", id);
         else window.localStorage.removeItem("honeyjar.owner");
         setOwnerState(id);
+        setJarId(window.localStorage.getItem(jarKey(id)) ?? undefined);
       },
       busy,
       vaultKey,
@@ -69,7 +103,9 @@ export function BookProvider({ children }: { children: ReactNode }) {
       run: async (action) => {
         setBusy(true);
         try {
-          const result = await applyAction({ data: { ...action, ownerId: action.ownerId ?? ownerId } });
+          const result = await applyAction({
+            data: { ...action, ownerId: action.ownerId ?? ownerId, ledgerId: action.ledgerId ?? jar?.id },
+          });
           await qc.invalidateQueries({ queryKey: ["workspace"] });
           return result;
         } catch (err) {
@@ -81,7 +117,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
         }
       },
     };
-  }, [busy, ownerId, qc, query.data, query.error, query.isLoading, ready, vaultKey]);
+  }, [busy, jarId, ownerId, qc, query.data, query.error, query.isLoading, ready, vaultKey]);
 
   return <BookContext.Provider value={value}>{children}</BookContext.Provider>;
 }

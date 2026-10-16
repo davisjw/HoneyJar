@@ -2,66 +2,46 @@ import { useState } from "react";
 import { centsToInput, dollarsToCents, isLiquid, ledgerProfit, money, prettyDate, signedMoney, taxLines } from "@/lib/honey/calc";
 import type { LedgerBook } from "@/lib/honey/types";
 import { useBook } from "../book";
-import { Button, Card, Empty, Field, Modal, PageIntro, fieldClass } from "../kit";
-
-const FORMS = [
-  { id: "C", label: "Schedule C · sole prop" },
-  { id: "E", label: "Schedule E · rental" },
-  { id: "F", label: "Schedule F · farm" },
-];
+import { Button, Card, Field, Modal, PageIntro, fieldClass } from "../kit";
 
 export function BusinessPage() {
-  const { data, run, canEdit } = useBook();
-  const [ledgerId, setLedgerId] = useState("");
-  const [adding, setAdding] = useState(false);
+  const { data, jar, run, canEdit } = useBook();
   const [txnOpen, setTxnOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  if (!data) return null;
-  const open = data.ledgers.filter((l) => !l.archived);
-  const book = open.find((l) => l.id === ledgerId) ?? open[0];
+  if (!data || !jar || jar.kind !== "business") return null;
+  const book = jar;
   const year = Number(data.today.slice(0, 4));
   const from = `${year}-01-01`;
   const cur = data.profile.currency;
-  const homeAccounts = data.accounts.filter((a) => !a.archived && isLiquid(a.kind));
+  const personal = data.ledgers.filter((item) => item.kind === "personal" && !item.archived);
+  const homeAccounts = personal.flatMap((item) =>
+    item.accounts
+      .filter((account) => !account.archived && isLiquid(account.kind))
+      .map((account) => ({ id: account.id, name: personal.length > 1 ? `${item.name} · ${account.name}` : account.name })),
+  );
   return (
     <div>
       <PageIntro
-        title="Business"
-        lede="A separate set of books. Profit is income minus expenses. An owner draw moves cash to the household and is not profit. Invoices and mileage come later."
-        action={canEdit ? <Button onClick={() => setAdding(true)}>Add business</Button> : null}
+        title={book.name}
+        lede={`Schedule ${book.taxForm}${book.activity ? ` · ${book.activity}` : ""}. Profit is income minus expenses. A draw moves cash to a personal jar and is not profit.`}
       />
-      {book ? (
-        <BusinessBook
-          book={book}
-          books={open}
-          year={year}
-          from={from}
-          to={data.today}
-          cur={cur}
-          today={data.today}
-          canEdit={canEdit}
-          homeAccounts={homeAccounts}
-          people={data.people.filter((p) => !p.archived)}
-          onPick={setLedgerId}
-          onTxn={() => setTxnOpen(true)}
-          onAccount={() => setAccountOpen(true)}
-          onDraw={(draw) => run({ type: "biz.draw", ledgerId: book.id, ...draw })}
-          onDeleteDraw={(id) => run({ type: "biz.draw.delete", id })}
-          onDeleteTxn={(id) => run({ type: "biz.txn.delete", id })}
-        />
-      ) : (
-        <Empty>No business yet. Add one and it stays out of the household transaction list.</Empty>
-      )}
-      {adding ? (
-        <NewBusiness
-          onClose={() => setAdding(false)}
-          onSave={async (ledger) => {
-            await run({ type: "ledger.save", ledger });
-            setAdding(false);
-          }}
-        />
-      ) : null}
-      {txnOpen && book ? (
+      <BusinessBook
+        book={book}
+        year={year}
+        from={from}
+        to={data.today}
+        cur={cur}
+        today={data.today}
+        canEdit={canEdit}
+        homeAccounts={homeAccounts}
+        people={data.people.filter((p) => !p.archived)}
+        onTxn={() => setTxnOpen(true)}
+        onAccount={() => setAccountOpen(true)}
+        onDraw={(draw) => run({ type: "biz.draw", ledgerId: book.id, ...draw })}
+        onDeleteDraw={(id) => run({ type: "biz.draw.delete", id })}
+        onDeleteTxn={(id) => run({ type: "biz.txn.delete", id })}
+      />
+      {txnOpen ? (
         <TxnModal
           book={book}
           today={data.today}
@@ -73,7 +53,7 @@ export function BusinessPage() {
           }}
         />
       ) : null}
-      {accountOpen && book ? (
+      {accountOpen ? (
         <AccountModal
           onClose={() => setAccountOpen(false)}
           onSave={async (account) => {
@@ -88,7 +68,6 @@ export function BusinessPage() {
 
 function BusinessBook({
   book,
-  books,
   year,
   from,
   to,
@@ -97,7 +76,6 @@ function BusinessBook({
   canEdit,
   homeAccounts,
   people,
-  onPick,
   onTxn,
   onAccount,
   onDraw,
@@ -105,7 +83,6 @@ function BusinessBook({
   onDeleteTxn,
 }: {
   book: LedgerBook;
-  books: LedgerBook[];
   year: number;
   from: string;
   to: string;
@@ -114,7 +91,6 @@ function BusinessBook({
   canEdit: boolean;
   homeAccounts: { id: string; name: string }[];
   people: { id: string; name: string }[];
-  onPick: (id: string) => void;
   onTxn: () => void;
   onAccount: () => void;
   onDraw: (draw: { direction: "draw" | "contribution"; amountCents: number; postedOn: string; bizAccountId: string; homeAccountId: string }) => void;
@@ -127,20 +103,6 @@ function BusinessBook({
   const operating = book.transactions.filter((t) => book.categories.find((c) => c.id === t.categoryId)?.flow !== "transfer");
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          {books.length > 1 ? (
-            <select className={fieldClass} value={book.id} onChange={(e) => onPick(e.target.value)}>
-              {books.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
-          ) : (
-            <h2 className="font-display text-2xl">{book.name}</h2>
-          )}
-          <p className="mt-1 text-sm text-muted">Schedule {book.taxForm}{book.activity ? ` · ${book.activity}` : ""} · {year}</p>
-        </div>
-      </div>
       <div className="grid gap-3 sm:grid-cols-4">
         <Card><p className="text-sm text-muted">Income</p><p className="font-display text-2xl num">{money(pl.income, cur)}</p></Card>
         <Card><p className="text-sm text-muted">Expenses</p><p className="font-display text-2xl num">{money(pl.expenses, cur)}</p></Card>
@@ -230,7 +192,7 @@ function DrawCard({
   return (
     <Card>
       <h2 className="font-display text-xl">Owner draws</h2>
-      <p className="mt-1 text-sm text-muted">A draw leaves the business and lands in a household account. It is not income and not an expense. A contribution is the reverse.</p>
+      <p className="mt-1 text-sm text-muted">A draw leaves this jar and lands in a personal jar. It is not profit. A contribution is the reverse. Archiving this jar leaves a deposit that already landed.</p>
       <ul className="mt-2 divide-y divide-line text-sm">
         {book.draws.map((draw) => (
           <li key={draw.id} className="flex items-center justify-between gap-3 py-2">
@@ -268,7 +230,7 @@ function DrawCard({
               {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </Field>
-          <Field label="Household account">
+          <Field label="Personal jar account">
             <select className={fieldClass} value={homeAccountId} onChange={(e) => setHomeAccountId(e.target.value)}>
               {homeAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
@@ -279,24 +241,6 @@ function DrawCard({
         </form>
       ) : null}
     </Card>
-  );
-}
-
-function NewBusiness({ onClose, onSave }: { onClose: () => void; onSave: (ledger: { name: string; taxForm: string; activity: string }) => void }) {
-  const [name, setName] = useState("");
-  const [taxForm, setTaxForm] = useState("C");
-  const [activity, setActivity] = useState("");
-  return (
-    <Modal open title="Add a business" onClose={onClose}>
-      <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label="Tax form">
-        <select className={fieldClass} value={taxForm} onChange={(e) => setTaxForm(e.target.value)}>
-          {FORMS.map((form) => <option key={form.id} value={form.id}>{form.label}</option>)}
-        </select>
-      </Field>
-      <Field label="What it does"><input className={fieldClass} value={activity} onChange={(e) => setActivity(e.target.value)} placeholder="Design, rental, orchard" /></Field>
-      <Button onClick={() => onSave({ name, taxForm, activity })}>Create</Button>
-    </Modal>
   );
 }
 

@@ -244,9 +244,9 @@ export function Dashboard() {
         </Card>
       </div>
       <Card>
-        <h2 className="font-display text-xl">Business</h2>
-        <p className="mt-1 text-sm text-muted">The household and the business are separate books. Profit and loss, Schedule C, and owner draws are on their own page. Invoices and mileage are still later.</p>
-        <Link to="/business" className="mt-2 inline-block text-sm text-honey-deep">Open Business</Link>
+        <h2 className="font-display text-xl">Jars</h2>
+        <p className="mt-1 text-sm text-muted">This page is the open personal jar. Add another personal jar, or a business, from Jars. The menu follows the jar you have open.</p>
+        <Link to="/jars" className="mt-2 inline-block text-sm text-honey-deep">Manage jars</Link>
       </Card>
     </div>
   );

@@ -345,6 +345,7 @@ export type Draw = {
 export type LedgerBook = {
   id: string;
   name: string;
+  kind: "personal" | "business";
   taxForm: string;
   activity: string;
   archived: boolean;
@@ -352,6 +353,8 @@ export type LedgerBook = {
   categories: Category[];
   transactions: Txn[];
   bills: Bill[];
+  rules: Rule[];
+  plan: PlanMonth[];
   draws: Draw[];
 };
 
@@ -400,7 +403,7 @@ export type Workspace = {
 
 export type ActionResult = { token?: string; code?: string };
 
-export type Action =
+export type Action = (
   | { type: "profile.update"; patch: ProfilePatch; ownerId?: string }
   | { type: "account.save"; account: Partial<Account> & { name: string; kind: string }; ownerId?: string }
   | { type: "account.archive"; id: string; archived: boolean; ownerId?: string }
@@ -454,9 +457,11 @@ export type Action =
   | { type: "sample.clear"; ownerId?: string }
   | { type: "sample.load"; ownerId?: string }
   | { type: "advisor.log"; question: string; answer: string; ownerId?: string }
-  | { type: "ledger.save"; ledger: { id?: string; name: string; taxForm?: string; activity?: string }; ownerId?: string }
+  | { type: "ledger.save"; ledger: { id?: string; name: string; taxForm?: string; activity?: string; kind?: string }; ownerId?: string }
   | { type: "biz.account.save"; ledgerId: string; account: { id?: string; name: string; kind?: string }; ownerId?: string }
   | { type: "biz.txn.save"; ledgerId: string; txn: Partial<Txn> & { accountId: string; postedOn: string; amountCents: number; merchant: string }; ownerId?: string }
   | { type: "biz.txn.delete"; id: string; ownerId?: string }
   | { type: "biz.draw"; ledgerId: string; direction: "draw" | "contribution"; amountCents: number; postedOn: string; bizAccountId: string; homeAccountId: string; ownerId?: string }
-  | { type: "biz.draw.delete"; id: string; ownerId?: string };
+  | { type: "biz.draw.delete"; id: string; ownerId?: string }
+  | { type: "ledger.archive"; id: string; archived: boolean; ownerId?: string }
+) & { ledgerId?: string };
