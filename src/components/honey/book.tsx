@@ -8,6 +8,7 @@ type BookValue = {
   data?: Workspace;
   jar?: LedgerBook;
   jars: LedgerBook[];
+  summary: boolean;
   setJar: (id: string) => void;
   loading: boolean;
   error: string;
@@ -23,6 +24,8 @@ type BookValue = {
 };
 
 const BookContext = createContext<BookValue | null>(null);
+
+export const SUMMARY = "summary";
 
 function errText(err: unknown) {
   if (err instanceof Error && err.message) return err.message;
@@ -78,13 +81,15 @@ export function BookProvider({ children }: { children: ReactNode }) {
   const value = useMemo<BookValue>(() => {
     const raw = query.data;
     const open = raw?.ledgers.filter((l) => !l.archived) ?? [];
-    const jar = open.find((l) => l.id === jarId) ?? open.find((l) => l.kind === "personal") ?? open[0];
+    const summary = jarId === SUMMARY;
+    const jar = summary ? undefined : open.find((l) => l.id === jarId) ?? open.find((l) => l.kind === "personal") ?? open[0];
     const data = raw && jar ? scopeJar(raw, jar) : raw;
     const role = raw?.role ?? "viewer";
     return {
       data,
       jar,
       jars: open,
+      summary,
       setJar: (id) => {
         window.localStorage.setItem(jarKey(ownerId), id);
         setJarId(id);
@@ -109,8 +114,9 @@ export function BookProvider({ children }: { children: ReactNode }) {
       run: async (action) => {
         setBusy(true);
         try {
+          const ledgerId = action.ledgerId ?? jar?.id;
           const result = await applyAction({
-            data: { ...action, ownerId: action.ownerId ?? ownerId, ledgerId: action.ledgerId ?? jar?.id },
+            data: { ...action, ownerId: action.ownerId ?? ownerId, ...(ledgerId ? { ledgerId } : {}) },
           });
           await qc.invalidateQueries({ queryKey: ["workspace"] });
           return result;

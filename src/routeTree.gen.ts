@@ -33,6 +33,7 @@ import { Route as AppRemindersRouteImport } from './routes/_app/reminders'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShareRouteImport } from './routes/_app/share'
+import { Route as AppSummaryRouteImport } from './routes/_app/summary'
 import { Route as AppTaxesRouteImport } from './routes/_app/taxes'
 import { Route as AppTransactionsRouteImport } from './routes/_app/transactions'
 import { Route as AppWatchRouteImport } from './routes/_app/watch'
@@ -159,6 +160,11 @@ const AppShareRoute = AppShareRouteImport.update({
   path: '/share',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSummaryRoute = AppSummaryRouteImport.update({
+  id: '/summary',
+  path: '/summary',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTaxesRoute = AppTaxesRouteImport.update({
   id: '/taxes',
   path: '/taxes',
@@ -214,6 +220,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
   '/share': typeof AppShareRoute
+  '/summary': typeof AppSummaryRoute
   '/taxes': typeof AppTaxesRoute
   '/transactions': typeof AppTransactionsRoute
   '/watch': typeof AppWatchRoute
@@ -244,6 +251,7 @@ export interface FileRoutesByTo {
   '/reports': typeof AppReportsRoute
   '/settings': typeof AppSettingsRoute
   '/share': typeof AppShareRoute
+  '/summary': typeof AppSummaryRoute
   '/taxes': typeof AppTaxesRoute
   '/transactions': typeof AppTransactionsRoute
   '/watch': typeof AppWatchRoute
@@ -277,6 +285,7 @@ export interface FileRoutesById {
   '/_app/reports': typeof AppReportsRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/share': typeof AppShareRoute
+  '/_app/summary': typeof AppSummaryRoute
   '/_app/taxes': typeof AppTaxesRoute
   '/_app/transactions': typeof AppTransactionsRoute
   '/_app/watch': typeof AppWatchRoute
@@ -311,6 +320,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/share'
+    | '/summary'
     | '/taxes'
     | '/transactions'
     | '/watch'
@@ -341,6 +351,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/settings'
     | '/share'
+    | '/summary'
     | '/taxes'
     | '/transactions'
     | '/watch'
@@ -373,6 +384,7 @@ export interface FileRouteTypes {
     | '/_app/reports'
     | '/_app/settings'
     | '/_app/share'
+    | '/_app/summary'
     | '/_app/taxes'
     | '/_app/transactions'
     | '/_app/watch'
@@ -560,6 +572,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppShareRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/summary': {
+      id: '/_app/summary'
+      path: '/summary'
+      fullPath: '/summary'
+      preLoaderRoute: typeof AppSummaryRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/taxes': {
       id: '/_app/taxes'
       path: '/taxes'
@@ -627,6 +646,7 @@ interface AppRouteChildren {
   AppReportsRoute: typeof AppReportsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppShareRoute: typeof AppShareRoute
+  AppSummaryRoute: typeof AppSummaryRoute
   AppTaxesRoute: typeof AppTaxesRoute
   AppTransactionsRoute: typeof AppTransactionsRoute
   AppWatchRoute: typeof AppWatchRoute
@@ -655,6 +675,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReportsRoute: AppReportsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppShareRoute: AppShareRoute,
+  AppSummaryRoute: AppSummaryRoute,
   AppTaxesRoute: AppTaxesRoute,
   AppTransactionsRoute: AppTransactionsRoute,
   AppWatchRoute: AppWatchRoute,

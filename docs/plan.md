@@ -59,7 +59,7 @@ The first slice is in. Portfolio holds lots, typed prices, and dated cash flows.
 
 Still later, not this slice: a live quote feed, realized-gain lots for Schedule D, and a daily valuation series that would make Dietz more than an inception estimate.
 
-A property jar keeps a lease: tenant, rent, due day, and a deposit that is a liability. Each month opens a rent invoice. A portfolio sale records basis, proceeds, and a short- or long-term gain for Schedule D. The worksheet taxes long-term gain at 15% and limits the ordinary loss to $3,000.
+A property jar keeps a lease: tenant, rent, due day, and a deposit that is a liability. Each month opens a rent invoice. A portfolio sale records basis, proceeds, and a short- or long-term gain for Schedule D. The worksheet taxes long-term gain at 15% and limits the ordinary loss to $3,000. Summary is one page, not a jar. This month sits beside the year, one card per open jar. Net worth stays the household figure.
 
 ## Business
 

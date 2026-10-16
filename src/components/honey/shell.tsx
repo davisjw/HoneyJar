@@ -30,7 +30,7 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { UserButton } from "@/lib/auth/gates";
 import { monthLabel, periodOf } from "@/lib/honey/calc";
-import { useBook } from "./book";
+import { SUMMARY, useBook } from "./book";
 import { JarMark, cn } from "./kit";
 
 const NAV = [
@@ -119,7 +119,22 @@ const BUSINESS_PATHS = new Set<string>(BUSINESS_NAV.flatMap((group) => group.ite
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const { data, jar } = useBook();
+  const { data, jar, summary } = useBook();
+  if (summary) {
+    const active = path.startsWith("/summary");
+    return (
+      <div>
+        <p className="px-3 text-xs tracking-wide text-sidebar-muted uppercase">All jars</p>
+        <Link
+          to="/summary"
+          onClick={onNavigate}
+          className={cn("mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm", active ? "bg-honey font-medium text-ink" : "text-sidebar-fg hover:bg-white/10")}
+        >
+          Summary
+        </Link>
+      </div>
+    );
+  }
   const hidden = new Set((data?.profile.navHidden ?? "").split(",").filter(Boolean));
   const nav = jar?.kind === "business" || jar?.kind === "property" ? BUSINESS_NAV : NAV;
   return (
@@ -161,17 +176,26 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
-  const { jar, jars, setJar } = useBook();
+  const { jar, jars, summary, setJar } = useBook();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  if (!jar || jars.length < 2) return null;
+  if (!jars.length) return null;
   const personal = jars.filter((item) => item.kind === "personal");
   const business = jars.filter((item) => item.kind === "business");
   const property = jars.filter((item) => item.kind === "property");
-  const label = jar.kind === "property" ? "Property · Schedule E" : jar.kind === "business" ? `Business · Schedule ${jar.taxForm}` : "Personal";
-  const pick = (id: string) => {
+  const label = summary ? "All open jars" : jar?.kind === "property" ? "Property · Schedule E" : jar?.kind === "business" ? `Business · Schedule ${jar.taxForm}` : "Personal";
+  const pickJar = (id: string) => {
+    const next = jars.find((item) => item.id === id);
     setJar(id);
     setOpen(false);
     onNavigate?.();
+    navigate({ to: next?.kind === "business" || next?.kind === "property" ? "/business" : "/" });
+  };
+  const pickSummary = () => {
+    setJar(SUMMARY);
+    setOpen(false);
+    onNavigate?.();
+    navigate({ to: "/summary" });
   };
   return (
     <div className="relative mb-4">
@@ -182,13 +206,19 @@ function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
         aria-expanded={open}
       >
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{jar.name}</span>
+          <span className="block truncate text-sm font-medium">{summary ? "Summary" : jar?.name}</span>
           <span className="block text-xs text-sidebar-muted">{label}</span>
         </span>
         <ChevronDown className="h-4 w-4 shrink-0" />
       </button>
       {open ? (
         <div className="absolute left-0 right-0 z-20 mt-1 rounded-xl border border-white/10 bg-sidebar p-1 shadow-lg">
+          <div className="py-1">
+            <p className="px-2 text-xs uppercase tracking-wide text-sidebar-muted">Summary</p>
+            <button type="button" className={cn("block w-full rounded-lg px-2 py-2 text-left text-sm", summary ? "bg-honey text-ink" : "hover:bg-white/10")} onClick={pickSummary}>
+              Summary
+            </button>
+          </div>
           {[{ label: "Personal", rows: personal }, { label: "Business", rows: business }, { label: "Property", rows: property }].map((group) =>
             group.rows.length ? (
               <div key={group.label} className="py-1">
@@ -197,8 +227,8 @@ function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
                   <button
                     key={item.id}
                     type="button"
-                    className={cn("block w-full rounded-lg px-2 py-2 text-left text-sm", item.id === jar.id ? "bg-honey text-ink" : "hover:bg-white/10")}
-                    onClick={() => pick(item.id)}
+                    className={cn("block w-full rounded-lg px-2 py-2 text-left text-sm", !summary && item.id === jar?.id ? "bg-honey text-ink" : "hover:bg-white/10")}
+                    onClick={() => pickJar(item.id)}
                   >
                     {item.name}
                   </button>
@@ -216,18 +246,23 @@ function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function Shell({ children }: { children: ReactNode }) {
-  const { data, jar, loading, error, setOwnerId } = useBook();
+  const { data, jar, summary, loading, error, setOwnerId } = useBook();
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const period = data ? monthLabel(periodOf(data.today, data.profile.monthStartDay)) : "";
-  const home = jar?.kind === "business" || jar?.kind === "property" ? "/business" : "/";
+  const home = summary ? "/summary" : jar?.kind === "business" || jar?.kind === "property" ? "/business" : "/";
 
   useEffect(() => {
+    if (summary) {
+      if (path !== "/summary" && path !== "/jars") navigate({ to: "/summary" });
+      return;
+    }
     if (!jar) return;
+    if (path === "/summary") return;
     if ((jar.kind === "business" || jar.kind === "property") && !BUSINESS_PATHS.has(path)) navigate({ to: "/business" });
     if (jar.kind === "personal" && path === "/business") navigate({ to: "/" });
-  }, [jar, navigate, path]);
+  }, [jar, navigate, path, summary]);
 
   return (
     <div className="min-h-screen bg-paper text-ink md:grid md:grid-cols-[16.5rem_1fr]">
