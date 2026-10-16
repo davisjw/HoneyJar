@@ -294,6 +294,10 @@ export function Shell({ children }: { children: ReactNode }) {
             </div>
           ) : data ? (
             <div className="space-y-4">
+              <p className="rounded-xl bg-honey-soft px-3 py-2 text-sm text-ink">
+                <Link to="/examples" className="font-medium text-honey-deep underline">Summary examples</Link>
+                {" "}are on this page. Five pictures: the year, October beside the year, and the Summary menu.
+              </p>
               {data.profile.seeded ? (
                 <p className="rounded-xl bg-honey-soft px-3 py-2 text-sm text-ink">
                   Sample household for {period}. Change anything — or clear it in Customize when you want your own books.
