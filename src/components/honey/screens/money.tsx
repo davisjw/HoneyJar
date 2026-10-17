@@ -133,7 +133,7 @@ function PayLine({
 }
 
 export function TransactionsPage() {
-  const { data, run, canEdit, showEarlier, txnSince } = useBook();
+  const { data, run, canEdit, showEarlier, txnSince, loadingEarlier } = useBook();
   const navigate = useNavigate();
   const search = useRouterState({ select: (s) => s.location.searchStr });
   const [q, setQ] = useState(param(search, "q"));
@@ -296,8 +296,8 @@ export function TransactionsPage() {
           </button>
         ) : null}
         {data.txnHasMore ? (
-          <button type="button" className="text-honey hover:underline" onClick={showEarlier}>
-            Load earlier
+          <button type="button" className="text-honey hover:underline disabled:opacity-60" disabled={loadingEarlier} onClick={showEarlier}>
+            {loadingEarlier ? "Loading earlier…" : "Load earlier"}
           </button>
         ) : null}
       </div>

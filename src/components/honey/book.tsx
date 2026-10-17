@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import { applyAction, getWorkspace, noteSignIn } from "@/lib/honey/fns";
@@ -24,6 +24,7 @@ type BookValue = {
   setVaultKey: (key: CryptoKey | null) => void;
   reload: () => Promise<void>;
   showEarlier: () => void;
+  loadingEarlier: boolean;
   txnSince?: string;
 };
 
@@ -122,6 +123,8 @@ export function BookProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
   const [txnSince, setTxnSince] = useState<string | undefined>(undefined);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const sawEarlierFetch = useRef(false);
   const user = useCurrentUser();
 
   useEffect(() => {
@@ -143,6 +146,12 @@ export function BookProvider({ children }: { children: ReactNode }) {
   const query = useQuery({
     queryKey: ["workspace", ownerId ?? "self", jarId ?? "home", txnSince ?? "recent"],
     enabled: ready,
+    placeholderData: (previousData, previousQuery) => {
+      const prev = previousQuery?.queryKey;
+      if (!previousData || !Array.isArray(prev)) return undefined;
+      if (prev[1] === (ownerId ?? "self") && prev[2] === (jarId ?? "home")) return previousData;
+      return undefined;
+    },
     queryFn: () =>
       getWorkspace({
         data: {
@@ -190,10 +199,15 @@ export function BookProvider({ children }: { children: ReactNode }) {
         await qc.invalidateQueries({ queryKey: ["workspace"] });
       },
       txnSince,
+      loadingEarlier,
       showEarlier: () => {
+        if (loadingEarlier) return;
         const oldest = jar?.transactions.reduce((min, txn) => (!min || txn.postedOn < min ? txn.postedOn : min), "");
         if (!oldest) return;
-        setTxnSince(addMonths(oldest, -24));
+        const next = addMonths(oldest, -24);
+        if (next === txnSince) return;
+        setLoadingEarlier(true);
+        setTxnSince(next);
       },
       run: async (action) => {
         setBusy(true);
@@ -215,7 +229,16 @@ export function BookProvider({ children }: { children: ReactNode }) {
         }
       },
     };
-  }, [busy, jarId, ownerId, qc, query.data, query.error, query.isLoading, ready, txnSince, vaultKey]);
+  }, [busy, jarId, ownerId, qc, query.data, query.error, query.isLoading, ready, txnSince, vaultKey, loadingEarlier]);
+
+  useEffect(() => {
+    if (!loadingEarlier) {
+      sawEarlierFetch.current = false;
+      return;
+    }
+    if (query.isFetching) sawEarlierFetch.current = true;
+    else if (sawEarlierFetch.current) setLoadingEarlier(false);
+  }, [loadingEarlier, query.isFetching]);
 
   return <BookContext.Provider value={value}>{children}</BookContext.Provider>;
 }

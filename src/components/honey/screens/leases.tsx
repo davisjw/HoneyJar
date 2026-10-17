@@ -97,26 +97,32 @@ function LeaseModal({ today, address, onClose, onSave }: { today: string; addres
   const [startOn, setStartOn] = useState(today);
   const [deposit, setDeposit] = useState("");
   const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
   return (
     <Modal open title="New lease" onClose={onClose}>
       <form
         className="grid gap-3 sm:grid-cols-2"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          onSave({
-            tenant,
-            email,
-            address: street,
-            city,
-            region,
-            postal,
-            unit,
-            rentCents: dollarsToCents(rent),
-            dueDay: Number(dueDay) || 1,
-            startOn,
-            depositCents: dollarsToCents(deposit),
-            notes,
-          });
+          setSaving(true);
+          try {
+            await onSave({
+              tenant,
+              email,
+              address: street,
+              city,
+              region,
+              postal,
+              unit,
+              rentCents: dollarsToCents(rent),
+              dueDay: Number(dueDay) || 1,
+              startOn,
+              depositCents: dollarsToCents(deposit),
+              notes,
+            });
+          } finally {
+            setSaving(false);
+          }
         }}
       >
         <Field label="Tenant"><input className={fieldClass} value={tenant} onChange={(e) => setTenant(e.target.value)} /></Field>
@@ -131,7 +137,7 @@ function LeaseModal({ today, address, onClose, onSave }: { today: string; addres
         <Field label="Starts"><input className={fieldClass} type="date" value={startOn} onChange={(e) => setStartOn(e.target.value)} /></Field>
         <Field label="Deposit"><input className={fieldClass} inputMode="decimal" value={deposit} onChange={(e) => setDeposit(e.target.value)} placeholder="0.00" /></Field>
         <Field label="Note"><input className={fieldClass} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
-        <div className="sm:col-span-2"><Button type="submit">Save lease</Button></div>
+        <div className="sm:col-span-2"><Button type="submit" pending={saving}>Save lease</Button></div>
       </form>
     </Modal>
   );

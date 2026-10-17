@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { money, signedMoney } from "@/lib/honey/calc";
 
 export function cn(...parts: Array<string | false | null | undefined>) {
@@ -35,30 +35,46 @@ export function Button({
   type = "button",
   tone = "primary",
   disabled,
+  pending,
 }: {
   children: ReactNode;
-  onClick?: () => void;
+  onClick?: () => unknown;
   type?: "button" | "submit";
   tone?: "primary" | "quiet" | "ghost" | "danger";
   disabled?: boolean;
+  pending?: boolean;
 }) {
+  const [waiting, setWaiting] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
   const toneClass = {
     primary: "bg-honey text-ink hover:bg-honey-deep hover:text-paper",
     quiet: "border border-line bg-card text-ink hover:bg-honey-soft",
     ghost: "text-ink hover:bg-honey-soft",
     danger: "bg-clay-soft text-clay hover:bg-clay hover:text-paper",
   }[tone];
+  const saving = Boolean(pending || waiting);
+  const label = saving && typeof children === "string" && /^Save\b/.test(children) ? "Saving…" : children;
   return (
     <button
       type={type}
-      disabled={disabled}
-      onClick={onClick}
+      disabled={disabled || saving}
+      onClick={() => {
+        if (!onClick) return;
+        const result = onClick();
+        if (!result || typeof (result as Promise<unknown>).then !== "function") return;
+        setWaiting(true);
+        void (result as Promise<unknown>).then(
+          () => { if (alive.current) setWaiting(false); },
+          () => { if (alive.current) setWaiting(false); },
+        );
+      }}
       className={cn(
         "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition disabled:opacity-50",
         toneClass,
       )}
     >
-      {children}
+      {label}
     </button>
   );
 }

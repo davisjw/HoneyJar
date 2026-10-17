@@ -97,24 +97,30 @@ function InvoiceModal({ today, onClose, onSave }: { today: string; onClose: () =
   const [dueOn, setDueOn] = useState(today);
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState([{ description: "", amount: "" }]);
+  const [saving, setSaving] = useState(false);
   return (
     <Modal open title="New invoice" onClose={onClose}>
       <form
         className="grid gap-3 sm:grid-cols-2"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          onSave({
-            client,
-            clientEmail,
-            clientAddress,
-            clientCity,
-            clientRegion,
-            clientPostal,
-            issuedOn,
-            dueOn,
-            notes,
-            lines: lines.map((line) => ({ description: line.description, amountCents: dollarsToCents(line.amount) })),
-          });
+          setSaving(true);
+          try {
+            await onSave({
+              client,
+              clientEmail,
+              clientAddress,
+              clientCity,
+              clientRegion,
+              clientPostal,
+              issuedOn,
+              dueOn,
+              notes,
+              lines: lines.map((line) => ({ description: line.description, amountCents: dollarsToCents(line.amount) })),
+            });
+          } finally {
+            setSaving(false);
+          }
         }}
       >
         <Field label="Client"><input className={fieldClass} value={client} onChange={(e) => setClient(e.target.value)} /></Field>
@@ -138,7 +144,7 @@ function InvoiceModal({ today, onClose, onSave }: { today: string; onClose: () =
         ))}
         <div className="flex gap-2 sm:col-span-2">
           <Button type="button" tone="quiet" onClick={() => setLines([...lines, { description: "", amount: "" }])}>Add line</Button>
-          <Button type="submit">Save invoice</Button>
+          <Button type="submit" pending={saving}>Save invoice</Button>
         </div>
       </form>
     </Modal>
