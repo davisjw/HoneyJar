@@ -20,15 +20,15 @@ Do these before you flip the repository to public, and again before anyone else 
 
 1. **No OAuth client is baked in.** Google and X run only when `GROK_AUTH_CLIENT_ID` and `GROK_AUTH_CLIENT_SECRET` are set on the host. Email and password do not use them. Do not put a broker secret back into `src/lib/auth/preview.ts`.
 2. **Host secrets stay in the environment.** `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `XAI_API_KEY`, and `GROK_AUTH_CLIENT_SECRET` must not be committed. They are not in git today. Keep it that way.
-3. **An API key is the whole personal jar.** `/api/v1` allows any origin. The token is a bearer header, not a cookie, so another website cannot read it out of the browser by itself. Anyone you hand the token to can read balances and post transactions. There is no scope, no expiry, and no rate limit. Keys are created and revoked in Customize.
+3. **An API key is the whole set of jars.** `/api/v1` allows any origin. The token is a bearer header. Anyone you hand the token to can read the books and post a transaction. There are no scopes. A key can expire, and each server process allows 60 requests a minute. Keys are created and revoked in Customize.
 4. **The advisor sends numbers away.** Grok and OpenAI receive the brief described in [features.md](features.md). The OpenAI key is stored on the profile. It is not shown back to the browser. It is not encrypted at rest.
 5. **The vault does not cover the books.** Only document bodies saved after a passphrase is set are encrypted. Transactions, balances, and bills are ordinary database rows.
 6. **Do not deploy without Postgres and a real auth secret.** With no `DATABASE_URL`, every household sits in `data/pglite` on that one machine. Deleting the directory, or starting a second copy, does not share those books. `BETTER_AUTH_SECRET` must be stable across restarts or every session dies. Auth refuses to run disabled when `DATABASE_URL` is set, which is what you want.
-7. **There is no password reset and no email verification.** A lost password is a lost household unless you reset it in the database yourself.
+7. **A lost password has three ways back.** Change it while signed in. Or use the recovery code from Customize (shown once, then only the hash is stored). Or, if `SMTP_HOST` and `SMTP_FROM` are set, email a reset link. There is still no email verification.
 
 ## What would help this hold up
 
-- A license. There is no `LICENSE` file. Without one, people cannot tell what they are allowed to do with the code.
+- A license. [LICENSE](../LICENSE) is Apache 2.0. [NOTICE](../NOTICE) is the attribution a derived app has to keep where its users can read it. That is not a requirement to publish the source of a hosted fork.
 - The README and these docs, kept true when a screen changes. [architecture.md](architecture.md) is the note for someone changing the code. Its closing section is older than the business jar and the portfolio. Prefer [features.md](features.md) for what the app does now.
 - A hosted instance only after the items above. Source on its own is enough for someone technical to run it.
 - A one-line backup story: `pg_dump` of `DATABASE_URL`. There is no full-household export in the app. Taxes can export a schedule. That is not a backup.
@@ -37,8 +37,8 @@ Do these before you flip the repository to public, and again before anyone else 
 ## Not built, and easy to forget
 
 - No bank connection, and no plan to store a bank password.
-- The public API does not expose utilities, documents, people, or a business jar.
-- MCP cannot pass a date range. See [api.md](api.md).
-- No account deletion screen, no data export of the whole household, and no audit log.
+- The public API reads people, utility meters and readings, document names (not bodies), and each jar. It still does not return vault bodies.
+- MCP `list_transactions` and `list_jars` take `from`, `to`, and `limit`. `list_jars` also takes `id`.
+- Customize can export the owned jars as JSON, and can delete the sign-in after the household name is typed. There is still no audit of every edit. The activity list covers sign-in, password changes, recovery codes, export, delete, API keys, and invites.
 - Page budgets in `npm test` catch an expensive screen. They do not catch a hostile API client.
 - `package.json` is marked `"private": true`. That only stops `npm publish`. It does not stop GitHub from showing the code.

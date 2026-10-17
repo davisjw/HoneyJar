@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { applyAction, getWorkspace } from "@/lib/honey/fns";
+import { useCurrentUser } from "@/lib/auth/use-current-user";
+import { applyAction, getWorkspace, noteSignIn } from "@/lib/honey/fns";
 import { addMonths, annotateJar } from "@/lib/honey/calc";
 import type { Account, Action, ActionResult, LedgerBook, Txn, Workspace } from "@/lib/honey/types";
 
@@ -120,6 +121,15 @@ export function BookProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
   const [txnSince, setTxnSince] = useState<string | undefined>(undefined);
+  const user = useCurrentUser();
+
+  useEffect(() => {
+    if (!user || user.isDevFallback) return;
+    const key = `hj-signin-${user.id}`;
+    if (window.sessionStorage.getItem(key)) return;
+    window.sessionStorage.setItem(key, "1");
+    void noteSignIn().catch(() => window.sessionStorage.removeItem(key));
+  }, [user]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("honeyjar.owner") ?? undefined;

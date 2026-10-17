@@ -3,6 +3,7 @@ import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
 import { parseTiers, starterColumns, templateUnit } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
+import { recordAudit } from "./care.server";
 import type {
   AccessRow,
   Account,
@@ -201,7 +202,7 @@ export async function readWorkspace(
       sql<Record<string, unknown>>`select * from mileage where user_id = ${owner} order by trip_on desc`,
       sql<Record<string, unknown>>`select * from leases where user_id = ${owner} order by tenant`,
       sql<Record<string, unknown>>`select * from realizations where user_id = ${owner} order by sold_on desc`,
-      sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used from api_keys where user_id = ${owner} order by created_at desc`,
+      sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used, expires_at from api_keys where user_id = ${owner} order by created_at desc`,
       sql<Record<string, unknown>>`select * from ai_messages where user_id = ${owner} order by created_at desc limit 40`,
       sql<Record<string, unknown>>`
         select a.*, coalesce(p.display_name, 'Household') as household_name
@@ -801,7 +802,14 @@ async function seedLedgerCategories(sql: Sql, owner: string, ledgerId: string, t
 }
 
 function mapKey(r: Record<string, unknown>): ApiKeyPublic {
-  return { id: String(r.id), name: String(r.name), prefix: String(r.prefix), createdAt: stamp(r.created_at) ?? "", lastUsed: stamp(r.last_used) };
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    prefix: String(r.prefix),
+    createdAt: stamp(r.created_at) ?? "",
+    lastUsed: stamp(r.last_used),
+    expiresAt: stamp(r.expires_at),
+  };
 }
 function mapMessage(r: Record<string, unknown>): AiMessage {
   return { id: String(r.id), role: String(r.role), content: String(r.content), createdAt: stamp(r.created_at) ?? "" };
@@ -821,7 +829,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
 
   const scoped = await scope(sql, userId, action.ownerId);
   const owner = scoped.owner;
-  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load"]);
+  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load", "account.delete", "recovery.issue"]);
   if (ownerOnly.has(action.type)) assertOwner(scoped.role);
   else assertEdit(scoped.role);
 
@@ -1778,23 +1786,39 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         insert into book_access (owner_user_id, member_email, role, invite_code, status)
         values (${owner}, ${str(action.email, 120).toLowerCase()}, ${role}, ${code}, 'pending')
       `;
+      await recordAudit(sql, owner, "invite.create", role);
       return { code };
     }
     case "invite.revoke": {
       await sql`update book_access set status = 'revoked' where id = ${action.id} and owner_user_id = ${owner}`;
+      await recordAudit(sql, owner, "invite.revoke", String(action.id));
       return {};
     }
     case "apikey.create": {
       const token = `hj_${randomBytes(24).toString("base64url")}`;
       const hash = createHash("sha256").update(token).digest("hex");
+      const days = Math.min(3650, Math.max(0, Math.floor(Number(action.expiresInDays) || 0)));
+      const expires = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
       await sql`
-        insert into api_keys (id, user_id, name, prefix, token_hash)
-        values (${nid()}, ${owner}, ${str(action.name, 60) || "Key"}, ${token.slice(0, 10)}, ${hash})
+        insert into api_keys (id, user_id, name, prefix, token_hash, expires_at)
+        values (${nid()}, ${owner}, ${str(action.name, 60) || "Key"}, ${token.slice(0, 10)}, ${hash}, ${expires})
       `;
+      await recordAudit(sql, owner, "apikey.create", days ? `${days}d` : "no expiry");
       return { token };
     }
     case "apikey.revoke": {
       await sql`delete from api_keys where id = ${action.id} and user_id = ${owner}`;
+      await recordAudit(sql, owner, "apikey.revoke", action.id);
+      return {};
+    }
+    case "recovery.issue": {
+      const { issueRecoveryCode } = await import("./care.server");
+      const code = await issueRecoveryCode(sql, owner);
+      return { code };
+    }
+    case "account.delete": {
+      const { deleteOwnedAccount } = await import("./care.server");
+      await deleteOwnedAccount(sql, owner, action.confirm);
       return {};
     }
     case "sample.clear": {

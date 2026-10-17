@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { GROK_PROVIDERS, authClient, signIn } from "@/lib/auth/client";
 import { getSignInOptions } from "@/lib/auth/sign-in-options";
+import { redeemRecoveryCode } from "@/lib/honey/fns";
 import { JarMark } from "./kit";
 
 export function Boot() {
@@ -23,11 +24,25 @@ export function Welcome() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [oauth, setOauth] = useState(false);
+  const [emailReset, setEmailReset] = useState(false);
+  const [help, setHelp] = useState<"code" | "mail" | null>(null);
+  const [code, setCode] = useState("");
+  const [nextPassword, setNextPassword] = useState("");
+  const [notice, setNotice] = useState("");
+  const [resetToken, setResetToken] = useState("");
 
   useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("token") ?? "";
+    if (token) setResetToken(token);
     void getSignInOptions()
-      .then((opts) => setOauth(opts.oauth))
-      .catch(() => setOauth(false));
+      .then((opts) => {
+        setOauth(opts.oauth);
+        setEmailReset(opts.emailReset);
+      })
+      .catch(() => {
+        setOauth(false);
+        setEmailReset(false);
+      });
   }, []);
 
   async function submitEmail(e: React.FormEvent) {
@@ -81,6 +96,82 @@ export function Welcome() {
           <button type="button" className="text-sm text-honey-deep underline" onClick={() => setMode(mode === "up" ? "in" : "up")}>
             {mode === "up" ? "Already have an account" : "Need an account"}
           </button>
+          {resetToken ? (
+            <form
+              className="space-y-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setError("");
+                setPending(true);
+                try {
+                  const result = await authClient.resetPassword({ newPassword: nextPassword, token: resetToken });
+                  if (result.error) throw new Error(result.error.message || "Could not reset the password");
+                  setNotice("Password updated. Sign in with it.");
+                  setResetToken("");
+                  window.history.replaceState({}, "", "/login");
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Could not reset the password");
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              <input className="min-h-11 w-full rounded-lg border border-line bg-card px-3" type="password" required minLength={8} placeholder="New password" value={nextPassword} onChange={(e) => setNextPassword(e.target.value)} autoComplete="new-password" />
+              <button type="submit" disabled={pending} className="min-h-11 w-full rounded-lg bg-honey font-medium text-ink">Save new password</button>
+            </form>
+          ) : null}
+          {help === "code" ? (
+            <form
+              className="space-y-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setError("");
+                setPending(true);
+                try {
+                  await redeemRecoveryCode({ data: { email, code, newPassword: nextPassword } });
+                  setNotice("Password updated. Sign in with it.");
+                  setHelp(null);
+                  setCode("");
+                  setNextPassword("");
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "That recovery code does not match.");
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              <input className="min-h-11 w-full rounded-lg border border-line bg-card px-3" placeholder="Recovery code" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" />
+              <input className="min-h-11 w-full rounded-lg border border-line bg-card px-3" type="password" required minLength={8} placeholder="New password" value={nextPassword} onChange={(e) => setNextPassword(e.target.value)} autoComplete="new-password" />
+              <button type="submit" disabled={pending} className="min-h-11 w-full rounded-lg border border-line bg-card text-sm">Set password</button>
+            </form>
+          ) : null}
+          {help === "mail" ? (
+            <button
+              type="button"
+              className="min-h-11 w-full rounded-lg border border-line bg-card text-sm"
+              onClick={async () => {
+                setError("");
+                setPending(true);
+                try {
+                  const result = await authClient.requestPasswordReset({ email, redirectTo: `${window.location.origin}/login` });
+                  if (result.error) throw new Error(result.error.message || "Could not send the reset link");
+                  setNotice("If that email has an account, a reset link is on its way.");
+                  setHelp(null);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Could not send the reset link");
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              Email a reset link
+            </button>
+          ) : null}
+          {notice ? <p className="text-sm text-muted">{notice}</p> : null}
+          <div className="flex flex-wrap gap-3 text-sm">
+            <button type="button" className="text-honey-deep underline" onClick={() => setHelp(help === "code" ? null : "code")}>Use a recovery code</button>
+            {emailReset ? <button type="button" className="text-honey-deep underline" onClick={() => setHelp(help === "mail" ? null : "mail")}>Email a reset link</button> : null}
+          </div>
           {oauth ? (
             <div className="space-y-2 pt-2">
               {GROK_PROVIDERS.map((p) => (

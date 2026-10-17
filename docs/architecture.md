@@ -335,7 +335,7 @@ sequenceDiagram
   Mcp-->>Agent: JSON-RPC text content
 ```
 
-MCP tools are the GET routes: summary, accounts, transactions, bills, goals, net worth, alerts. The only write on this door is `POST /transactions`.
+MCP tools are the GET routes, including people, document names, utilities, and jars. `list_transactions` and `list_jars` accept a date range. The only write on this door is `POST /transactions`. A key may expire, and each process allows 60 requests a minute.
 
 ## Data
 
@@ -400,7 +400,7 @@ A document row is a title, a kind, a year, a link to another record (`related_ty
 
 API keys are created in Customize. The raw token is shown once, prefixed `hj_`. The database stores a SHA-256 hash and a short prefix. `/api/v1` and `/api/mcp` both require `Authorization: Bearer`.
 
-Public reads: `/summary`, `/accounts`, `/transactions`, `/bills`, `/goals`, `/networth`, `/alerts`. Public writes: `POST /transactions` (account, merchant, amount, optional person and tags).
+Public reads: `/summary`, `/accounts`, `/transactions`, `/bills`, `/goals`, `/networth`, `/portfolio`, `/alerts`, `/people`, `/documents` (names only), `/utilities`, and `/jars`. Public writes: `POST /transactions`. A key can carry an expiry. Each server process allows 60 requests a minute.
 
 MCP methods are `initialize`, `tools/list`, and `tools/call`. The tools are the same reads: spending summary, accounts, transactions, bills, net worth, goals, alerts.
 
@@ -431,4 +431,4 @@ Transaction and bill editors are mounted only while open and keyed by id, so a n
 
 ## What this shape is not ready for
 
-Investments have their own lots, prices, and cash flows (`lots`, `prices`, `portfolio_flows`, `retirement_sketches`). Market value is shares times the latest typed price. Net worth still uses the investment account balance until `portfolio.sync` copies it. Dietz and IRR live in `portfolioPerformance`. Business books still need a second ledger id, not another `if` on the household tables.
+A live bank feed, a live quote, and a filed tax return are still out. Investments, business jars, invoices, mileage, and property leases are in. The open jar loads two years of transactions; older rows load on request. A save patches that row instead of reloading every jar.

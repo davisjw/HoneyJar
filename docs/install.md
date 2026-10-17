@@ -43,7 +43,14 @@ The process has to stay running. A static file host is not enough. `npm run prev
 
 Email and password are on. Google and X appear only when the host sets `GROK_AUTH_CLIENT_ID` and `GROK_AUTH_CLIENT_SECRET` (and, if you are not using the default broker, `GROK_AUTH_ISSUER`). Those values are not in the source. A copy you run yourself can ignore them and use email and password.
 
-There is no password-reset email in this build. Keep the password.
+There is no password-reset email unless you set SMTP. Then the sign-in page can email a link. Without SMTP, a signed-in owner can still change the password and can create a recovery code.
+
+| Variable | Why |
+| --- | --- |
+| `SMTP_HOST` | Mail server. Leave unset to keep email reset off. |
+| `SMTP_PORT` | Defaults to 587. Use 465 for implicit TLS. |
+| `SMTP_USER` / `SMTP_PASS` | Optional login for that server. |
+| `SMTP_FROM` | The From address. Required with `SMTP_HOST`. |
 
 ## Advisor keys
 
