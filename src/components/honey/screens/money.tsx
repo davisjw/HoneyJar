@@ -1,4 +1,4 @@
-import { useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { CashTip, RULE, axisTick } from "../charts";
@@ -16,11 +16,12 @@ import {
   prettyDate,
   projectCash,
   shiftPeriod,
+  historyStart,
 } from "@/lib/honey/calc";
 import type { Bill, Payment, Txn, UtilityColumn, UtilityMeter, UtilityReading } from "@/lib/honey/types";
 import { buildSheet, chargeCompare, suggestReadingId, type ReadLike, type UtilColumn } from "@/lib/honey/utility";
 import { useBook } from "../book";
-import { Button, Card, Empty, Field, Modal, MoneyText, PageIntro, fieldClass } from "../kit";
+import { Button, Card, Empty, Field, Modal, MoneyText, PageIntro, fieldClass, pinCell } from "../kit";
 
 function param(search: string, key: string) {
   return new URLSearchParams(search.replace(/^\?/, "")).get(key) ?? "";
@@ -132,7 +133,8 @@ function PayLine({
 }
 
 export function TransactionsPage() {
-  const { data, run, canEdit, showEarlier } = useBook();
+  const { data, run, canEdit, showEarlier, txnSince, loadingEarlier } = useBook();
+  const navigate = useNavigate();
   const search = useRouterState({ select: (s) => s.location.searchStr });
   const [q, setQ] = useState(param(search, "q"));
   const category = param(search, "category");
@@ -147,6 +149,8 @@ export function TransactionsPage() {
   const [who, setWho] = useState(personFilter);
   const [shown, setShown] = useState(200);
   const [tag, setTag] = useState(tagFilter);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   useEffect(() => {
     setWho(personFilter);
     setTag(tagFilter);
@@ -161,11 +165,25 @@ export function TransactionsPage() {
     if (who === "household" && t.personId) return false;
     if (who && who !== "household" && t.personId !== who) return false;
     if (tag && !t.tags.some((x) => x.toLowerCase() === tag.toLowerCase())) return false;
+    if (from && t.postedOn < from) return false;
+    if (to && t.postedOn > to) return false;
     if (!q) return true;
     const hay = `${t.merchant} ${t.memo}`.toLowerCase();
     return hay.includes(q.toLowerCase());
   });
   const cur = data.profile.currency;
+  const loadedFrom = txnSince && txnSince < historyStart(data.today) ? txnSince : historyStart(data.today);
+  const beforeLoaded = Boolean(from && data.txnHasMore && from < loadedFrom);
+  const filtered = Boolean(q || who || tag || from || to || category);
+
+  function clearFilters() {
+    setQ("");
+    setWho("");
+    setTag("");
+    setFrom("");
+    setTo("");
+    void navigate({ to: "/transactions", search: {}, replace: true });
+  }
 
   function startNew() {
     if (!data) return;
@@ -182,7 +200,7 @@ export function TransactionsPage() {
   }
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageIntro
         title="Transactions"
         lede="Open a row to change it, tag it, or turn the merchant into a rule."
@@ -195,7 +213,7 @@ export function TransactionsPage() {
           ) : null
         }
       />
-      <div className="mb-3 flex flex-wrap gap-2">
+      <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
         <input className={`${fieldClass} max-w-xs`} placeholder="Search merchant" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className={`${fieldClass} max-w-xs`} value={who} onChange={(e) => setWho(e.target.value)}>
           <option value="">Everyone</option>
@@ -210,27 +228,39 @@ export function TransactionsPage() {
             <option key={name} value={name}>{name}</option>
           ))}
         </select>
+        <label className="flex items-center gap-2 text-sm text-muted">
+          From
+          <input type="date" className="min-h-11 rounded-lg border border-line bg-card px-3 text-base text-ink outline-none focus:border-honey" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-muted">
+          To
+          <input type="date" className="min-h-11 rounded-lg border border-line bg-card px-3 text-base text-ink outline-none focus:border-honey" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
         {canEdit ? (
           <Button tone="quiet" onClick={() => run({ type: "txn.recategorize" })}>Auto-categorize</Button>
         ) : null}
+        <span className="ml-auto">
+          <Button tone="quiet" disabled={!filtered} onClick={clearFilters}>Clear</Button>
+        </span>
       </div>
-      <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[40rem] text-left text-sm">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+        <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full min-w-[40rem] border-separate border-spacing-0 text-left text-sm">
           <thead className="text-muted">
             <tr>
-              <th className="px-4 py-3 font-medium">Date</th>
-              <th className="px-4 py-3 font-medium">Merchant</th>
-              <th className="px-4 py-3 font-medium">Who</th>
-              <th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Account</th>
-              <th className="px-4 py-3 text-right font-medium">Amount</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(true, true)}`}>Date</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Merchant</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Who</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Category</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Account</th>
+              <th className={`px-4 py-3 text-right font-medium ${pinCell(false, true)}`}>Amount</th>
             </tr>
           </thead>
           <tbody>
             {rows.slice(0, shown).map((t) => (
-              <tr key={t.id} className={t.id === focus ? "bg-honey-soft" : "border-t border-line"}>
-                <td className="px-4 py-3">{prettyDate(t.postedOn)}</td>
-                <td className="px-4 py-3">
+              <tr key={t.id} className={t.id === focus ? "bg-honey-soft" : ""}>
+                <td className={`border-b border-line px-4 py-3 ${pinCell(true, false, t.id === focus)}`}>{prettyDate(t.postedOn)}</td>
+                <td className="border-b border-line px-4 py-3">
                   <button
                     type="button"
                     className="text-left font-medium"
@@ -244,19 +274,21 @@ export function TransactionsPage() {
                   {t.memo ? <p className="text-xs text-muted">{t.memo}</p> : null}
                   {t.tags.length ? <p className="text-xs text-honey-deep">{t.tags.join(" · ")}</p> : null}
                 </td>
-                <td className="px-4 py-3">{data.people.find((p) => p.id === t.personId)?.name ?? "Household"}</td>
-                <td className="px-4 py-3">{data.categories.find((c) => c.id === t.categoryId)?.name ?? "Uncategorized"}</td>
-                <td className="px-4 py-3">{data.accounts.find((a) => a.id === t.accountId)?.name}</td>
-                <td className="px-4 py-3 text-right"><MoneyText cents={t.amountCents} currency={cur} signed /></td>
+                <td className="border-b border-line px-4 py-3">{data.people.find((p) => p.id === t.personId)?.name ?? "Household"}</td>
+                <td className="border-b border-line px-4 py-3">{data.categories.find((c) => c.id === t.categoryId)?.name ?? "Uncategorized"}</td>
+                <td className="border-b border-line px-4 py-3">{data.accounts.find((a) => a.id === t.accountId)?.name}</td>
+                <td className="border-b border-line px-4 py-3 text-right"><MoneyText cents={t.amountCents} currency={cur} signed /></td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
         {rows.length === 0 ? <Empty>Nothing matches.</Empty> : null}
       </Card>
-      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
+      <div className="mt-2 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted">
         <span>
           {Math.min(shown, rows.length)} of {rows.length} in this window · month context {monthLabel(month)}
+          {beforeLoaded ? ` · loaded rows start ${prettyDate(loadedFrom)}. Load earlier for dates before that.` : ""}
         </span>
         {shown < rows.length ? (
           <button type="button" className="text-honey hover:underline" onClick={() => setShown((count) => count + 200)}>
@@ -264,8 +296,8 @@ export function TransactionsPage() {
           </button>
         ) : null}
         {data.txnHasMore ? (
-          <button type="button" className="text-honey hover:underline" onClick={showEarlier}>
-            Load earlier
+          <button type="button" className="text-honey hover:underline disabled:opacity-60" disabled={loadingEarlier} onClick={showEarlier}>
+            {loadingEarlier ? "Loading earlier…" : "Load earlier"}
           </button>
         ) : null}
       </div>
@@ -530,55 +562,68 @@ export function BillsPage() {
   const [paidOn, setPaidOn] = useState("");
   const [payReading, setPayReading] = useState("");
   if (!data) return null;
-  const groups = [
-    ["Due & bills", data.bills.filter((b) => b.kind === "bill")],
-    ["Subscriptions", data.bills.filter((b) => b.kind === "subscription")],
-    ["Utilities", data.bills.filter((b) => b.kind === "utility")],
-  ] as const;
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageIntro
         title="Bills"
         lede="Subscriptions, utilities, and the rest. Recording a payment writes the transaction and moves the next due date."
         action={canEdit ? <Button onClick={() => setEditing({ direction: "out", kind: "bill", cadence: "monthly", nextDue: data.today, amountCents: 0, status: "active" })}>Add</Button> : null}
       />
-      <div className="space-y-5">
-        {groups.map(([label, list]) => (
-          <section key={label}>
-            <h2 className="mb-2 text-sm text-muted">{label}</h2>
-            <div className="grid gap-3 md:grid-cols-2">
-              {list.map((b) => (
-                <Card key={b.id} className={b.id === focus ? "ring-2 ring-honey" : ""}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{b.name}</p>
-                      <p className="text-sm text-muted">{prettyDate(b.nextDue)} · {b.cadence}{b.autopay ? " · autopay" : ""}{b.flatPay ? " · budget billing" : ""}{b.status === "paused" ? " · paused" : ""}{b.personId ? ` · ${data.people.find((p) => p.id === b.personId)?.name ?? ""}` : ""}{data.meters.find((m) => m.id === b.meterId) ? <> · <a className="text-honey hover:underline" href={`/utilities?meter=${b.meterId}`}>{data.meters.find((m) => m.id === b.meterId)?.name}</a></> : null}</p>
-                      <PayCompare meters={data.meters} columns={data.columns} readings={data.readings} payments={data.payments} bill={b} />
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+        <div className="min-h-0 flex-1 overflow-auto">
+          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-left text-sm">
+            <thead className="text-muted">
+              <tr>
+                <th className={`px-4 py-3 font-medium ${pinCell(true, true)}`}>Name</th>
+                <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Due</th>
+                <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Kind</th>
+                <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Cadence</th>
+                <th className={`px-4 py-3 text-right font-medium ${pinCell(false, true)}`}>Amount</th>
+                <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.bills.map((b) => (
+                <tr key={b.id} className={b.id === focus ? "bg-honey-soft" : ""}>
+                  <td className={`border-b border-line px-4 py-3 ${pinCell(true, false, b.id === focus)}`}>
+                    <p className="font-medium">{b.name}</p>
+                    <p className="text-xs text-muted">
+                      {b.status === "paused" ? "Paused" : b.autopay ? "Autopay" : "Manual"}
+                      {b.flatPay ? " · budget billing" : ""}
+                      {b.personId ? ` · ${data.people.find((p) => p.id === b.personId)?.name ?? ""}` : ""}
+                      {data.meters.find((m) => m.id === b.meterId) ? <> · <a className="text-honey hover:underline" href={`/utilities?meter=${b.meterId}`}>{data.meters.find((m) => m.id === b.meterId)?.name}</a></> : null}
+                    </p>
+                    <PayCompare meters={data.meters} columns={data.columns} readings={data.readings} payments={data.payments} bill={b} />
+                  </td>
+                  <td className="border-b border-line px-4 py-3">{prettyDate(b.nextDue)}</td>
+                  <td className="border-b border-line px-4 py-3 capitalize">{b.kind}</td>
+                  <td className="border-b border-line px-4 py-3">{b.cadence}</td>
+                  <td className="border-b border-line px-4 py-3 text-right num">{b.direction === "in" ? "+" : ""}{money(b.amountCents, data.profile.currency)}</td>
+                  <td className="border-b border-line px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      {canEdit && b.status === "active" ? (
+                        <Button onClick={() => {
+                          const suggested = b.meterId ? suggestReadingId(data.readings.map(engineRead), b.meterId, data.today) : null;
+                          const reading = suggested ? data.readings.find((r) => r.id === suggested) : undefined;
+                          setPay(b);
+                          setPaidOn(data.today);
+                          setPayReading(suggested ?? "");
+                          setAmount(centsToInput(reading && reading.amountCents > 0 ? reading.amountCents : b.amountCents));
+                        }}>
+                          {b.direction === "in" ? "Record deposit" : "Record payment"}
+                        </Button>
+                      ) : null}
+                      <Button tone="quiet" onClick={() => setEditing(b)}>Edit</Button>
+                      {b.url ? <a className="inline-flex min-h-11 items-center text-sm text-honey-deep" href={b.url} target="_blank" rel="noreferrer">Site</a> : null}
                     </div>
-                    <p className="num font-display text-xl">{b.direction === "in" ? "+" : ""}{money(b.amountCents, data.profile.currency)}</p>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {canEdit && b.status === "active" ? (
-                      <Button onClick={() => {
-                        const suggested = b.meterId ? suggestReadingId(data.readings.map(engineRead), b.meterId, data.today) : null;
-                        const reading = suggested ? data.readings.find((r) => r.id === suggested) : undefined;
-                        setPay(b);
-                        setPaidOn(data.today);
-                        setPayReading(suggested ?? "");
-                        setAmount(centsToInput(reading && reading.amountCents > 0 ? reading.amountCents : b.amountCents));
-                      }}>
-                        {b.direction === "in" ? "Record deposit" : "Record payment"}
-                      </Button>
-                    ) : null}
-                    <Button tone="quiet" onClick={() => setEditing(b)}>Edit</Button>
-                    {b.url ? <a className="inline-flex min-h-11 items-center text-sm text-honey-deep" href={b.url} target="_blank" rel="noreferrer">Site</a> : null}
-                  </div>
-                </Card>
+                  </td>
+                </tr>
               ))}
-            </div>
-          </section>
-        ))}
-      </div>
+            </tbody>
+          </table>
+          {data.bills.length === 0 ? <Empty>No bills yet.</Empty> : null}
+        </div>
+      </Card>
       {editing ? <BillEditor key={editing.id ?? "new"} bill={editing} onClose={() => setEditing(null)} /> : null}
       <Modal open={!!pay} title={pay ? `Pay ${pay.name}` : "Pay"} onClose={() => setPay(null)}>
         <Field label="Paid on">
@@ -769,7 +814,7 @@ export function PlanPage() {
   const plan = planModel(data.categories, data.transactions, data.plan, month, data.profile.monthStartDay);
   const cur = data.profile.currency;
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageIntro
         title="Spending plan"
         lede="Assign the month, then what’s left in each envelope is what you can still spend. Rollover carries the leftover — or the overage — forward."
@@ -780,31 +825,32 @@ export function PlanPage() {
           </div>
         }
       />
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-4 grid shrink-0 gap-3 sm:grid-cols-3">
         <Card><p className="text-sm text-muted">{monthLabel(month)} income</p><p className="font-display text-2xl num">{money(plan.income, cur)}</p></Card>
         <Card><p className="text-sm text-muted">Left to assign</p><p className="font-display text-2xl num">{money(plan.leftToAssign, cur)}</p></Card>
         <Card><p className="text-sm text-muted">Left in the plan</p><p className="font-display text-2xl num">{money(plan.leftInPlan, cur)}</p></Card>
       </div>
-      <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[36rem] text-left text-sm">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+        <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full min-w-[36rem] border-separate border-spacing-0 text-left text-sm">
           <thead className="text-muted">
             <tr>
-              <th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Rolled in</th>
-              <th className="px-4 py-3 font-medium">Assigned</th>
-              <th className="px-4 py-3 font-medium">Spent</th>
-              <th className="px-4 py-3 font-medium">Available</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(true, true)}`}>Category</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Rolled in</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Assigned</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Spent</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Available</th>
             </tr>
           </thead>
           <tbody>
             {plan.rows.map((row) => (
-              <tr key={row.category.id} className={row.category.id === focus ? "bg-honey-soft" : "border-t border-line"}>
-                <td className="px-4 py-3">
+              <tr key={row.category.id} className={row.category.id === focus ? "bg-honey-soft" : ""}>
+                <td className={`border-b border-line px-4 py-3 ${pinCell(true, false, row.category.id === focus)}`}>
                   <a className="font-medium" href={`/transactions?category=${row.category.id}`}>{row.category.name}</a>
                   <p className="text-xs text-muted">{row.category.rollover ? "Rolls over" : "Resets"} · {row.category.section}</p>
                 </td>
-                <td className="px-4 py-3 num">{money(row.rolloverIn, cur)}</td>
-                <td className="px-4 py-3">
+                <td className="border-b border-line px-4 py-3 num">{money(row.rolloverIn, cur)}</td>
+                <td className="border-b border-line px-4 py-3">
                   {canEdit ? (
                     <input
                       className="w-28 rounded-lg border border-line px-2 py-1"
@@ -819,12 +865,13 @@ export function PlanPage() {
                     money(row.assigned, cur)
                   )}
                 </td>
-                <td className="px-4 py-3 num">{money(row.spent, cur)}</td>
-                <td className={`px-4 py-3 num ${row.available < 0 ? "text-clay" : "text-sage"}`}>{money(row.available, cur)}</td>
+                <td className="border-b border-line px-4 py-3 num">{money(row.spent, cur)}</td>
+                <td className={`border-b border-line px-4 py-3 num ${row.available < 0 ? "text-clay" : "text-sage"}`}>{money(row.available, cur)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );

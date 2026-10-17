@@ -61,6 +61,9 @@ describe("utility sheet", () => {
     const last = rows[1]!;
     assert.equal(last.computed.usage_kwh, 170);
     assert.equal(last.computed.read_days, 30);
+    assert.equal(starterColumns("m", "electric").find((c) => c.key === "read_days")?.formula, "{read_on} - {prev.read_on}");
+    assert.equal(starterColumns("m", "water").find((c) => c.key === "usage_ccf")?.formula, "{meter_read} - {prev.meter_read}");
+    assert.equal(starterColumns("m", "cellular").some((c) => c.rollup === "usage"), false);
     assert.equal(last.computed.grid_kwh, 150);
     assert.equal(last.computed.energy_tier_charge, 21.08);
     assert.equal(last.computed.bill_sum, 108);

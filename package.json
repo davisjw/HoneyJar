@@ -2,6 +2,7 @@
   "name": "honeyjar",
   "version": "2.0.0",
   "private": true,
+  "license": "Apache-2.0",
   "sideEffects": false,
   "type": "module",
   "overrides": {
@@ -17,7 +18,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/lib/honey/calc.test.ts src/lib/honey/utility.test.ts src/lib/honey/page-perf.test.ts && node scripts/household-load.mjs",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/lib/honey/calc.test.ts src/lib/honey/utility.test.ts src/lib/honey/page-perf.test.ts src/lib/honey/care.test.ts src/lib/honey/person.test.ts && node scripts/household-load.mjs",
     "test:ui": "node scripts/ui-smoke.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -63,6 +64,7 @@
     "lightningcss": "^1.28.0",
     "lucide-react": "^0.510.0",
     "nitro": "3.0.260610-beta",
+    "nodemailer": "^7.0.13",
     "pg": "^8.16.3",
     "react": "^19.2.0",
     "react-day-picker": "^9.14.0",

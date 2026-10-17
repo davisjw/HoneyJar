@@ -125,3 +125,74 @@ export const askAdvisor = createServerFn({ method: "POST" })
     await sql`insert into ai_messages (id, user_id, role, content) values (${b}, ${ws.ownerId}, 'assistant', ${text})`;
     return { mode: "answer" as const, text };
   });
+
+export const exportHousehold = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { getSql } = await import("@/lib/db");
+    const { exportOwned } = await import("./care.server");
+    return exportOwned(await getSql(), context.userId);
+  });
+
+export const listAudit = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { getSql } = await import("@/lib/db");
+    const { listAudit: read } = await import("./care.server");
+    return read(await getSql(), context.userId);
+  });
+
+export const noteSignIn = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { getSql } = await import("@/lib/db");
+    const { recordAudit } = await import("./care.server");
+    await recordAudit(await getSql(), context.userId, "sign-in", "");
+    return { ok: true };
+  });
+
+export const changeOwnPassword = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { currentPassword?: string; newPassword?: string }) => {
+    const currentPassword = String(input?.currentPassword ?? "");
+    const newPassword = String(input?.newPassword ?? "");
+    if (!currentPassword) throw new Error("Enter the current password.");
+    if (newPassword.length < 8) throw new Error("Use at least 8 characters.");
+    return { currentPassword, newPassword };
+  })
+  .handler(async ({ context, data }) => {
+    const { auth } = await import("@/lib/auth/server");
+    const { getRequest } = await import("@tanstack/react-start/server");
+    const request = getRequest();
+    await auth.api.changePassword({
+      body: { currentPassword: data.currentPassword, newPassword: data.newPassword, revokeOtherSessions: true },
+      headers: request.headers,
+    });
+    const { getSql } = await import("@/lib/db");
+    const { recordAudit } = await import("./care.server");
+    await recordAudit(await getSql(), context.userId, "password.change", "");
+    return { ok: true };
+  });
+
+const recoveryHits = new Map<string, number[]>();
+
+export const redeemRecoveryCode = createServerFn({ method: "POST" })
+  .validator((input: { email?: string; code?: string; newPassword?: string }) => {
+    const email = String(input?.email ?? "").trim().slice(0, 120);
+    const code = String(input?.code ?? "").trim().slice(0, 40);
+    const newPassword = String(input?.newPassword ?? "");
+    if (!email || !code) throw new Error("Enter the email and the recovery code.");
+    return { email, code, newPassword };
+  })
+  .handler(async ({ data }) => {
+    const { hitLimit } = await import("./care");
+    const key = data.email.toLowerCase();
+    const hit = hitLimit(recoveryHits.get(key) ?? [], Date.now(), 15 * 60 * 1000, 8);
+    recoveryHits.set(key, hit.next);
+    if (hit.limited) throw new Error("Too many tries. Wait a few minutes.");
+    const { getSql } = await import("@/lib/db");
+    const { redeemRecoveryCode: redeem } = await import("./care.server");
+    await redeem(await getSql(), data.email, data.code, data.newPassword);
+    return { ok: true };
+  });
+

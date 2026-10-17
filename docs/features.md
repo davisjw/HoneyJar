@@ -44,7 +44,7 @@ Business and property jars add invoices, mileage, and a lease. Rent invoices can
 
 | Screen | What it does |
 | --- | --- |
-| People | Adults and children. Transactions and bills can name one. Reports can filter by them. |
+| People | Adults and children. Transactions and bills can name one. An adult can store an email and be invited; the password stays on their sign-in. A child has no sign-in. |
 | Documents | A title, a kind, a year, and notes. A body can be stored in the vault. |
 | Sharing | Invite an email as editor, viewer, or advisor. They see this household after they accept. |
 | Accounts | The account list, the CSV import, and the note that there is no bank login. |

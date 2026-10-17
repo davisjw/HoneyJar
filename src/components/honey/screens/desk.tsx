@@ -2,7 +2,8 @@ import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SliceTip, axisTick } from "../charts";
-import { askAdvisor } from "@/lib/honey/fns";
+import { askAdvisor, changeOwnPassword, exportHousehold, listAudit } from "@/lib/honey/fns";
+import { signOut } from "@/lib/auth/client";
 import {
   centsToInput,
   dollarsToCents,
@@ -906,8 +907,15 @@ export function SettingsPage() {
   const [openai, setOpenai] = useState("");
   const [token, setToken] = useState("");
   const [keyName, setKeyName] = useState("Advisor key");
+  const [keyDays, setKeyDays] = useState("");
   const [tryOut, setTryOut] = useState("");
   const [cat, setCat] = useState<Partial<Category> | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [recovery, setRecovery] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState("");
+  const [audit, setAudit] = useState<{ id: string; action: string; detail: string; createdAt: string }[]>([]);
+  const [careError, setCareError] = useState("");
   if (!data) return null;
   const hidden = new Set(data.profile.navHidden.split(",").filter(Boolean));
   const p = data.profile;
@@ -1019,9 +1027,11 @@ export function SettingsPage() {
           <p className="mt-1 text-sm text-muted">Bearer keys for your own tools. REST lives at /api/v1. MCP is a JSON-RPC post to /api/mcp with methods tools/list and tools/call.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <input className={`${fieldClass} max-w-xs`} value={keyName} onChange={(e) => setKeyName(e.target.value)} />
+            <input className={`${fieldClass} max-w-[8rem]`} inputMode="numeric" placeholder="Days, or blank" value={keyDays} onChange={(e) => setKeyDays(e.target.value)} />
             <Button
               onClick={async () => {
-                const res = await run({ type: "apikey.create", name: keyName });
+                const days = Number(keyDays);
+                const res = await run({ type: "apikey.create", name: keyName, expiresInDays: Number.isFinite(days) && days > 0 ? days : undefined });
                 setToken(res.token ?? "");
               }}
             >
@@ -1032,7 +1042,7 @@ export function SettingsPage() {
           <ul className="mt-3 text-sm">
             {data.keys.map((k) => (
               <li key={k.id} className="flex justify-between py-1">
-                <span>{k.name} · {k.prefix}…</span>
+                <span>{k.name} · {k.prefix}…{k.expiresAt ? ` · until ${k.expiresAt.slice(0, 10)}` : ""}</span>
                 <button type="button" className="text-clay" onClick={() => run({ type: "apikey.revoke", id: k.id })}>Revoke</button>
               </li>
             ))}
@@ -1053,13 +1063,93 @@ export function SettingsPage() {
       ) : null}
       {isOwner ? (
         <Card>
+          <h2 className="font-display text-xl">Sign-in</h2>
+          <p className="mt-1 text-sm text-muted">Change the password while you are signed in. A recovery code works if you are signed out. It is shown once. An email reset link appears on the sign-in page only when the host has set SMTP.</p>
+          {careError ? <p className="mt-2 text-sm text-clay">{careError}</p> : null}
+          <form
+            className="mt-3 flex flex-wrap gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setCareError("");
+              try {
+                await changeOwnPassword({ data: { currentPassword, newPassword } });
+                setCurrentPassword("");
+                setNewPassword("");
+              } catch (err) {
+                setCareError(err instanceof Error ? err.message : "Could not change the password");
+              }
+            }}
+          >
+            <input className={`${fieldClass} max-w-xs`} type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" autoComplete="current-password" />
+            <input className={`${fieldClass} max-w-xs`} type="password" minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" autoComplete="new-password" />
+            <Button type="submit">Change password</Button>
+          </form>
+          <div className="mt-3">
+            <Button
+              tone="quiet"
+              onClick={async () => {
+                setCareError("");
+                const res = await run({ type: "recovery.issue" });
+                setRecovery(res.code ?? "");
+              }}
+            >
+              {recovery ? "Replace recovery code" : "Create recovery code"}
+            </Button>
+            {recovery ? <p className="mt-2 break-all rounded-xl bg-honey-soft px-3 py-2 text-sm">Copy this once: {recovery}</p> : null}
+          </div>
+        </Card>
+      ) : null}
+      {isOwner ? (
+        <Card>
+          <h2 className="font-display text-xl">Activity</h2>
+          <Button tone="quiet" onClick={async () => setAudit(await listAudit())}>Show recent activity</Button>
+          <ul className="mt-2 space-y-1 text-sm">
+            {audit.map((row) => (
+              <li key={row.id} className="flex justify-between gap-2">
+                <span>{row.action}{row.detail ? ` · ${row.detail}` : ""}</span>
+                <span className="text-muted">{row.createdAt.slice(0, 16).replace("T", " ")}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+      {isOwner ? (
+        <Card>
           <h2 className="font-display text-xl">Data</h2>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button tone="quiet" onClick={() => downloadText("honeyjar.json", JSON.stringify(data, null, 2))}>Export everything</Button>
+            <Button
+              tone="quiet"
+              onClick={async () => {
+                const book = await exportHousehold();
+                downloadText("honeyjar.json", JSON.stringify(book, null, 2));
+              }}
+            >
+              Export everything
+            </Button>
             <Button tone="danger" onClick={() => run({ type: "sample.clear" })}>Clear books</Button>
             <Button tone="quiet" onClick={() => run({ type: "sample.load" })}>Load sample household</Button>
           </div>
-          <p className="mt-2 text-xs text-muted">Clear keeps starter categories and your sign-in. Load sample replaces the books with the Calder household.</p>
+          <p className="mt-2 text-xs text-muted">Export is every jar this sign-in owns, including older transactions. Document bodies stay as stored. API keys are not included. Clear keeps starter categories and your sign-in. Load sample replaces the books with the Calder household.</p>
+          <form
+            className="mt-3 flex flex-wrap gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setCareError("");
+              try {
+                await run({ type: "account.delete", confirm: confirmDelete });
+                try {
+                  await signOut("/login");
+                } catch {
+                  window.location.href = "/login";
+                }
+              } catch (err) {
+                setCareError(err instanceof Error ? err.message : "Could not delete the account");
+              }
+            }}
+          >
+            <input className={`${fieldClass} max-w-xs`} value={confirmDelete} onChange={(e) => setConfirmDelete(e.target.value)} placeholder={`Type ${p.displayName} to delete`} />
+            <Button type="submit" tone="danger">Delete account</Button>
+          </form>
         </Card>
       ) : null}
       {cat ? <CategoryEditor category={cat} onClose={() => setCat(null)} /> : null}

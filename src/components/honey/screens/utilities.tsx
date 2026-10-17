@@ -20,7 +20,7 @@ import {
   type UtilColumn,
 } from "@/lib/honey/utility";
 import { useBook } from "../book";
-import { Button, Card, Field, Modal, PageIntro, fieldClass } from "../kit";
+import { Button, Card, Field, Modal, PageIntro, fieldClass, pinCell } from "../kit";
 
 function param(search: string, key: string) {
   return new URLSearchParams(search.replace(/^\?/, "")).get(key) ?? "";
@@ -101,14 +101,14 @@ export function UtilitiesPage() {
   );
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageIntro
         title="Utilities"
         lede="A workbook for each meter. Calculated cells stay calculated. A bill in this jar can point at the parent meter."
         action={canEdit ? <Button onClick={() => setAdding(true)}>Add meter</Button> : null}
       />
       {weather.length ? (
-        <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <div className="mb-4 grid shrink-0 gap-3 md:grid-cols-3">
           {weather.map((m) => {
             const series = data.readings.filter((r) => r.meterId === m.id && r.meter != null).slice().sort((a, b) => a.readOn.localeCompare(b.readOn));
             const last = series[series.length - 1];
@@ -126,7 +126,7 @@ export function UtilitiesPage() {
       ) : null}
       {meter ? (
         <>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
             <select className={fieldClass + " max-w-xs"} value={meter.id} onChange={(e) => setPicked(e.target.value)}>
               {data.meters.map((m) => (
                 <option key={m.id} value={m.id}>{m.parentId ? `↳ ${m.name}` : m.name}</option>
@@ -139,12 +139,14 @@ export function UtilitiesPage() {
             {canEdit ? <Button tone="quiet" onClick={() => setReading(true)}>Add read</Button> : null}
           </div>
           {tab === "graphs" ? (
-            <Graphs
-              meter={meter}
-              columns={columns.map(engineColumn)}
-              rows={rows}
-              payments={data.payments}
-            />
+            <div className="min-h-0 flex-1 overflow-auto">
+              <Graphs
+                meter={meter}
+                columns={columns.map(engineColumn)}
+                rows={rows}
+                payments={data.payments}
+              />
+            </div>
           ) : null}
           {tab === "workbook" ? (
             <Workbook
@@ -160,7 +162,7 @@ export function UtilitiesPage() {
               onDate={(id, readOn) => run({ type: "reading.date", id, readOn })}
             />
           ) : null}
-          {tab === "columns" ? <ColumnsTab meter={meter} columns={columns} canEdit={canEdit} run={run} /> : null}
+          {tab === "columns" ? <div className="min-h-0 flex-1 overflow-auto"><ColumnsTab meter={meter} columns={columns} canEdit={canEdit} run={run} /></div> : null}
         </>
       ) : (
         <Card><p className="text-muted">No meters in this jar yet.</p></Card>
@@ -286,12 +288,13 @@ function Workbook({
   }, [payments]);
   const billById = useMemo(() => new Map(bills.map((bill) => [bill.id, bill])), [bills]);
   return (
-    <Card className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-left text-sm">
+    <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+      <div className="min-h-0 flex-1 overflow-auto">
+      <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-sm">
         <thead>
           <tr className="text-muted">
-            {columns.map((c) => <th key={c.id} className="px-2 py-2 font-medium">{c.label}</th>)}
-            <th className="px-2 py-2 font-medium">Paid</th>
+            {columns.map((c, index) => <th key={c.id} className={`px-2 py-2 font-medium ${pinCell(index === 0, true)}`}>{c.label}</th>)}
+            <th className={`px-2 py-2 font-medium ${pinCell(false, true)}`}>Paid</th>
           </tr>
         </thead>
         <tbody>
@@ -301,14 +304,14 @@ function Workbook({
             const bill = pay ? billById.get(pay.billId) : undefined;
             const compare = chargeCompare(row, engine);
             return (
-              <tr key={row.id} className={row.id === focus ? "bg-honey-soft" : "border-t border-line"}>
-                {columns.map((c) => {
+              <tr key={row.id} className={row.id === focus ? "bg-honey-soft" : ""}>
+                {columns.map((c, index) => {
                   const key = `${row.id}:${c.id}`;
                   const openingUsage = Boolean(reading?.opening && c.rollup === "usage");
                   const mount = cellMount(c, { metered, openingUsage, editing: canEdit && editing === key });
                   const text = cellText(row, engineColumn(c));
                   return (
-                  <td key={c.id} className="px-2 py-1">
+                  <td key={c.id} className={`border-b border-line px-2 py-1 ${pinCell(index === 0, false, row.id === focus)}`}>
                     {mount === "date" ? (
                       <input
                         type="date"
@@ -345,7 +348,7 @@ function Workbook({
                   </td>
                   );
                 })}
-                <td className="px-2 py-1 text-xs text-muted">
+                <td className="border-b border-line px-2 py-1 text-xs text-muted">
                   {pay && bill ? (
                     <a className="text-honey hover:underline" href={`/bills?bill=${bill.id}`}>
                       Paid {money(pay.amountCents)} on {prettyDate(pay.paidOn)}
@@ -358,7 +361,8 @@ function Workbook({
           })}
         </tbody>
       </table>
-      {meter.tiers.length ? <p className="mt-3 text-xs text-muted">Rate tiers fill the lowest ceiling first. {meter.tiers.map((t) => `${t.upTo == null ? "rest" : `first ${t.upTo}`} @ ${(t.rateCents / 100).toFixed(3)}`).join(", ")}.</p> : null}
+      </div>
+      {meter.tiers.length ? <p className="shrink-0 px-4 py-3 text-xs text-muted">Rate tiers fill the lowest ceiling first. {meter.tiers.map((t) => `${t.upTo == null ? "rest" : `first ${t.upTo}`} @ ${(t.rateCents / 100).toFixed(3)}`).join(", ")}.</p> : null}
     </Card>
   );
 }

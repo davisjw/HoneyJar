@@ -264,8 +264,8 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [jar, navigate, path, summary]);
 
   return (
-    <div className="min-h-screen bg-paper text-ink md:grid md:grid-cols-[16.5rem_1fr]">
-      <aside className="hidden bg-sidebar text-sidebar-fg md:sticky md:top-0 md:flex md:h-screen md:flex-col md:self-start md:overflow-hidden md:p-4">
+    <div className="h-dvh overflow-hidden bg-paper text-ink md:grid md:grid-cols-[16.5rem_1fr]">
+      <aside className="hidden bg-sidebar text-sidebar-fg md:flex md:h-dvh md:flex-col md:overflow-hidden md:p-4">
         <Link to={home} className="mb-2 flex items-center gap-2 px-2">
           <JarMark className="h-8 w-8 text-honey" />
           <span className="font-display text-2xl">HoneyJar</span>
@@ -278,8 +278,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <UserButton />
         </div>
       </aside>
-      <div className="min-w-0">
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-line bg-paper px-4 py-3 md:hidden">
+      <div className="flex h-dvh min-w-0 flex-col">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-paper px-4 py-3 md:hidden">
           <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg" onClick={() => setOpen(true)} aria-label="Open menu">
             <Menu />
           </button>
@@ -306,7 +306,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </div>
           </div>
         ) : null}
-        <main className="mx-auto w-full max-w-6xl px-4 py-5 md:px-8 md:py-8">
+        <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 py-5 md:px-8 md:py-8">
           {loading ? (
             <div className="space-y-3">
               <div className="h-8 w-48 rounded-lg bg-honey-soft" />
@@ -321,7 +321,7 @@ export function Shell({ children }: { children: ReactNode }) {
               </button>
             </div>
           ) : data ? (
-            <div className="space-y-4">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
               {data.profile.seeded ? (
                 <p className="rounded-xl bg-honey-soft px-3 py-2 text-sm text-ink">
                   Sample household for {period}. Change anything — or clear it in Customize when you want your own books.

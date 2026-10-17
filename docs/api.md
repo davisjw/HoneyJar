@@ -1,12 +1,12 @@
 # API and MCP
 
-Another program, including an AI, reads the personal jar with an API key. The same key works for the JSON API and for MCP.
-
-Utilities, documents, tax lines, people, and the business and property jars are not on this API. Portfolio lots are included. Accounts, transactions, bills, and goals are the personal jar only.
+Another program, including an AI, reads the books with an API key. The same key works for the JSON API and for MCP. A key can read every jar that sign-in owns, and can add a transaction. It cannot read a document body.
 
 ## Make a key
 
-Open **Customize** while you are the household owner. **Create key**. The token is shown once. It starts with `hj_`. The database keeps a SHA-256 hash and a short prefix. Copy the token then. There is no way to show it again. Revoke it on the same screen.
+Open **Customize** while you are the household owner. **Create key**. Leave the days field blank for a key that does not expire, or enter a number of days. The token is shown once. It starts with `hj_`. The database keeps a SHA-256 hash, a short prefix, and the expiry. Copy the token then. There is no way to show it again. Revoke it on the same screen.
+
+Each server process allows 60 requests a minute for a key. A second process counts separately. An expired key is rejected.
 
 Send it on every request:
 
@@ -32,6 +32,11 @@ Base path: `https://YOUR-HOST/api/v1`
 | `GET /networth` | Asset total, debt total, net, and each asset. |
 | `GET /portfolio` | Lots, the prices you typed, flows, Dietz, IRR, and retirement sketches. Not a live quote. |
 | `GET /alerts` | Open alerts, each with a path inside HoneyJar. |
+| `GET /people` | People. |
+| `GET /documents` | Document names, kind, year, and whether the body is encrypted. The body is not returned. |
+| `GET /utilities` | Meters, columns, and readings. |
+| `GET /jars` | Each jar's name, kind, and accounts. |
+| `GET /jars?id=ID&from=YYYY-MM-DD&to=YYYY-MM-DD&limit=50` | That jar's bills and transactions. `limit` caps at 200. |
 
 Amounts on transactions are integer cents. Negative means money out.
 
@@ -60,13 +65,17 @@ There is no paging beyond `limit`, no webhook, and no filter by person or tag. P
 | --- | --- |
 | `spending_summary` | `GET /summary` |
 | `list_accounts` | `GET /accounts` |
-| `list_transactions` | `GET /transactions` with the defaults |
 | `upcoming_bills` | `GET /bills` |
 | `net_worth` | `GET /networth` |
 | `portfolio` | `GET /portfolio` |
 | `list_goals` | `GET /goals` |
 | `list_alerts` | `GET /alerts` |
+| `list_people` | `GET /people` |
+| `list_documents` | `GET /documents` |
+| `list_utilities` | `GET /utilities` |
+| `list_jars` | `GET /jars`. Arguments `id`, `from`, `to`, `limit`. |
+| `list_transactions` | `GET /transactions`. Arguments `from`, `to`, `limit`. |
 
-Arguments on `list_transactions` are ignored. The tool always uses the default window (50 transactions, no `from` or `to`). Use the JSON API when the date range matters.
+`list_transactions` and `list_jars` pass `from`, `to`, `limit`, and (for jars) `id` through to the JSON API. Other tools ignore arguments.
 
 Point an MCP client at `https://YOUR-HOST/api/mcp` and give it the bearer token as the header. If the client can only send a URL, it cannot authenticate. The header is required.

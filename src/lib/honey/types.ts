@@ -106,6 +106,8 @@ export type Person = {
   id: string;
   name: string;
   relation: string;
+  email: string;
+  linkedUserId: string | null;
   archived: boolean;
   sort: number;
 };
@@ -333,6 +335,7 @@ export type ApiKeyPublic = {
   prefix: string;
   createdAt: string;
   lastUsed: string | null;
+  expiresAt: string | null;
 };
 
 export type Draw = {
@@ -539,6 +542,7 @@ export type Workspace = {
 export type ActionResult = {
   token?: string;
   code?: string;
+  recoveryCode?: string;
   patch?: {
     transactions?: Txn[];
     deletedTransactionIds?: string[];
@@ -606,8 +610,10 @@ export type Action = (
   | { type: "invite.create"; role: string; email: string; ownerId?: string }
   | { type: "invite.accept"; code: string; ownerId?: string }
   | { type: "invite.revoke"; id: number; ownerId?: string }
-  | { type: "apikey.create"; name: string; ownerId?: string }
+  | { type: "apikey.create"; name: string; expiresInDays?: number; ownerId?: string }
   | { type: "apikey.revoke"; id: string; ownerId?: string }
+  | { type: "recovery.issue"; ownerId?: string }
+  | { type: "account.delete"; confirm: string; ownerId?: string }
   | { type: "sample.clear"; ownerId?: string }
   | { type: "sample.load"; ownerId?: string }
   | { type: "advisor.log"; question: string; answer: string; ownerId?: string }

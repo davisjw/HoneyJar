@@ -122,6 +122,11 @@ type StarterColumn = {
 
 type Starter = { name: string; slug: string; unit: string; columns: StarterColumn[] };
 
+/** This read date minus the previous read date, in days. */
+export const DAYS_FORMULA = "{read_on} - {prev.read_on}";
+/** This meter read minus the previous meter read. */
+export const USAGE_FORMULA = "{meter_read} - {prev.meter_read}";
+
 const STARTERS: Starter[] = [
   {
     name: "Electric",
@@ -130,8 +135,8 @@ const STARTERS: Starter[] = [
     columns: [
       { key: "meter_read", label: "Meter read", kind: "number", unit: "kWh", rollup: "meter" },
       { key: "read_on", label: "Meter read date", kind: "date", rollup: "readDate" },
-      { key: "read_days", label: "Days in period", kind: "number", unit: "days", rollup: "days" },
-      { key: "usage_kwh", label: "Usage kWh", kind: "number", unit: "kWh", rollup: "usage" },
+      { key: "read_days", label: "Days in period", kind: "calculated", unit: "days", formula: DAYS_FORMULA, rollup: "days" },
+      { key: "usage_kwh", label: "Usage kWh", kind: "calculated", unit: "kWh", formula: USAGE_FORMULA, rollup: "usage" },
       { key: "tesla_kwh", label: "Tesla kWh", kind: "number", unit: "kWh", fromChildren: true },
       { key: "generation_kwh", label: "Generation kWh", kind: "number", unit: "kWh" },
       { key: "grid_kwh", label: "Grid kWh", kind: "calculated", unit: "kWh", formula: "{usage_kwh} - {generation_kwh}" },
@@ -157,8 +162,8 @@ const STARTERS: Starter[] = [
     columns: [
       { key: "meter_read", label: "Meter read", kind: "number", unit: "CCF", rollup: "meter" },
       { key: "read_on", label: "Meter read date", kind: "date", rollup: "readDate" },
-      { key: "read_days", label: "Days in period", kind: "number", unit: "days", rollup: "days" },
-      { key: "usage_ccf", label: "Usage CCF", kind: "number", unit: "CCF", rollup: "usage" },
+      { key: "read_days", label: "Days in period", kind: "calculated", unit: "days", formula: DAYS_FORMULA, rollup: "days" },
+      { key: "usage_ccf", label: "Usage CCF", kind: "calculated", unit: "CCF", formula: USAGE_FORMULA, rollup: "usage" },
       { key: "usage_therms", label: "Usage therms", kind: "number", unit: "therms" },
       { key: "supply_charge", label: "Supply", kind: "money" },
       { key: "delivery_charge", label: "Delivery", kind: "money" },
@@ -178,8 +183,8 @@ const STARTERS: Starter[] = [
     columns: [
       { key: "meter_read", label: "Meter read", kind: "number", unit: "CCF", rollup: "meter" },
       { key: "read_on", label: "Meter read date", kind: "date", rollup: "readDate" },
-      { key: "read_days", label: "Days in period", kind: "number", unit: "days", rollup: "days" },
-      { key: "usage_ccf", label: "Usage CCF", kind: "number", unit: "CCF", rollup: "usage" },
+      { key: "read_days", label: "Days in period", kind: "calculated", unit: "days", formula: DAYS_FORMULA, rollup: "days" },
+      { key: "usage_ccf", label: "Usage CCF", kind: "calculated", unit: "CCF", formula: USAGE_FORMULA, rollup: "usage" },
       { key: "usage_gal", label: "Usage gallons", kind: "calculated", unit: "gal", formula: "{usage_ccf} * 748" },
       { key: "water_charge", label: "Water", kind: "money" },
       { key: "sewer_charge", label: "Sewer", kind: "money" },
@@ -223,8 +228,8 @@ const STARTERS: Starter[] = [
 const BLANK: StarterColumn[] = [
   { key: "meter_read", label: "Meter read", kind: "number", rollup: "meter" },
   { key: "read_on", label: "Meter read date", kind: "date", rollup: "readDate" },
-  { key: "read_days", label: "Days in period", kind: "number", unit: "days", rollup: "days" },
-  { key: "usage", label: "Usage", kind: "number", rollup: "usage" },
+  { key: "read_days", label: "Days in period", kind: "calculated", unit: "days", formula: DAYS_FORMULA, rollup: "days" },
+  { key: "usage", label: "Usage", kind: "calculated", formula: USAGE_FORMULA, rollup: "usage" },
   { key: "bill_amount", label: "Bill amount", kind: "money", rollup: "bill" },
   { key: "vs_last_month", label: "vs last month", kind: "calculated", formula: "{usage} - {prev.usage}" },
 ];
@@ -667,7 +672,12 @@ export function buildSheet(
         else entered[column.key] = days;
         continue;
       }
-      if (column.kind === "calculated" || column.kind === "date" || entered[column.key] != null) continue;
+      if (column.kind === "date" || column.rollup === "readDate") {
+        const epochDays = Date.parse(`${reading.date}T00:00:00Z`) / 86400000;
+        if (Number.isFinite(epochDays)) entered[column.key] = epochDays;
+        continue;
+      }
+      if (column.kind === "calculated" || entered[column.key] != null) continue;
       if (column.fromChildren) {
         const rolled = childRolled(column, childReads, childColumns, monthOf(reading.date));
         if (rolled != null) entered[column.key] = rolled;
@@ -693,6 +703,9 @@ export function buildSheet(
         return { year: hy!, month: hm!, values: h.computed as Record<string, number | null> };
       });
       for (const column of calc) {
+        const prevRow = rows[i - 1];
+        if (column.rollup === "days" && !prevRow) continue;
+        if (column.rollup === "usage" && (sorted[i]?.opening || !prevRow)) continue;
         const result = evaluateFormula(column.formula, {
           year: year!,
           month: month!,

@@ -1,8 +1,9 @@
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Navigate } from "@tanstack/react-router";
 import { GROK_PROVIDERS, authEnabled, signIn, signOut } from "./client";
 import { hasGateSessionMarker } from "./gate-session-marker";
 import { resolveSignInGateState } from "./sign-in-gate";
+import { getSignInOptions } from "./sign-in-options";
 import { useCurrentUser, useCurrentUserState } from "./use-current-user";
 
 const subscribeToNothing = () => () => {};
@@ -64,6 +65,13 @@ export function SignInGate({
 }
 
 export function SignInButtons() {
+  const [oauth, setOauth] = useState(false);
+  useEffect(() => {
+    void getSignInOptions()
+      .then((opts) => setOauth(opts.oauth))
+      .catch(() => setOauth(false));
+  }, []);
+  if (!oauth) return null;
   return (
     <div className="flex w-full max-w-sm flex-col gap-2">
       {GROK_PROVIDERS.map((p) => (

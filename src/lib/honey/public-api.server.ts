@@ -10,7 +10,10 @@ import {
   periodStart,
   portfolioPerformance,
 } from "./calc";
+import { apiDocument, hitLimit, keyExpired } from "./care";
 import { applyAction, loadWorkspace } from "./data.server";
+
+const keyHits = new Map<string, number[]>();
 
 function cors(res: Response): Response {
   const headers = new Headers(res.headers);
@@ -24,15 +27,24 @@ function json(data: unknown, status = 200) {
   return cors(Response.json(data, { status }));
 }
 
-async function userFromKey(sql: Sql, request: Request): Promise<string | null> {
+async function userFromKey(sql: Sql, request: Request, count = true): Promise<string | null> {
   const header = request.headers.get("authorization") ?? "";
   const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
   if (!token) return null;
   const hash = createHash("sha256").update(token).digest("hex");
-  const rows = await sql<{ id: string; user_id: string }>`select id, user_id from api_keys where token_hash = ${hash}`;
-  if (!rows[0]) return null;
-  await sql`update api_keys set last_used = now() where id = ${rows[0].id}`;
-  return rows[0].user_id;
+  const rows = await sql<{ id: string; user_id: string; expires_at: string | null }>`
+    select id, user_id, expires_at from api_keys where token_hash = ${hash}
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  if (keyExpired(row.expires_at)) return null;
+  if (count) {
+    const hit = hitLimit(keyHits.get(row.id) ?? [], Date.now(), 60_000, 60);
+    keyHits.set(row.id, hit.next);
+    if (hit.limited) throw new Error("Too many requests. Wait a minute.");
+  }
+  await sql`update api_keys set last_used = now() where id = ${row.id}`;
+  return row.user_id;
 }
 
 function apiPath(request: Request): string {
@@ -55,7 +67,7 @@ export async function handlePublicApi(request: Request): Promise<Response> {
       return json({
         name: "HoneyJar",
         household: ws.profile.displayName,
-        endpoints: ["/summary", "/accounts", "/transactions", "/bills", "/goals", "/networth", "/portfolio", "/alerts"],
+        endpoints: ["/summary", "/accounts", "/transactions", "/bills", "/goals", "/networth", "/portfolio", "/alerts", "/people", "/documents", "/utilities", "/jars"],
       });
     }
     if (request.method === "GET" && path === "/summary") {
@@ -114,6 +126,35 @@ export async function handlePublicApi(request: Request): Promise<Response> {
       });
       return json({ alerts });
     }
+    if (request.method === "GET" && path === "/people") return json({ people: ws.people });
+    if (request.method === "GET" && path === "/documents") {
+      return json({ documents: ws.documents.map(apiDocument) });
+    }
+    if (request.method === "GET" && path === "/utilities") {
+      return json({ meters: ws.meters, columns: ws.columns, readings: ws.readings });
+    }
+    if (request.method === "GET" && path === "/jars") {
+      const id = url.searchParams.get("id") ?? "";
+      const from = url.searchParams.get("from") ?? "";
+      const to = url.searchParams.get("to") ?? "9999-99-99";
+      const limit = Math.min(200, Number(url.searchParams.get("limit") ?? 50) || 50);
+      const jars = ws.ledgers.map((book) => {
+        const base = {
+          id: book.id,
+          name: book.name,
+          kind: book.kind,
+          taxForm: book.taxForm,
+          activity: book.activity,
+          archived: book.archived,
+          accounts: book.accounts,
+        };
+        if (id && book.id !== id) return base;
+        if (!id) return base;
+        const transactions = book.transactions.filter((t) => (!from || t.postedOn >= from) && t.postedOn <= to).slice(0, limit);
+        return { ...base, bills: book.bills, transactions };
+      });
+      return json({ jars });
+    }
     if (request.method === "POST" && path === "/transactions") {
       const body = (await request.json()) as {
         accountId?: string;
@@ -147,7 +188,7 @@ export async function handlePublicApi(request: Request): Promise<Response> {
     return json({ error: "Unknown path." }, 404);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Request failed";
-    return json({ error: message }, 400);
+    return json({ error: message }, message.startsWith("Too many") ? 429 : 400);
   }
 }
 
@@ -160,27 +201,37 @@ const TOOLS = [
   { name: "portfolio", description: "Lots, typed prices, Dietz and IRR, and dividend flows. Not a live quote." },
   { name: "list_goals", description: "Savings goals and progress." },
   { name: "list_alerts", description: "Open watchlist and bill alerts, each with a path inside HoneyJar." },
+  { name: "list_people", description: "People on the household." },
+  { name: "list_documents", description: "Document names. Bodies are not included." },
+  { name: "list_utilities", description: "Meters, columns, and readings." },
+  { name: "list_jars", description: "Personal, business, and property jars. Pass id, from, to, and limit for one jar's transactions." },
 ];
 
 export async function handleMcp(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
   try {
     const sql = await getSql();
-    const userId = await userFromKey(sql, request);
-    if (!userId) return json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized" } }, 401);
     const body = (await request.json()) as {
       jsonrpc?: string;
       id?: number | string;
       method?: string;
       params?: { name?: string; arguments?: Record<string, unknown> };
     };
+    const userId = await userFromKey(sql, request, body.method !== "tools/call");
+    if (!userId) return json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized" } }, 401);
     const id = body.id ?? null;
     if (body.method === "initialize" || body.method === "tools/list") {
       return json({ jsonrpc: "2.0", id, result: { protocolVersion: "2025-03-26", tools: TOOLS } });
     }
     if (body.method === "tools/call") {
       const name = body.params?.name ?? "";
-      const fake = new Request(new URL(`/api/v1/${toolPath(name)}`, request.url), {
+      const args = body.params?.arguments ?? {};
+      const query = new URLSearchParams();
+      for (const key of ["from", "to", "limit", "id"] as const) {
+        const value = args[key];
+        if (value != null && String(value)) query.set(key, String(value));
+      }
+      const fake = new Request(new URL(`/api/v1/${toolPath(name)}?${query}`, request.url), {
         headers: request.headers,
       });
       const inner = await handlePublicApi(fake);
@@ -206,5 +257,9 @@ function toolPath(name: string): string {
   if (name === "portfolio") return "portfolio";
   if (name === "list_goals") return "goals";
   if (name === "list_alerts") return "alerts";
+  if (name === "list_people") return "people";
+  if (name === "list_documents") return "documents";
+  if (name === "list_utilities") return "utilities";
+  if (name === "list_jars") return "jars";
   return "summary";
 }

@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
-import { parseTiers, starterColumns, templateUnit } from "./utility";
+import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
+import { recordAudit } from "./care.server";
+import { personEmail } from "./person";
 import type {
   AccessRow,
   Account,
@@ -106,6 +108,23 @@ async function ensureSeed(sql: Sql, userId: string) {
   await ensureSampleBusiness(sql, userId);
   await ensureSampleSale(sql, userId);
   await ensureSampleUtilities(sql, userId);
+  const plain = await sql`
+    select 1 from utility_columns
+    where user_id = ${userId} and kind = 'number' and formula = '' and rollup in ('days', 'usage')
+    limit 1
+  `;
+  if (plain.length) {
+    await sql`
+      update utility_columns set kind = 'calculated', formula = ${DAYS_FORMULA}
+      where user_id = ${userId} and rollup = 'days' and kind = 'number' and formula = ''
+        and meter_id in (select meter_id from utility_columns where user_id = ${userId} and rollup = 'meter')
+    `;
+    await sql`
+      update utility_columns set kind = 'calculated', formula = ${USAGE_FORMULA}
+      where user_id = ${userId} and rollup = 'usage' and kind = 'number' and formula = ''
+        and meter_id in (select meter_id from utility_columns where user_id = ${userId} and rollup = 'meter')
+    `;
+  }
   await ensureJars(sql, userId);
   await ensureLeaseInvoices(sql, userId);
 }
@@ -201,7 +220,7 @@ export async function readWorkspace(
       sql<Record<string, unknown>>`select * from mileage where user_id = ${owner} order by trip_on desc`,
       sql<Record<string, unknown>>`select * from leases where user_id = ${owner} order by tenant`,
       sql<Record<string, unknown>>`select * from realizations where user_id = ${owner} order by sold_on desc`,
-      sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used from api_keys where user_id = ${owner} order by created_at desc`,
+      sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used, expires_at from api_keys where user_id = ${owner} order by created_at desc`,
       sql<Record<string, unknown>>`select * from ai_messages where user_id = ${owner} order by created_at desc limit 40`,
       sql<Record<string, unknown>>`
         select a.*, coalesce(p.display_name, 'Household') as household_name
@@ -326,6 +345,8 @@ function mapPerson(r: Record<string, unknown>): Person {
     id: String(r.id),
     name: String(r.name),
     relation: ["adult", "child", "other"].includes(relation) ? relation : "adult",
+    email: String(r.email ?? ""),
+    linkedUserId: r.linked_user_id ? String(r.linked_user_id) : null,
     archived: Boolean(r.archived),
     sort: num(r.sort),
   };
@@ -801,7 +822,14 @@ async function seedLedgerCategories(sql: Sql, owner: string, ledgerId: string, t
 }
 
 function mapKey(r: Record<string, unknown>): ApiKeyPublic {
-  return { id: String(r.id), name: String(r.name), prefix: String(r.prefix), createdAt: stamp(r.created_at) ?? "", lastUsed: stamp(r.last_used) };
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    prefix: String(r.prefix),
+    createdAt: stamp(r.created_at) ?? "",
+    lastUsed: stamp(r.last_used),
+    expiresAt: stamp(r.expires_at),
+  };
 }
 function mapMessage(r: Record<string, unknown>): AiMessage {
   return { id: String(r.id), role: String(r.role), content: String(r.content), createdAt: stamp(r.created_at) ?? "" };
@@ -821,7 +849,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
 
   const scoped = await scope(sql, userId, action.ownerId);
   const owner = scoped.owner;
-  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load"]);
+  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load", "account.delete", "recovery.issue"]);
   if (ownerOnly.has(action.type)) assertOwner(scoped.role);
   else assertEdit(scoped.role);
 
@@ -964,11 +992,21 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const name = str(p.name, 80);
       if (!name) throw new Error("A person needs a name.");
       const relation = ["adult", "child", "other"].includes(String(p.relation)) ? String(p.relation) : "adult";
+      const email = personEmail(relation, p.email);
+      let linked: string | null = null;
+      if (email) {
+        const members = await sql<{ member_user_id: string }>`
+          select member_user_id from book_access
+          where owner_user_id = ${owner} and lower(member_email) = ${email} and status = 'active' and member_user_id is not null
+          limit 1
+        `;
+        linked = members[0]?.member_user_id ?? null;
+      }
       const existing = await sql`select id from people where id = ${id} and user_id = ${owner}`;
       if (existing.length) {
-        await sql`update people set name = ${name}, relation = ${relation}, sort = ${num(p.sort)} where id = ${id} and user_id = ${owner}`;
+        await sql`update people set name = ${name}, relation = ${relation}, email = ${email}, linked_user_id = ${linked}, sort = ${num(p.sort)} where id = ${id} and user_id = ${owner}`;
       } else {
-        await sql`insert into people (id, user_id, name, relation, archived, sort) values (${id}, ${owner}, ${name}, ${relation}, false, ${num(p.sort)})`;
+        await sql`insert into people (id, user_id, name, relation, email, linked_user_id, archived, sort) values (${id}, ${owner}, ${name}, ${relation}, ${email}, ${linked}, false, ${num(p.sort)})`;
       }
       return {};
     }
@@ -1778,23 +1816,46 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         insert into book_access (owner_user_id, member_email, role, invite_code, status)
         values (${owner}, ${str(action.email, 120).toLowerCase()}, ${role}, ${code}, 'pending')
       `;
+      await recordAudit(sql, owner, "invite.create", role);
       return { code };
     }
     case "invite.revoke": {
+      const prior = await sql<{ member_email: string; member_user_id: string | null }>`
+        select member_email, member_user_id from book_access where id = ${action.id} and owner_user_id = ${owner}
+      `;
       await sql`update book_access set status = 'revoked' where id = ${action.id} and owner_user_id = ${owner}`;
+      const email = String(prior[0]?.member_email ?? "").trim().toLowerCase();
+      if (email) {
+        await sql`update people set linked_user_id = null where user_id = ${owner} and lower(email) = ${email}`;
+      }
+      await recordAudit(sql, owner, "invite.revoke", String(action.id));
       return {};
     }
     case "apikey.create": {
       const token = `hj_${randomBytes(24).toString("base64url")}`;
       const hash = createHash("sha256").update(token).digest("hex");
+      const days = Math.min(3650, Math.max(0, Math.floor(Number(action.expiresInDays) || 0)));
+      const expires = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
       await sql`
-        insert into api_keys (id, user_id, name, prefix, token_hash)
-        values (${nid()}, ${owner}, ${str(action.name, 60) || "Key"}, ${token.slice(0, 10)}, ${hash})
+        insert into api_keys (id, user_id, name, prefix, token_hash, expires_at)
+        values (${nid()}, ${owner}, ${str(action.name, 60) || "Key"}, ${token.slice(0, 10)}, ${hash}, ${expires})
       `;
+      await recordAudit(sql, owner, "apikey.create", days ? `${days}d` : "no expiry");
       return { token };
     }
     case "apikey.revoke": {
       await sql`delete from api_keys where id = ${action.id} and user_id = ${owner}`;
+      await recordAudit(sql, owner, "apikey.revoke", action.id);
+      return {};
+    }
+    case "recovery.issue": {
+      const { issueRecoveryCode } = await import("./care.server");
+      const code = await issueRecoveryCode(sql, owner);
+      return { code };
+    }
+    case "account.delete": {
+      const { deleteOwnedAccount } = await import("./care.server");
+      await deleteOwnedAccount(sql, owner, action.confirm);
       return {};
     }
     case "sample.clear": {
@@ -2171,13 +2232,20 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
 
 async function acceptInvite(sql: Sql, userId: string, code: string): Promise<ActionResult> {
   const clean = str(code, 16).toUpperCase();
-  const rows = await sql<{ id: number; owner_user_id: string; status: string }>`
-    select id, owner_user_id, status from book_access where invite_code = ${clean}
+  const rows = await sql<{ id: number; owner_user_id: string; member_email: string; status: string }>`
+    select id, owner_user_id, member_email, status from book_access where invite_code = ${clean}
   `;
   const row = rows[0];
   if (!row || row.status === "revoked") throw new Error("That invite code is not active.");
   if (row.owner_user_id === userId) throw new Error("That's your own household.");
   await sql`update book_access set member_user_id = ${userId}, status = 'active' where id = ${row.id}`;
+  const email = String(row.member_email ?? "").trim().toLowerCase();
+  if (email) {
+    await sql`
+      update people set linked_user_id = ${userId}
+      where user_id = ${row.owner_user_id} and lower(email) = ${email} and email <> ''
+    `;
+  }
   return {};
 }
 

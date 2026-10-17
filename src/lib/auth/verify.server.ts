@@ -74,8 +74,9 @@ export async function getSessionUser(
  * Resolve the current user id for a server function, or throw when unauthorized.
  * Prefer `authMiddleware` (`./middleware`), which calls this for you.
  * - Auth enabled -> the verified session user id; throws
- *   `UnauthorizedError` when signed out. Works in the sandbox preview too (real
- *   sign-in via the baked preview client).
+ *   `UnauthorizedError` when signed out. Email and password work without a
+ *   broker client. Google and X require `GROK_AUTH_CLIENT_ID` and
+ *   `GROK_AUTH_CLIENT_SECRET`.
  * - Auth disabled (`VITE_AUTH_ENABLED=false`) + `DATABASE_URL` set -> throw (fail
  *   closed): one shared dev user on a real database would let every visitor
  *   read/write everyone's rows.
