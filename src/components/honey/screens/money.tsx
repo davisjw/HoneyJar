@@ -1,4 +1,4 @@
-import { useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { CashTip, RULE, axisTick } from "../charts";
@@ -16,6 +16,7 @@ import {
   prettyDate,
   projectCash,
   shiftPeriod,
+  historyStart,
 } from "@/lib/honey/calc";
 import type { Bill, Payment, Txn, UtilityColumn, UtilityMeter, UtilityReading } from "@/lib/honey/types";
 import { buildSheet, chargeCompare, suggestReadingId, type ReadLike, type UtilColumn } from "@/lib/honey/utility";
@@ -132,7 +133,8 @@ function PayLine({
 }
 
 export function TransactionsPage() {
-  const { data, run, canEdit, showEarlier } = useBook();
+  const { data, run, canEdit, showEarlier, txnSince } = useBook();
+  const navigate = useNavigate();
   const search = useRouterState({ select: (s) => s.location.searchStr });
   const [q, setQ] = useState(param(search, "q"));
   const category = param(search, "category");
@@ -147,6 +149,8 @@ export function TransactionsPage() {
   const [who, setWho] = useState(personFilter);
   const [shown, setShown] = useState(200);
   const [tag, setTag] = useState(tagFilter);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   useEffect(() => {
     setWho(personFilter);
     setTag(tagFilter);
@@ -161,11 +165,25 @@ export function TransactionsPage() {
     if (who === "household" && t.personId) return false;
     if (who && who !== "household" && t.personId !== who) return false;
     if (tag && !t.tags.some((x) => x.toLowerCase() === tag.toLowerCase())) return false;
+    if (from && t.postedOn < from) return false;
+    if (to && t.postedOn > to) return false;
     if (!q) return true;
     const hay = `${t.merchant} ${t.memo}`.toLowerCase();
     return hay.includes(q.toLowerCase());
   });
   const cur = data.profile.currency;
+  const loadedFrom = txnSince && txnSince < historyStart(data.today) ? txnSince : historyStart(data.today);
+  const beforeLoaded = Boolean(from && data.txnHasMore && from < loadedFrom);
+  const filtered = Boolean(q || who || tag || from || to || category);
+
+  function clearFilters() {
+    setQ("");
+    setWho("");
+    setTag("");
+    setFrom("");
+    setTo("");
+    void navigate({ to: "/transactions", search: {}, replace: true });
+  }
 
   function startNew() {
     if (!data) return;
@@ -195,7 +213,7 @@ export function TransactionsPage() {
           ) : null
         }
       />
-      <div className="mb-3 flex shrink-0 flex-wrap gap-2">
+      <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
         <input className={`${fieldClass} max-w-xs`} placeholder="Search merchant" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className={`${fieldClass} max-w-xs`} value={who} onChange={(e) => setWho(e.target.value)}>
           <option value="">Everyone</option>
@@ -210,9 +228,20 @@ export function TransactionsPage() {
             <option key={name} value={name}>{name}</option>
           ))}
         </select>
+        <label className="flex items-center gap-2 text-sm text-muted">
+          From
+          <input type="date" className="min-h-11 rounded-lg border border-line bg-card px-3 text-base text-ink outline-none focus:border-honey" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-muted">
+          To
+          <input type="date" className="min-h-11 rounded-lg border border-line bg-card px-3 text-base text-ink outline-none focus:border-honey" value={to} onChange={(e) => setTo(e.target.value)} />
+        </label>
         {canEdit ? (
           <Button tone="quiet" onClick={() => run({ type: "txn.recategorize" })}>Auto-categorize</Button>
         ) : null}
+        <span className="ml-auto">
+          <Button tone="quiet" disabled={!filtered} onClick={clearFilters}>Clear</Button>
+        </span>
       </div>
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
         <div className="min-h-0 flex-1 overflow-auto">
@@ -259,6 +288,7 @@ export function TransactionsPage() {
       <div className="mt-2 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted">
         <span>
           {Math.min(shown, rows.length)} of {rows.length} in this window · month context {monthLabel(month)}
+          {beforeLoaded ? ` · loaded rows start ${prettyDate(loadedFrom)}. Load earlier for dates before that.` : ""}
         </span>
         {shown < rows.length ? (
           <button type="button" className="text-honey hover:underline" onClick={() => setShown((count) => count + 200)}>

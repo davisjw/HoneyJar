@@ -24,6 +24,7 @@ type BookValue = {
   setVaultKey: (key: CryptoKey | null) => void;
   reload: () => Promise<void>;
   showEarlier: () => void;
+  txnSince?: string;
 };
 
 const BookContext = createContext<BookValue | null>(null);
@@ -188,6 +189,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
       reload: async () => {
         await qc.invalidateQueries({ queryKey: ["workspace"] });
       },
+      txnSince,
       showEarlier: () => {
         const oldest = jar?.transactions.reduce((min, txn) => (!min || txn.postedOn < min ? txn.postedOn : min), "");
         if (!oldest) return;
