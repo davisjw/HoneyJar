@@ -4,10 +4,19 @@ import type { Action, ActionResult, Workspace } from "./types";
 
 export const getWorkspace = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator((input: { ownerId?: string } | undefined) => input ?? {})
+  .validator((input: { ownerId?: string; ledgerId?: string; txnSince?: string; window?: boolean } | undefined) => {
+    const raw = input ?? {};
+    const txnSince = typeof raw.txnSince === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.txnSince) ? raw.txnSince : undefined;
+    const ledgerId = typeof raw.ledgerId === "string" ? raw.ledgerId.slice(0, 80) : undefined;
+    return { ownerId: raw.ownerId, ledgerId, txnSince, window: raw.window === true };
+  })
   .handler(async ({ context, data }): Promise<Workspace> => {
     const { loadWorkspace } = await import("./data.server");
-    return loadWorkspace(context.userId, data.ownerId);
+    return loadWorkspace(context.userId, data.ownerId, {
+      window: data.window,
+      focusLedgerId: data.ledgerId,
+      txnSince: data.txnSince,
+    });
   });
 
 export const applyAction = createServerFn({ method: "POST" })

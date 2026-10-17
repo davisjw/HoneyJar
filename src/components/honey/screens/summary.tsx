@@ -1,36 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
   isLiquid,
-  ledgerProfit,
-  mileageDeductionCents,
   money,
   monthLabel,
   netWorthParts,
-  omittedVehicleLines,
-  periodEnd,
   periodOf,
-  periodStart,
   scheduleD,
-  spendingByCategory,
 } from "@/lib/honey/calc";
 import type { LedgerBook } from "@/lib/honey/types";
 import { useBook } from "../book";
 import { Card, PageIntro } from "../kit";
-
-function spent(book: LedgerBook, from: string, to: string) {
-  return spendingByCategory(book.transactions, book.categories, from, to, "out").reduce((sum, row) => sum + row.cents, 0);
-}
-
-function result(book: LedgerBook, from: string, to: string) {
-  return ledgerProfit(
-    book.transactions,
-    book.categories,
-    from,
-    to,
-    mileageDeductionCents(book.trips, from, to),
-    omittedVehicleLines(book.trips),
-  );
-}
 
 function cash(book: LedgerBook) {
   return book.accounts.filter((account) => !account.archived && isLiquid(account.kind)).reduce((sum, account) => sum + account.balanceCents, 0);
@@ -46,8 +25,6 @@ export function SummaryPage() {
   if (!data) return null;
   const startDay = data.profile.monthStartDay;
   const period = periodOf(data.today, startDay);
-  const monthFrom = periodStart(period, startDay);
-  const monthTo = data.today < periodEnd(period, startDay) ? data.today : periodEnd(period, startDay);
   const year = data.today.slice(0, 4);
   const yearFrom = `${year}-01-01`;
   const yearTo = data.today;
@@ -80,31 +57,29 @@ export function SummaryPage() {
                 <p className="font-display text-3xl num">{money(cash(book), cur)}</p>
                 <p className="text-xs text-muted">Cash on this jar</p>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-xl bg-paper p-2"><p className="text-xs text-muted">{monthName}</p><p>Spent {money(spent(book, monthFrom, monthTo), cur)}</p></div>
-                  <div className="rounded-xl bg-paper p-2"><p className="text-xs text-muted">{year}</p><p>Spent {money(spent(book, yearFrom, yearTo), cur)}</p></div>
+                  <div className="rounded-xl bg-paper p-2"><p className="text-xs text-muted">{monthName}</p><p>Spent {money(book.monthSpentCents, cur)}</p></div>
+                  <div className="rounded-xl bg-paper p-2"><p className="text-xs text-muted">{year}</p><p>Spent {money(book.yearSpentCents, cur)}</p></div>
                 </div>
                 <p className="mt-3 text-sm text-muted">{book.bills.filter((bill) => bill.status === "active").length} bills still coming</p>
               </button>
             );
           }
-          const month = result(book, monthFrom, monthTo);
-          const ytd = result(book, yearFrom, yearTo);
           const inn = book.kind === "property" ? "Rent" : "In";
           return (
             <button key={book.id} type="button" onClick={() => openJar(book)} className="rounded-2xl border border-line bg-card p-4 text-left hover:border-honey">
               <p className="text-sm text-muted">{book.kind === "property" ? "Property" : "Business"} · {book.name}</p>
-              <p className="font-display text-3xl num">{money(ytd.profit, cur)}</p>
+              <p className="font-display text-3xl num">{money(book.yearProfitCents, cur)}</p>
               <p className="text-xs text-muted">Profit this year · cash {money(cash(book), cur)}</p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded-xl bg-paper p-2">
                   <p className="text-xs text-muted">{monthName}</p>
-                  <p>{inn} {money(month.income, cur)}</p>
-                  <p>Out {money(month.expenses, cur)}</p>
+                  <p>{inn} {money(book.monthIncomeCents, cur)}</p>
+                  <p>Out {money(book.monthExpenseCents, cur)}</p>
                 </div>
                 <div className="rounded-xl bg-paper p-2">
                   <p className="text-xs text-muted">{year}</p>
-                  <p>{inn} {money(ytd.income, cur)}</p>
-                  <p>Out {money(ytd.expenses, cur)}</p>
+                  <p>{inn} {money(book.yearIncomeCents, cur)}</p>
+                  <p>Out {money(book.yearExpenseCents, cur)}</p>
                 </div>
               </div>
               <p className="mt-3 text-sm text-muted">
