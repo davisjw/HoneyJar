@@ -784,7 +784,7 @@ export function PlanPage() {
   const plan = planModel(data.categories, data.transactions, data.plan, month, data.profile.monthStartDay);
   const cur = data.profile.currency;
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageIntro
         title="Spending plan"
         lede="Assign the month, then what’s left in each envelope is what you can still spend. Rollover carries the leftover — or the overage — forward."
@@ -795,31 +795,32 @@ export function PlanPage() {
           </div>
         }
       />
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-4 grid shrink-0 gap-3 sm:grid-cols-3">
         <Card><p className="text-sm text-muted">{monthLabel(month)} income</p><p className="font-display text-2xl num">{money(plan.income, cur)}</p></Card>
         <Card><p className="text-sm text-muted">Left to assign</p><p className="font-display text-2xl num">{money(plan.leftToAssign, cur)}</p></Card>
         <Card><p className="text-sm text-muted">Left in the plan</p><p className="font-display text-2xl num">{money(plan.leftInPlan, cur)}</p></Card>
       </div>
-      <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[36rem] text-left text-sm">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+        <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full min-w-[36rem] border-separate border-spacing-0 text-left text-sm">
           <thead className="text-muted">
             <tr>
-              <th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Rolled in</th>
-              <th className="px-4 py-3 font-medium">Assigned</th>
-              <th className="px-4 py-3 font-medium">Spent</th>
-              <th className="px-4 py-3 font-medium">Available</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(true, true)}`}>Category</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Rolled in</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Assigned</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Spent</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Available</th>
             </tr>
           </thead>
           <tbody>
             {plan.rows.map((row) => (
-              <tr key={row.category.id} className={row.category.id === focus ? "bg-honey-soft" : "border-t border-line"}>
-                <td className="px-4 py-3">
+              <tr key={row.category.id} className={row.category.id === focus ? "bg-honey-soft" : ""}>
+                <td className={`border-b border-line px-4 py-3 ${pinCell(true, false, row.category.id === focus)}`}>
                   <a className="font-medium" href={`/transactions?category=${row.category.id}`}>{row.category.name}</a>
                   <p className="text-xs text-muted">{row.category.rollover ? "Rolls over" : "Resets"} · {row.category.section}</p>
                 </td>
-                <td className="px-4 py-3 num">{money(row.rolloverIn, cur)}</td>
-                <td className="px-4 py-3">
+                <td className="border-b border-line px-4 py-3 num">{money(row.rolloverIn, cur)}</td>
+                <td className="border-b border-line px-4 py-3">
                   {canEdit ? (
                     <input
                       className="w-28 rounded-lg border border-line px-2 py-1"
@@ -834,12 +835,13 @@ export function PlanPage() {
                     money(row.assigned, cur)
                   )}
                 </td>
-                <td className="px-4 py-3 num">{money(row.spent, cur)}</td>
-                <td className={`px-4 py-3 num ${row.available < 0 ? "text-clay" : "text-sage"}`}>{money(row.available, cur)}</td>
+                <td className="border-b border-line px-4 py-3 num">{money(row.spent, cur)}</td>
+                <td className={`border-b border-line px-4 py-3 num ${row.available < 0 ? "text-clay" : "text-sage"}`}>{money(row.available, cur)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );
