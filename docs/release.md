@@ -18,7 +18,7 @@ A household you typed into a deployed database is not in git. It becomes public 
 
 Do these before you flip the repository to public, and again before anyone else can sign in on a server you run.
 
-1. **The preview OAuth secret.** `src/lib/auth/preview.ts` contains a client id and secret used only for Grok live-preview sign-in on `*.grok-sandbox.com`. It is a real secret baked into the source. Rotate it at the broker, or remove the constant, before this tree is public. A self-hosted copy does not need it. Email and password do not use it.
+1. **No OAuth client is baked in.** Google and X run only when `GROK_AUTH_CLIENT_ID` and `GROK_AUTH_CLIENT_SECRET` are set on the host. Email and password do not use them. Do not put a broker secret back into `src/lib/auth/preview.ts`.
 2. **Host secrets stay in the environment.** `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `XAI_API_KEY`, and `GROK_AUTH_CLIENT_SECRET` must not be committed. They are not in git today. Keep it that way.
 3. **An API key is the whole personal jar.** `/api/v1` allows any origin. The token is a bearer header, not a cookie, so another website cannot read it out of the browser by itself. Anyone you hand the token to can read balances and post transactions. There is no scope, no expiry, and no rate limit. Keys are created and revoked in Customize.
 4. **The advisor sends numbers away.** Grok and OpenAI receive the brief described in [features.md](features.md). The OpenAI key is stored on the profile. It is not shown back to the browser. It is not encrypted at rest.

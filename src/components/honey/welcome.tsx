@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GROK_PROVIDERS, authClient, signIn } from "@/lib/auth/client";
+import { getSignInOptions } from "@/lib/auth/sign-in-options";
 import { JarMark } from "./kit";
 
 export function Boot() {
@@ -21,6 +22,13 @@ export function Welcome() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [oauth, setOauth] = useState(false);
+
+  useEffect(() => {
+    void getSignInOptions()
+      .then((opts) => setOauth(opts.oauth))
+      .catch(() => setOauth(false));
+  }, []);
 
   async function submitEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -73,18 +81,20 @@ export function Welcome() {
           <button type="button" className="text-sm text-honey-deep underline" onClick={() => setMode(mode === "up" ? "in" : "up")}>
             {mode === "up" ? "Already have an account" : "Need an account"}
           </button>
-          <div className="space-y-2 pt-2">
-            {GROK_PROVIDERS.map((p) => (
-              <button
-                key={p.providerId}
-                type="button"
-                onClick={() => signIn(p.providerId, { callbackURL: "/" })}
-                className="min-h-11 w-full rounded-lg border border-line bg-card text-sm"
-              >
-                Continue with {p.label}
-              </button>
-            ))}
-          </div>
+          {oauth ? (
+            <div className="space-y-2 pt-2">
+              {GROK_PROVIDERS.map((p) => (
+                <button
+                  key={p.providerId}
+                  type="button"
+                  onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+                  className="min-h-11 w-full rounded-lg border border-line bg-card text-sm"
+                >
+                  Continue with {p.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </section>
     </main>

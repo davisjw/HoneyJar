@@ -41,7 +41,7 @@ The process has to stay running. A static file host is not enough. `npm run prev
 
 ## Sign-in
 
-Email and password are on. Google and X sign-in are wired for the Grok auth broker (`GROK_AUTH_CLIENT_ID`, `GROK_AUTH_CLIENT_SECRET`, and the broker issuer). A copy you run yourself does not have that broker. Use email and password unless you are deploying through that broker.
+Email and password are on. Google and X appear only when the host sets `GROK_AUTH_CLIENT_ID` and `GROK_AUTH_CLIENT_SECRET` (and, if you are not using the default broker, `GROK_AUTH_ISSUER`). Those values are not in the source. A copy you run yourself can ignore them and use email and password.
 
 There is no password-reset email in this build. Keep the password.
 
