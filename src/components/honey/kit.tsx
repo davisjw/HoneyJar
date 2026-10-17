@@ -6,6 +6,15 @@ export function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
+/** Sticky header and first column for a table that scrolls inside itself. */
+export function pinCell(first: boolean, head: boolean, hot = false) {
+  const bg = hot ? "bg-honey-soft" : "bg-card";
+  if (first && head) return `sticky left-0 top-0 z-30 border-r border-line ${bg}`;
+  if (head) return `sticky top-0 z-20 ${bg}`;
+  if (first) return `sticky left-0 z-10 border-r border-line ${bg}`;
+  return "";
+}
+
 export function JarMark({ className = "h-8 w-8" }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
@@ -92,7 +101,7 @@ export function Modal({
 
 export function PageIntro({ title, lede, action }: { title: string; lede?: string; action?: ReactNode }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-5 flex shrink-0 flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
         <h1 className="font-display text-3xl text-ink">{title}</h1>
         {lede ? <p className="mt-1 max-w-2xl text-pretty text-muted">{lede}</p> : null}
