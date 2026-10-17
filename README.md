@@ -1,15 +1,15 @@
 # HoneyJar
 
-Private personal-finance books. This repository is not public.
+Household books: spending, bills, utilities, a plan, cash a year out, net worth, a portfolio, taxes, and separate jars for a business or a rental. You type the numbers, or import a CSV. HoneyJar does not log into a bank.
 
-| Label | Project | Where it lives |
-| --- | --- | --- |
-| version 0.5 | HoneyJar v0 | Not in this repo yet. That source was not with this workspace. |
-| version 1 | HoneyJar v1 | Not in this repo yet. That source was not with this workspace. |
-| version 2 | HoneyJar v2 | This tree. Tag `v2`. |
+| | |
+| --- | --- |
+| [Install](docs/install.md) | Run it on your machine, and keep the data. |
+| [Features](docs/features.md) | What each screen is for. |
+| [API and MCP](docs/api.md) | How another AI reads the books. |
+| [Before you share it](docs/release.md) | Security, licensing, and what is not in the repo. |
+| [Architecture](docs/architecture.md) | How the code is put together. |
 
-Version 2 is the personal books: spending, bills, a plan with rollover, cash flow, net worth, goals, taxes, sharing, and an advisor. Investments and business books are not built yet.
+The first sign-in loads a fictional sample household. Customize has **Clear books** when you want an empty jar.
 
-The build record, the plan, and the architecture are in [docs/](docs/README.md).
-
-Spreadsheets are not part of this repo. Excel extensions are listed in `.gitignore`.
+This tree is version 2. Node 22 and npm. `npm install`, then `npm run dev`, then [http://127.0.0.1:8080](http://127.0.0.1:8080).
