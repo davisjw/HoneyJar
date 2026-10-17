@@ -106,6 +106,8 @@ export type Person = {
   id: string;
   name: string;
   relation: string;
+  email: string;
+  linkedUserId: string | null;
   archived: boolean;
   sort: number;
 };

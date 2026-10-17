@@ -27,17 +27,21 @@ export function PeoplePage() {
     <div>
       <PageIntro
         title="People"
-        lede="Assign income and spending to someone in the household — a partner, a kid, or leave it shared. Reports and credit scores follow the same people."
-        action={canEdit ? <Button onClick={() => setEditing({ relation: "adult", sort: data.people.length })}>Add person</Button> : null}
+        lede="Assign income and spending to someone in the household. An adult can have an email so you can invite their own sign-in. A child does not get one. The password stays on the sign-in, not on this page."
+        action={canEdit ? <Button onClick={() => setEditing({ id: crypto.randomUUID(), relation: "adult", sort: data.people.length })}>Add person</Button> : null}
       />
       <div className="grid gap-3 md:grid-cols-2">
-        {flow.map((row) => (
+        {flow.map((row) => {
+          const person = row.id ? data.people.find((p) => p.id === row.id) : undefined;
+          return (
           <Card key={row.id || "household"}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-medium">{row.name}</p>
                 <p className="text-sm text-muted">
-                  {row.id ? RELATIONS.find((r) => r.value === data.people.find((p) => p.id === row.id)?.relation)?.label ?? "Person" : "Unassigned"}
+                  {person ? RELATIONS.find((r) => r.value === person.relation)?.label ?? "Person" : "Unassigned"}
+                  {person?.email ? ` · ${person.email}` : ""}
+                  {person?.linkedUserId ? " · signed in" : ""}
                   {" · "}this month
                 </p>
               </div>
@@ -49,14 +53,15 @@ export function PeoplePage() {
                 <a className="inline-flex min-h-11 items-center text-sm text-honey-deep" href={`/transactions?person=${row.id}`}>Transactions</a>
                 <a className="inline-flex min-h-11 items-center text-sm text-honey-deep" href={`/credit?person=${row.id}`}>Credit</a>
                 {canEdit ? (
-                  <Button tone="quiet" onClick={() => setEditing(data.people.find((p) => p.id === row.id) ?? null)}>Edit</Button>
+                  <Button tone="quiet" onClick={() => setEditing(person ?? null)}>Edit</Button>
                 ) : null}
               </div>
             ) : (
               <a className="mt-3 inline-flex min-h-11 items-center text-sm text-honey-deep" href="/transactions?person=household">Shared transactions</a>
             )}
           </Card>
-        ))}
+          );
+        })}
       </div>
       {flow.length === 0 ? <Card><p className="text-sm text-muted">Add the people who share these books. A paycheck can belong to one of you. Groceries can stay on the household.</p></Card> : null}
       {editing ? <PersonEditor person={editing} onClose={() => setEditing(null)} /> : null}
@@ -65,9 +70,15 @@ export function PeoplePage() {
 }
 
 function PersonEditor({ person, onClose }: { person: Partial<Person>; onClose: () => void }) {
-  const { run } = useBook();
+  const { data, run, isOwner } = useBook();
   const [name, setName] = useState(person.name ?? "");
   const [relation, setRelation] = useState(person.relation ?? "adult");
+  const [email, setEmail] = useState(person.email ?? "");
+  const [role, setRole] = useState("editor");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const adult = relation !== "child";
+  const existing = data?.invites.find((inv) => inv.memberEmail.toLowerCase() === email.trim().toLowerCase() && inv.status !== "revoked");
   return (
     <Modal open title={person.id ? "Person" : "Add person"} onClose={onClose}>
       <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
@@ -76,22 +87,65 @@ function PersonEditor({ person, onClose }: { person: Partial<Person>; onClose: (
           {RELATIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
         </select>
       </Field>
-      <div className="flex gap-2">
+      {adult ? (
+        <Field label="Email, optional">
+          <input className={fieldClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="For an invite, not a password" autoComplete="off" />
+        </Field>
+      ) : (
+        <p className="text-sm text-muted">A child stays on the books and does not get a sign-in.</p>
+      )}
+      {person.linkedUserId ? <p className="text-sm">Linked to a sign-in.</p> : null}
+      {error ? <p className="text-sm text-clay">{error}</p> : null}
+      <div className="flex flex-wrap gap-2">
         <Button
           onClick={async () => {
             if (!name.trim()) return;
-            await run({ type: "person.save", person: { id: person.id, name: name.trim(), relation, sort: person.sort ?? 0 } });
-            onClose();
+            setError("");
+            try {
+              await run({ type: "person.save", person: { id: person.id, name: name.trim(), relation, email: adult ? email : "", sort: person.sort ?? 0 } });
+              onClose();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Could not save");
+            }
           }}
         >
           Save
         </Button>
-        {person.id ? (
+        {isOwner && adult && email.trim() && person.id ? (
+          <Button
+            tone="quiet"
+            onClick={async () => {
+              setError("");
+              try {
+                await run({ type: "person.save", person: { id: person.id, name: name.trim(), relation, email, sort: person.sort ?? 0 } });
+                if (existing) {
+                  setCode(existing.inviteCode);
+                  return;
+                }
+                const res = await run({ type: "invite.create", role, email: email.trim() });
+                setCode(res.code ?? "");
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Could not invite");
+              }
+            }}
+          >
+            Invite
+          </Button>
+        ) : null}
+        {isOwner && adult && email.trim() && person.id ? (
+          <select className={fieldClass} value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="editor">Editor</option>
+            <option value="viewer">Viewer</option>
+            <option value="advisor">Advisor</option>
+          </select>
+        ) : null}
+        {person.name ? (
           <Button tone="danger" onClick={async () => { await run({ type: "person.delete", id: person.id! }); onClose(); }}>
             Remove
           </Button>
         ) : null}
       </div>
+      {code ? <p className="rounded-xl bg-honey-soft px-3 py-2 text-sm">Code <span className="num font-medium">{code}</span>. They sign in with their own password, then enter this on Sharing.</p> : null}
     </Modal>
   );
 }

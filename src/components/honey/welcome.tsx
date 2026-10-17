@@ -72,11 +72,11 @@ export function Welcome() {
         <div className="my-10 max-w-md">
           <h1 className="font-display text-4xl leading-tight">The household books, in one jar.</h1>
           <p className="mt-4 text-pretty text-sidebar-muted">
-            Spending, bills, cash a year out, net worth, and taxes. Tune every category, rule, and report.
-            Share a view with a partner or advisor when you want a second set of eyes.
+            Spending, bills, utilities, a plan, cash a year out, net worth, a portfolio, and taxes.
+            A business or a rental keeps its own jar. Share one with a partner or an advisor when you want a second set of eyes.
           </p>
         </div>
-        <p className="text-sm text-sidebar-muted">Personal books first. Investments and business jars come next.</p>
+        <p className="text-sm text-sidebar-muted">You type the numbers. HoneyJar does not log into a bank.</p>
       </section>
       <section className="flex items-center justify-center px-6 py-10">
         <div className="w-full max-w-sm space-y-3">

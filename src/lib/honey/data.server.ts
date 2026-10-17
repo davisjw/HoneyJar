@@ -4,6 +4,7 @@ import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, mat
 import { parseTiers, starterColumns, templateUnit } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import { recordAudit } from "./care.server";
+import { personEmail } from "./person";
 import type {
   AccessRow,
   Account,
@@ -327,6 +328,8 @@ function mapPerson(r: Record<string, unknown>): Person {
     id: String(r.id),
     name: String(r.name),
     relation: ["adult", "child", "other"].includes(relation) ? relation : "adult",
+    email: String(r.email ?? ""),
+    linkedUserId: r.linked_user_id ? String(r.linked_user_id) : null,
     archived: Boolean(r.archived),
     sort: num(r.sort),
   };
@@ -972,11 +975,21 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const name = str(p.name, 80);
       if (!name) throw new Error("A person needs a name.");
       const relation = ["adult", "child", "other"].includes(String(p.relation)) ? String(p.relation) : "adult";
+      const email = personEmail(relation, p.email);
+      let linked: string | null = null;
+      if (email) {
+        const members = await sql<{ member_user_id: string }>`
+          select member_user_id from book_access
+          where owner_user_id = ${owner} and lower(member_email) = ${email} and status = 'active' and member_user_id is not null
+          limit 1
+        `;
+        linked = members[0]?.member_user_id ?? null;
+      }
       const existing = await sql`select id from people where id = ${id} and user_id = ${owner}`;
       if (existing.length) {
-        await sql`update people set name = ${name}, relation = ${relation}, sort = ${num(p.sort)} where id = ${id} and user_id = ${owner}`;
+        await sql`update people set name = ${name}, relation = ${relation}, email = ${email}, linked_user_id = ${linked}, sort = ${num(p.sort)} where id = ${id} and user_id = ${owner}`;
       } else {
-        await sql`insert into people (id, user_id, name, relation, archived, sort) values (${id}, ${owner}, ${name}, ${relation}, false, ${num(p.sort)})`;
+        await sql`insert into people (id, user_id, name, relation, email, linked_user_id, archived, sort) values (${id}, ${owner}, ${name}, ${relation}, ${email}, ${linked}, false, ${num(p.sort)})`;
       }
       return {};
     }
@@ -1790,7 +1803,14 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       return { code };
     }
     case "invite.revoke": {
+      const prior = await sql<{ member_email: string; member_user_id: string | null }>`
+        select member_email, member_user_id from book_access where id = ${action.id} and owner_user_id = ${owner}
+      `;
       await sql`update book_access set status = 'revoked' where id = ${action.id} and owner_user_id = ${owner}`;
+      const email = String(prior[0]?.member_email ?? "").trim().toLowerCase();
+      if (email) {
+        await sql`update people set linked_user_id = null where user_id = ${owner} and lower(email) = ${email}`;
+      }
       await recordAudit(sql, owner, "invite.revoke", String(action.id));
       return {};
     }
@@ -2195,13 +2215,20 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
 
 async function acceptInvite(sql: Sql, userId: string, code: string): Promise<ActionResult> {
   const clean = str(code, 16).toUpperCase();
-  const rows = await sql<{ id: number; owner_user_id: string; status: string }>`
-    select id, owner_user_id, status from book_access where invite_code = ${clean}
+  const rows = await sql<{ id: number; owner_user_id: string; member_email: string; status: string }>`
+    select id, owner_user_id, member_email, status from book_access where invite_code = ${clean}
   `;
   const row = rows[0];
   if (!row || row.status === "revoked") throw new Error("That invite code is not active.");
   if (row.owner_user_id === userId) throw new Error("That's your own household.");
   await sql`update book_access set member_user_id = ${userId}, status = 'active' where id = ${row.id}`;
+  const email = String(row.member_email ?? "").trim().toLowerCase();
+  if (email) {
+    await sql`
+      update people set linked_user_id = ${userId}
+      where user_id = ${row.owner_user_id} and lower(email) = ${email} and email <> ''
+    `;
+  }
   return {};
 }
 
