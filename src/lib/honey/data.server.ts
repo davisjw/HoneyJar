@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
-import { parseTiers, starterColumns, templateUnit } from "./utility";
+import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import { recordAudit } from "./care.server";
 import { personEmail } from "./person";
@@ -108,6 +108,23 @@ async function ensureSeed(sql: Sql, userId: string) {
   await ensureSampleBusiness(sql, userId);
   await ensureSampleSale(sql, userId);
   await ensureSampleUtilities(sql, userId);
+  const plain = await sql`
+    select 1 from utility_columns
+    where user_id = ${userId} and kind = 'number' and formula = '' and rollup in ('days', 'usage')
+    limit 1
+  `;
+  if (plain.length) {
+    await sql`
+      update utility_columns set kind = 'calculated', formula = ${DAYS_FORMULA}
+      where user_id = ${userId} and rollup = 'days' and kind = 'number' and formula = ''
+        and meter_id in (select meter_id from utility_columns where user_id = ${userId} and rollup = 'meter')
+    `;
+    await sql`
+      update utility_columns set kind = 'calculated', formula = ${USAGE_FORMULA}
+      where user_id = ${userId} and rollup = 'usage' and kind = 'number' and formula = ''
+        and meter_id in (select meter_id from utility_columns where user_id = ${userId} and rollup = 'meter')
+    `;
+  }
   await ensureJars(sql, userId);
   await ensureLeaseInvoices(sql, userId);
 }
