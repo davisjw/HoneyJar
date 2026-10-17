@@ -6,6 +6,7 @@ import type {
   CreditScore,
   FilingStatus,
   Goal,
+  LedgerBook,
   PlanMonth,
   Profile,
   Reminder,
@@ -132,6 +133,43 @@ export function addMonths(iso: string, n: number): string {
   const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
   d.setUTCDate(Math.min(day, last));
   return fmtISO(d);
+}
+
+/** How much register the browser keeps. Reports, taxes, and the plan all fit inside it. */
+export const HISTORY_MONTHS = 24;
+
+export function historyStart(today: string): string {
+  return addMonths(today, -HISTORY_MONTHS);
+}
+
+/** Month and year figures for a jar, from whatever transactions were loaded. */
+export function annotateJar(book: LedgerBook, today: string, startDay: number): LedgerBook {
+  const period = periodOf(today, startDay);
+  const monthFrom = periodStart(period, startDay);
+  const monthTo = today < periodEnd(period, startDay) ? today : periodEnd(period, startDay);
+  const yearFrom = `${today.slice(0, 4)}-01-01`;
+  const spent = (from: string, to: string) =>
+    spendingByCategory(book.transactions, book.categories, from, to, "out").reduce((sum, row) => sum + row.cents, 0);
+  const trips = book.trips ?? [];
+  const year = ledgerProfit(
+    book.transactions,
+    book.categories,
+    yearFrom,
+    today,
+    mileageDeductionCents(trips, yearFrom, today),
+    omittedVehicleLines(trips),
+  );
+  const month = ledgerProfit(book.transactions, book.categories, monthFrom, monthTo, mileageDeductionCents(trips, monthFrom, monthTo), omittedVehicleLines(trips));
+  return {
+    ...book,
+    monthSpentCents: spent(monthFrom, monthTo),
+    yearSpentCents: spent(yearFrom, today),
+    yearProfitCents: year.profit,
+    monthIncomeCents: month.income,
+    monthExpenseCents: month.expenses,
+    yearIncomeCents: year.income,
+    yearExpenseCents: year.expenses,
+  };
 }
 
 export function prettyDate(iso: string): string {
@@ -617,7 +655,8 @@ export function planModel(
       inc > 0 || hasPlan || m === month ? expense.reduce((s, c) => s + assignedOf(c, m), 0) : 0;
     const prev = shiftPeriod(m, -1);
     const prevEnd = periodEnd(prev, startDay);
-    const carry = earliestTxn && prevEnd >= earliestTxn ? rta(prev) : 0;
+    const floor = addMonths(periodStart(month, startDay), -24);
+    const carry = earliestTxn && prevEnd >= earliestTxn && prevEnd >= floor ? rta(prev) : 0;
     const value = inc + carry - assigned;
     rtaCache.set(m, value);
     return value;

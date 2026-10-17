@@ -4,7 +4,6 @@ import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recha
 import { SliceTip, axisTick } from "../charts";
 import { askAdvisor } from "@/lib/honey/fns";
 import {
-  booksProfit,
   centsToInput,
   dollarsToCents,
   estimateTax,
@@ -231,7 +230,7 @@ export function TaxesPage() {
   if (jar?.kind === "business" || jar?.kind === "property") return <BusinessTaxes />;
   const year = Number(data.today.slice(0, 4));
   const pack = taxLines(data.transactions, data.categories, year);
-  const profit = booksProfit(data.ledgers, year);
+  const profit = data.ledgers.filter((book) => !book.archived && book.kind !== "personal").reduce((sum, book) => sum + book.yearProfitCents, 0);
   const gains = scheduleD(data.realizations, year);
   const tax = estimateTax(data.profile, data.transactions, data.categories, data.today, profit, { ordinaryCents: gains.ordinaryCents, longCents: gains.longCents });
   const cur = data.profile.currency;

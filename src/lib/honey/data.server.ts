@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
-import { balanceDelta, holdingTerm, LEDGER_LINES, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
+import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
 import { parseTiers, starterColumns, templateUnit } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import type {
@@ -144,15 +144,26 @@ function mapProfile(row: Record<string, unknown>): Profile {
   };
 }
 
-export async function loadWorkspace(userId: string, ownerId?: string): Promise<Workspace> {
-  return readWorkspace(await getSql(), userId, ownerId);
+export async function loadWorkspace(
+  userId: string,
+  ownerId?: string,
+  opts?: { window?: boolean; focusLedgerId?: string; txnSince?: string },
+): Promise<Workspace> {
+  return readWorkspace(await getSql(), userId, ownerId, opts);
 }
 
-export async function readWorkspace(sql: Sql, userId: string, ownerId?: string): Promise<Workspace> {
+export async function readWorkspace(
+  sql: Sql,
+  userId: string,
+  ownerId?: string,
+  opts?: { window?: boolean; focusLedgerId?: string; txnSince?: string },
+): Promise<Workspace> {
   await ensureProfile(sql, userId);
   const scoped = await scope(sql, userId, ownerId);
   if (scoped.owner === userId) await ensureSeed(sql, userId);
   const owner = scoped.owner;
+  const today = todayISO();
+  const since = opts?.window ? (opts.txnSince && /^\d{4}-\d{2}-\d{2}$/.test(opts.txnSince) && opts.txnSince < historyStart(today) ? opts.txnSince : historyStart(today)) : "";
   const profileRows = await sql<Record<string, unknown>>`select * from profiles where user_id = ${owner}`;
   if (!profileRows[0]) throw new Error("Household not found.");
 
@@ -162,7 +173,9 @@ export async function readWorkspace(sql: Sql, userId: string, ownerId?: string):
       sql<Record<string, unknown>>`select * from categories where user_id = ${owner} order by sort, name`,
       sql<Record<string, unknown>>`select * from rules where user_id = ${owner} order by priority desc`,
       sql<Record<string, unknown>>`select * from people where user_id = ${owner} order by sort, name`,
-      sql<Record<string, unknown>>`select * from transactions where user_id = ${owner} order by posted_on desc, merchant`,
+      since
+        ? sql<Record<string, unknown>>`select * from transactions where user_id = ${owner} and posted_on >= ${since} order by posted_on desc, merchant`
+        : sql<Record<string, unknown>>`select * from transactions where user_id = ${owner} order by posted_on desc, merchant`,
       sql<Record<string, unknown>>`select * from bills where user_id = ${owner} order by next_due`,
       sql<Record<string, unknown>>`select * from bill_payments where user_id = ${owner} order by paid_on desc`,
       sql<Record<string, unknown>>`select * from assets where user_id = ${owner} order by name`,
@@ -219,11 +232,23 @@ export async function readWorkspace(sql: Sql, userId: string, ownerId?: string):
     householdName: String(row.household_name ?? "Household"),
   });
 
-  const books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage, leases, meters, utilColumns, utilReadings);
+  const startDay = Math.min(28, Math.max(1, num(profileRows[0].month_start_day, 1)));
+  let books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage, leases, meters, utilColumns, utilReadings).map((book) =>
+    annotateJar(book, today, startDay),
+  );
+  let txnHasMore = false;
+  if (opts?.window) {
+    const focus = opts.focusLedgerId || "";
+    if (focus) {
+      const older = await sql`select 1 from transactions where user_id = ${owner} and ledger_id = ${focus} and posted_on < ${since} limit 1`;
+      txnHasMore = older.length > 0;
+    }
+    books = books.map((book) => (focus && book.id === focus ? book : { ...book, transactions: [] }));
+  }
   const primary = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
 
   return {
-    today: todayISO(),
+    today,
     ownerId: owner,
     role: scoped.role,
     profile: mapProfile(profileRows[0]),
@@ -260,6 +285,7 @@ export async function readWorkspace(sql: Sql, userId: string, ownerId?: string):
     reports: primary?.reports ?? [],
     keys: keys.map(mapKey),
     messages: messages.map(mapMessage).reverse(),
+    txnHasMore,
   };
 }
 
@@ -729,6 +755,13 @@ function assembleLedgers(
       meters: meterRows.filter((m) => String(m.ledger_id) === id).map(mapMeter),
       columns: columnRows.filter((c) => meterRows.some((m) => String(m.ledger_id) === id && String(m.id) === String(c.meter_id))).map(mapUtilColumn),
       readings: readingRows.filter((r) => meterRows.some((m) => String(m.ledger_id) === id && String(m.id) === String(r.meter_id))).map(mapUtilReading),
+      monthSpentCents: 0,
+      yearSpentCents: 0,
+      yearProfitCents: 0,
+      monthIncomeCents: 0,
+      monthExpenseCents: 0,
+      yearIncomeCents: 0,
+      yearExpenseCents: 0,
     };
   });
 }
@@ -986,7 +1019,14 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
           values (${id}, ${owner}, ${t.accountId}, ${t.categoryId || null}, ${posted}, ${amount}, ${str(t.merchant, 120)}, ${str(t.memo, 240)}, ${Boolean(t.pending)}, ${str(t.taxSchedule, 2).toUpperCase()}, ${str(t.taxLine, 40)}, ${t.reviewed !== false}, ${str(t.source, 20) || "manual"}, ${personId}, ${tagsJson ?? "[]"}, ${jar})
         `;
       }
-      return {};
+      const saved = await sql<Record<string, unknown>>`select * from transactions where id = ${id} and user_id = ${owner}`;
+      const accountIds = [...new Set([t.accountId, existing[0]?.account_id].filter((item): item is string => Boolean(item)))];
+      const accounts: Record<string, unknown>[] = [];
+      for (const accountId of accountIds) {
+        const rows = await sql<Record<string, unknown>>`select * from accounts where id = ${accountId} and user_id = ${owner}`;
+        if (rows[0]) accounts.push(rows[0]);
+      }
+      return { patch: { transactions: saved.map(mapTxn), accounts: accounts.map(mapAccount) } };
     }
     case "txn.delete": {
       const existing = await sql<{ account_id: string; amount_cents: number }>`
@@ -994,7 +1034,10 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       `;
       if (existing[0]) await adjust(sql, owner, existing[0].account_id, -num(existing[0].amount_cents));
       await sql`delete from transactions where id = ${action.id} and user_id = ${owner}`;
-      return {};
+      const accounts = existing[0]
+        ? await sql<Record<string, unknown>>`select * from accounts where id = ${existing[0].account_id} and user_id = ${owner}`
+        : [];
+      return { patch: { deletedTransactionIds: [action.id], accounts: accounts.map(mapAccount) } };
     }
     case "txn.import": {
       const rows = action.rows.slice(0, 500);
@@ -1295,13 +1338,16 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         update utility_readings set cells_json = ${JSON.stringify(cells)}, meter_value = ${meterValue}, amount_cents = ${amount}
         where id = ${id} and user_id = ${owner}
       `;
-      return {};
+      const saved = await sql<Record<string, unknown>>`select * from utility_readings where id = ${id} and user_id = ${owner}`;
+      return { patch: { readings: saved.map(mapUtilReading) } };
     }
     case "reading.date": {
       const readOn = dateOr(action.readOn, "");
       if (!readOn) return {};
-      await sql`update utility_readings set read_on = ${readOn} where id = ${str(action.id, 80)} and user_id = ${owner}`;
-      return {};
+      const id = str(action.id, 80);
+      await sql`update utility_readings set read_on = ${readOn} where id = ${id} and user_id = ${owner}`;
+      const saved = await sql<Record<string, unknown>>`select * from utility_readings where id = ${id} and user_id = ${owner}`;
+      return { patch: { readings: saved.map(mapUtilReading) } };
     }
     case "reading.delete": {
       const id = str(action.id, 80);

@@ -479,6 +479,13 @@ export type LedgerBook = {
   meters: UtilityMeter[];
   columns: UtilityColumn[];
   readings: UtilityReading[];
+  monthSpentCents: number;
+  yearSpentCents: number;
+  yearProfitCents: number;
+  monthIncomeCents: number;
+  monthExpenseCents: number;
+  yearIncomeCents: number;
+  yearExpenseCents: number;
 };
 
 export type AiMessage = {
@@ -526,9 +533,19 @@ export type Workspace = {
   reports: Report[];
   keys: ApiKeyPublic[];
   messages: AiMessage[];
+  txnHasMore: boolean;
 };
 
-export type ActionResult = { token?: string; code?: string };
+export type ActionResult = {
+  token?: string;
+  code?: string;
+  patch?: {
+    transactions?: Txn[];
+    deletedTransactionIds?: string[];
+    accounts?: Account[];
+    readings?: UtilityReading[];
+  };
+};
 
 export type Action = (
   | { type: "profile.update"; patch: ProfilePatch; ownerId?: string }
