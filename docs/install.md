@@ -1,6 +1,6 @@
 # Install
 
-HoneyJar is a server app. The screens are a Vite build. The books live in Postgres, or in an in-memory database when you are only trying it.
+HoneyJar is a server app. The screens are a Vite build. The books live in Postgres. With no `DATABASE_URL` they live in a local file, which is enough to try the app on one machine.
 
 You need Node 22 and npm.
 
@@ -17,7 +17,7 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Choose **Need an account**.
 
 The first sign-in fills the jar with a sample household (the Calders). It is fiction. Edit it, or open **Customize** and choose **Clear books**. **Load sample household** puts it back.
 
-With no `DATABASE_URL`, the database is in memory. Stopping the server drops every account, transaction, and sign-in. That is fine for a look. It is not fine for real books.
+With no `DATABASE_URL`, the database is a file at `data/pglite` (override the directory with `PGLITE_DATA_DIR`). Restarting the server keeps the book. That directory is gitignored. It is one machine and one process, and deleting it deletes the books. Use Postgres when the data should last, or when more than one machine should see it.
 
 ## Keep the data
 

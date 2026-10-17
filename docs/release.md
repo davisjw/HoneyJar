@@ -23,7 +23,7 @@ Do these before you flip the repository to public, and again before anyone else 
 3. **An API key is the whole personal jar.** `/api/v1` allows any origin. The token is a bearer header, not a cookie, so another website cannot read it out of the browser by itself. Anyone you hand the token to can read balances and post transactions. There is no scope, no expiry, and no rate limit. Keys are created and revoked in Customize.
 4. **The advisor sends numbers away.** Grok and OpenAI receive the brief described in [features.md](features.md). The OpenAI key is stored on the profile. It is not shown back to the browser. It is not encrypted at rest.
 5. **The vault does not cover the books.** Only document bodies saved after a passphrase is set are encrypted. Transactions, balances, and bills are ordinary database rows.
-6. **Do not deploy without Postgres and a real auth secret.** With no `DATABASE_URL`, one server process holds every household in memory and drops them on restart. `BETTER_AUTH_SECRET` must be stable across restarts or every session dies. Auth refuses to run disabled when `DATABASE_URL` is set, which is what you want.
+6. **Do not deploy without Postgres and a real auth secret.** With no `DATABASE_URL`, every household sits in `data/pglite` on that one machine. Deleting the directory, or starting a second copy, does not share those books. `BETTER_AUTH_SECRET` must be stable across restarts or every session dies. Auth refuses to run disabled when `DATABASE_URL` is set, which is what you want.
 7. **There is no password reset and no email verification.** A lost password is a lost household unless you reset it in the database yourself.
 
 ## What would help this hold up
