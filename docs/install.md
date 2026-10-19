@@ -55,11 +55,64 @@ npm run preview
 
 `npm run build` applies `migrations/*.sql` when `DATABASE_URL` is set. Each file runs once, in order. Run `npm run db:migrate` on its own after you pull a new migration.
 
-`BETTER_AUTH_URL` must be the origin users type in the browser, with no path. A mismatch makes sign-in fail.
+`BETTER_AUTH_URL` must be the origin users type in the browser, with no path. A mismatch makes sign-in fail with `Invalid origin`.
 
 Put those three variables in the host's environment. Do not commit them. There is no `.env` file in this repo on purpose.
 
-The process has to stay running. A static file host is not enough. `npm run preview` serves the production build. On a host, use the same command, or `node` against the Vite preview, with `PORT` set if the host requires it.
+The process has to stay running. A static file host is not enough. `npm run preview` serves the production build on `127.0.0.1:8081` only. That port is fixed. Do not open it on the firewall. Put a reverse proxy on the same machine in front of it.
+
+## Reverse proxy
+
+The browser must use `https://` on a real hostname. The session cookie is `Secure`, so a remote `http://` address can create the account and then look signed out. `http://localhost` is the only plain address that keeps the cookie.
+
+Set `BETTER_AUTH_URL` to that public origin, then restart the app. No port, no path, and no trailing slash when the public site is on 443:
+
+```bash
+export BETTER_AUTH_URL="https://books.example.com"
+```
+
+Use one name. `https://books.example.com` and `https://203.0.113.10` are different origins, and only the value above is accepted.
+
+Allow ports 80 and 443. Do not allow 8080 or 8081 from outside the machine.
+
+Caddy gets the certificate and proxies the preview server:
+
+```
+books.example.com {
+	reverse_proxy 127.0.0.1:8081
+}
+```
+
+Nginx, with the certificate already on disk:
+
+```nginx
+server {
+	listen 80;
+	server_name books.example.com;
+	return 301 https://books.example.com$request_uri;
+}
+
+server {
+	listen 443 ssl;
+	server_name books.example.com;
+	ssl_certificate /etc/letsencrypt/live/books.example.com/fullchain.pem;
+	ssl_certificate_key /etc/letsencrypt/live/books.example.com/privkey.pem;
+
+	location / {
+		proxy_pass http://127.0.0.1:8081;
+		proxy_http_version 1.1;
+		proxy_set_header Host $host;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+	}
+}
+```
+
+The app is mounted at `/`. Do not proxy it under a path such as `/honeyjar/`.
+
+While you are still on `npm run dev`, point the proxy at `127.0.0.1:8080` instead, and do not leave that port published. Switch the proxy to `8081` once `npm run preview` is the process you keep running. The dev server is not the production setup.
+
+If the app is the Compose stack, publish its port on localhost only (`127.0.0.1:8080:8080`) and proxy to that. Override `BETTER_AUTH_URL` when you start Compose. The file's default is `http://localhost:8080`, which a public hostname will reject.
 
 ## Sign-in
 
