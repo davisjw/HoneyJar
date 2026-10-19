@@ -1,0 +1,27 @@
+# Postgres only. Use this when the app runs on the host.
+#
+#   docker compose -f compose.postgres.yaml up -d
+#   DATABASE_URL=postgres://honeyjar:honeyjar@localhost:5432/honeyjar npm run db:migrate
+#   DATABASE_URL=postgres://honeyjar:honeyjar@localhost:5432/honeyjar npm run dev
+name: honeyjar
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: honeyjar
+      POSTGRES_PASSWORD: honeyjar
+      POSTGRES_DB: honeyjar
+    ports:
+      - "5432:5432"
+    volumes:
+      - honeyjar-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U honeyjar -d honeyjar"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  honeyjar-pg:

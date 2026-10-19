@@ -1,0 +1,23 @@
+# App plus the Postgres file. One command starts both.
+#
+#   docker compose up --build
+#
+# Open http://localhost:8080. The first sign-in creates a sample household.
+# Change BETTER_AUTH_SECRET before anyone else can reach this machine.
+name: honeyjar
+
+include:
+  - compose.postgres.yaml
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://honeyjar:honeyjar@postgres:5432/honeyjar
+      BETTER_AUTH_URL: http://localhost:8080
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-honeyjar-dev-secret-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy

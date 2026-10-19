@@ -19,6 +19,28 @@ The first sign-in fills the jar with a sample household (the Calders). It is fic
 
 With no `DATABASE_URL`, the database is a file at `data/pglite` (override the directory with `PGLITE_DATA_DIR`). Restarting the server keeps the book. That directory is gitignored. It is one machine and one process, and deleting it deletes the books. Use Postgres when the data should last, or when more than one machine should see it.
 
+## Docker
+
+Postgres only, with the app still on the host:
+
+```bash
+docker compose -f compose.postgres.yaml up -d
+export DATABASE_URL="postgres://honeyjar:honeyjar@localhost:5432/honeyjar"
+export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
+export BETTER_AUTH_URL="http://127.0.0.1:8080"
+npm run db:migrate
+npm run dev
+```
+
+App and Postgres together:
+
+```bash
+docker compose up --build
+```
+
+Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. Set `BETTER_AUTH_SECRET` before `docker compose up` if anyone else can reach the machine. The password in `compose.postgres.yaml` is for a private machine. Change it if port 5432 is open to a network.
+
+
 ## Keep the data
 
 Use any Postgres 15 or newer, including [Neon](https://neon.tech).
