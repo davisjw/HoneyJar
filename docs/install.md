@@ -303,6 +303,22 @@ A host that uses `/etc/honeyjar.env` and systemd adds the same four lines to tha
 
 `OIDC_ISSUER` has to open from the browser and from the HoneyJar process. Inside the container, `localhost` is the container, not Authentik. Use a hostname both sides can resolve. A trailing slash on the issuer is fine.
 
+If the container log says `unable to verify the first certificate`, Authentik's certificate is not signed by a public authority. Prefer the public Authentik address that nginx already serves with a real certificate. Point `OIDC_ISSUER` at that address. The container has to resolve that name.
+
+When the only address is a private certificate, save the issuer certificate on the HoneyJar machine as `oidc-ca.pem` next to `compose.yaml`. From a machine that can reach Authentik:
+
+```bash
+openssl s_client -connect auth.example:443 -servername auth.example -showcerts </dev/null
+```
+
+Copy the issuer certificate, the block after the site certificate. If the site certificate is self-signed, copy that block instead. The file should start with `-----BEGIN CERTIFICATE-----`. Then start HoneyJar with the extra Compose file:
+
+```bash
+docker compose -f compose.yaml -f compose.oidc-ca.yaml up -d
+```
+
+Do not set `NODE_TLS_REJECT_UNAUTHORIZED=0`. That turns certificate checks off for every connection the app makes.
+
 The sign-in page then shows **Continue with Acme** under the email form. The email form is still there. An Authentik email that already has a HoneyJar account signs into that account. A new email creates a household.
 
 Set `OIDC_PKCE=false` only when the provider rejects the code challenge. Leave it unset when Authentik is on S256.

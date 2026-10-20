@@ -26,3 +26,6 @@ data/
 ~$*.xlsx
 
 public/summary-examples/
+
+# Private CA used to trust an OpenID Connect issuer.
+oidc-ca.pem

@@ -1,0 +1,13 @@
+# Trust a private certificate for the OpenID Connect issuer.
+# Use this only when the issuer is not signed by a public certificate authority.
+#
+#   docker compose -f compose.yaml -f compose.oidc-ca.yaml up -d
+#
+# Put the issuer's certificate next to this file as oidc-ca.pem, or set
+# OIDC_CA_FILE to that file's path.
+services:
+  app:
+    environment:
+      NODE_EXTRA_CA_CERTS: /certs/oidc-ca.pem
+    volumes:
+      - ${OIDC_CA_FILE:-./oidc-ca.pem}:/certs/oidc-ca.pem:ro
