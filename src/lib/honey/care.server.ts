@@ -29,7 +29,17 @@ export async function listAudit(sql: Sql, userId: string) {
   }));
 }
 
+export async function hasLocalPassword(sql: Sql, userId: string): Promise<boolean> {
+  const rows = await sql<{ n: number }>`
+    select count(*)::int as n from "account"
+    where "userId" = ${userId} and "providerId" = 'credential' and password is not null
+  `;
+  return Number(rows[0]?.n ?? 0) > 0;
+}
 export async function issueRecoveryCode(sql: Sql, userId: string): Promise<string> {
+  if (!(await hasLocalPassword(sql, userId))) {
+    throw new Error("This sign-in uses a directory and has no HoneyJar password.");
+  }
   const code = makeRecoveryCode(randomBytes(16));
   const hash = hashRecoveryCode(code);
   await sql`

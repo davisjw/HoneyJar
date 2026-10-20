@@ -2,7 +2,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SliceTip, axisTick } from "../charts";
-import { askAdvisor, changeOwnPassword, exportHousehold, listAudit } from "@/lib/honey/fns";
+import { askAdvisor, changeOwnPassword, exportHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
 import { signOut } from "@/lib/auth/client";
 import {
   centsToInput,
@@ -916,6 +916,12 @@ export function SettingsPage() {
   const [confirmDelete, setConfirmDelete] = useState("");
   const [audit, setAudit] = useState<{ id: string; action: string; detail: string; createdAt: string }[]>([]);
   const [careError, setCareError] = useState("");
+  const [localPassword, setLocalPassword] = useState<boolean | null>(null);
+  useEffect(() => {
+    void localSignIn()
+      .then((row) => setLocalPassword(row.password))
+      .catch(() => setLocalPassword(false));
+  }, []);
   if (!data) return null;
   const hidden = new Set(data.profile.navHidden.split(",").filter(Boolean));
   const p = data.profile;
@@ -1064,7 +1070,15 @@ export function SettingsPage() {
       {isOwner ? (
         <Card>
           <h2 className="font-display text-xl">Sign-in</h2>
-          <p className="mt-1 text-sm text-muted">Change the password while you are signed in. A recovery code works if you are signed out. It is shown once. An email reset link appears on the sign-in page only when the host has set SMTP.</p>
+          <p className="mt-1 text-sm text-muted">
+            {localPassword === false
+              ? "This account signs in through the directory. HoneyJar does not keep a password for it, so the directory can turn the sign-in off."
+              : localPassword
+                ? "Change the password while you are signed in. A recovery code works if you are signed out. It is shown once. An email reset link appears on the sign-in page only when the host has set SMTP."
+                : ""}
+          </p>
+          {localPassword ? (
+            <>
           {careError ? <p className="mt-2 text-sm text-clay">{careError}</p> : null}
           <form
             className="mt-3 flex flex-wrap gap-2"
@@ -1097,6 +1111,8 @@ export function SettingsPage() {
             </Button>
             {recovery ? <p className="mt-2 break-all rounded-xl bg-honey-soft px-3 py-2 text-sm">Copy this once: {recovery}</p> : null}
           </div>
+            </>
+          ) : null}
         </Card>
       ) : null}
       {isOwner ? (

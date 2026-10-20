@@ -1849,7 +1849,10 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       return {};
     }
     case "recovery.issue": {
-      const { issueRecoveryCode } = await import("./care.server");
+      const { hasLocalPassword, issueRecoveryCode } = await import("./care.server");
+      if (!(await hasLocalPassword(sql, owner))) {
+        throw new Error("This sign-in uses a directory and has no HoneyJar password.");
+      }
       const code = await issueRecoveryCode(sql, owner);
       return { code };
     }

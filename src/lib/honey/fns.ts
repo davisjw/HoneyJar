@@ -151,6 +151,14 @@ export const noteSignIn = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const localSignIn = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { getSql } = await import("@/lib/db");
+    const { hasLocalPassword } = await import("./care.server");
+    return { password: await hasLocalPassword(await getSql(), context.userId) };
+  });
+
 export const changeOwnPassword = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((input: { currentPassword?: string; newPassword?: string }) => {
@@ -162,15 +170,19 @@ export const changeOwnPassword = createServerFn({ method: "POST" })
   })
   .handler(async ({ context, data }) => {
     const { auth } = await import("@/lib/auth/server");
+    const { getSql } = await import("@/lib/db");
+    const { hasLocalPassword, recordAudit } = await import("./care.server");
+    const sql = await getSql();
+    if (!(await hasLocalPassword(sql, context.userId))) {
+      throw new Error("This sign-in uses a directory and has no HoneyJar password.");
+    }
     const { getRequest } = await import("@tanstack/react-start/server");
     const request = getRequest();
     await auth.api.changePassword({
       body: { currentPassword: data.currentPassword, newPassword: data.newPassword, revokeOtherSessions: true },
       headers: request.headers,
     });
-    const { getSql } = await import("@/lib/db");
-    const { recordAudit } = await import("./care.server");
-    await recordAudit(await getSql(), context.userId, "password.change", "");
+    await recordAudit(sql, context.userId, "password.change", "");
     return { ok: true };
   });
 
