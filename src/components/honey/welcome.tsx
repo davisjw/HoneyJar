@@ -24,6 +24,7 @@ export function Welcome() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [oauth, setOauth] = useState(false);
+  const [oidc, setOidc] = useState<{ providerId: string; label: string } | null>(null);
   const [emailReset, setEmailReset] = useState(false);
   const [code, setCode] = useState("");
   const [nextPassword, setNextPassword] = useState("");
@@ -38,10 +39,12 @@ export function Welcome() {
     void getSignInOptions()
       .then((opts) => {
         setOauth(opts.oauth);
+        setOidc(opts.oidc);
         setEmailReset(opts.emailReset);
       })
       .catch(() => {
         setOauth(false);
+        setOidc(null);
         setEmailReset(false);
       });
   }, []);
@@ -181,18 +184,29 @@ export function Welcome() {
               ) : null}
             </div>
           ) : null}
-          {oauth ? (
+          {oauth || oidc ? (
             <div className="space-y-2 pt-2">
-              {GROK_PROVIDERS.map((p) => (
+              {oidc ? (
                 <button
-                  key={p.providerId}
                   type="button"
-                  onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+                  onClick={() => signIn(oidc.providerId, { callbackURL: "/" })}
                   className="min-h-11 w-full rounded-lg border border-line bg-card text-sm"
                 >
-                  Continue with {p.label}
+                  Continue with {oidc.label}
                 </button>
-              ))}
+              ) : null}
+              {oauth
+                ? GROK_PROVIDERS.map((p) => (
+                    <button
+                      key={p.providerId}
+                      type="button"
+                      onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+                      className="min-h-11 w-full rounded-lg border border-line bg-card text-sm"
+                    >
+                      Continue with {p.label}
+                    </button>
+                  ))
+                : null}
             </div>
           ) : null}
         </div>

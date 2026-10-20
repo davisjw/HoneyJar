@@ -66,24 +66,42 @@ export function SignInGate({
 
 export function SignInButtons() {
   const [oauth, setOauth] = useState(false);
+  const [oidc, setOidc] = useState<{ providerId: string; label: string } | null>(null);
   useEffect(() => {
     void getSignInOptions()
-      .then((opts) => setOauth(opts.oauth))
-      .catch(() => setOauth(false));
+      .then((opts) => {
+        setOauth(opts.oauth);
+        setOidc(opts.oidc);
+      })
+      .catch(() => {
+        setOauth(false);
+        setOidc(null);
+      });
   }, []);
-  if (!oauth) return null;
+  if (!oauth && !oidc) return null;
   return (
     <div className="flex w-full max-w-sm flex-col gap-2">
-      {GROK_PROVIDERS.map((p) => (
+      {oidc ? (
         <button
-          key={p.providerId}
           type="button"
-          onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+          onClick={() => signIn(oidc.providerId, { callbackURL: "/" })}
           className="w-full cursor-pointer rounded-md border border-neutral-300 px-4 py-2 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
         >
-          Continue with {p.label}
+          Continue with {oidc.label}
         </button>
-      ))}
+      ) : null}
+      {oauth
+        ? GROK_PROVIDERS.map((p) => (
+            <button
+              key={p.providerId}
+              type="button"
+              onClick={() => signIn(p.providerId, { callbackURL: "/" })}
+              className="w-full cursor-pointer rounded-md border border-neutral-300 px-4 py-2 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
+            >
+              Continue with {p.label}
+            </button>
+          ))
+        : null}
     </div>
   );
 }

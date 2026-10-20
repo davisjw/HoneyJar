@@ -36,6 +36,7 @@ import { emailAndPasswordEnabled } from "./email-password";
 import { smtpConfigured } from "../honey/mail";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
+import { OIDC_PROVIDER_ID, oidcProvider } from "./oidc";
 import { pgliteDialect } from "./pglite-dialect";
 import {
   GROK_ISSUER_DEFAULT,
@@ -76,9 +77,15 @@ const grokClientId = env("GROK_AUTH_CLIENT_ID");
 const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET");
 export const oauthConfigured = Boolean(grokClientId && grokClientSecret);
 
-/** True when a visitor must sign in (email/password, or a configured broker). */
+const oidc = oidcProvider(process.env);
+/** Set when a company directory is configured. Email and password stay on. */
+export const oidcSignIn = oidc
+  ? { providerId: oidc.providerId, label: oidc.label }
+  : null;
+
+/** True when a visitor must sign in (email/password, a directory, or a configured broker). */
 export const authConfigured =
-  !authDisabled && (emailAndPasswordEnabled || oauthConfigured);
+  !authDisabled && (emailAndPasswordEnabled || oauthConfigured || oidc != null);
 
 // This app's own Better Auth origin. When deployed the deployer injects the
 // public URL. In the sandbox live preview there's no fixed URL (each preview gets
@@ -143,29 +150,43 @@ const database = databaseUrl
 /** Session token cookie name — also read by the live-preview popup completion page. */
 export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
 
-// Built separately so the `betterAuth({...})` call stays easy to edit without
-// breaking brackets (models often trip on the conditional plugin spread).
-const grokOAuthPlugin = oauthConfigured
-  ? genericOAuth({
-      config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
-        providerId,
-        clientId: grokClientId as string,
-        clientSecret: grokClientSecret as string,
-        // Prefer static endpoints over `discoveryUrl` so initiating (and
-        // completing) OAuth does not wait on a broker discovery fetch.
-        authorizationUrl: grokAuthorizationUrl,
-        tokenUrl: grokTokenUrl,
-        userInfoUrl: grokUserInfoUrl,
-        scopes: ["openid", "profile", "email"],
-        // `prompt: "login"` forces the broker to re-authenticate against the
-        // upstream on every sign-in instead of silently reusing an existing
-        // broker session. Combined with the broker sending Google
-        // `prompt=select_account`, the user always gets the account chooser
-        // and can pick (or switch) which account to sign in with.
-        authorizationUrlParams: { idp, prompt: "login" },
-      })),
-    })
-  : null;
+const grokConfigs = oauthConfigured
+  ? GROK_PROVIDERS.map(({ providerId, idp }) => ({
+      providerId,
+      clientId: grokClientId as string,
+      clientSecret: grokClientSecret as string,
+      // Prefer static endpoints over `discoveryUrl` so initiating (and
+      // completing) OAuth does not wait on a broker discovery fetch.
+      authorizationUrl: grokAuthorizationUrl,
+      tokenUrl: grokTokenUrl,
+      userInfoUrl: grokUserInfoUrl,
+      scopes: ["openid", "profile", "email"],
+      // `prompt: "login"` forces the broker to re-authenticate against the
+      // upstream on every sign-in instead of silently reusing an existing
+      // broker session. Combined with the broker sending Google
+      // `prompt=select_account`, the user always gets the account chooser
+      // and can pick (or switch) which account to sign in with.
+      authorizationUrlParams: { idp, prompt: "login" },
+    }))
+  : [];
+
+const oauthConfigs = [
+  ...grokConfigs,
+  ...(oidc
+    ? [
+        {
+          providerId: oidc.providerId,
+          discoveryUrl: oidc.discoveryUrl,
+          clientId: oidc.clientId,
+          clientSecret: oidc.clientSecret,
+          scopes: [...oidc.scopes],
+          pkce: oidc.pkce,
+        },
+      ]
+    : []),
+];
+
+const oauthPlugin = oauthConfigs.length > 0 ? genericOAuth({ config: oauthConfigs }) : null;
 
 export const auth = betterAuth({
   baseURL,
@@ -191,6 +212,7 @@ export const auth = betterAuth({
       enabled: true,
       trustedProviders: [
         ...GROK_PROVIDERS.map((p) => p.providerId),
+        ...(oidc ? [OIDC_PROVIDER_ID] : []),
         GATE_PROVIDER_ID,
       ],
       // X's synthetic email is never "verified", so don't gate linking on the
@@ -249,7 +271,7 @@ export const auth = betterAuth({
 
     // One genericOAuth provider per upstream (when auth is on), all federating
     // to the broker with the SAME client and differing only by the `idp` hint.
-    ...(grokOAuthPlugin ? [grokOAuthPlugin] : []),
+    ...(oauthPlugin ? [oauthPlugin] : []),
 
     // Accept `Authorization: Bearer <session-token>` as an alternative to the
     // cookie. Needed for the LIVE PREVIEW: the app runs in an embedded iframe

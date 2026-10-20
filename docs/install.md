@@ -259,6 +259,23 @@ If nginx is on the same machine as Docker, skip `HONEYJAR_PUBLISH` and use `prox
 
 Email and password are on. Google and X appear only when the host sets `GROK_AUTH_CLIENT_ID` and `GROK_AUTH_CLIENT_SECRET` (and, if you are not using the default broker, `GROK_AUTH_ISSUER`). Those values are not in the source. A copy you run yourself can ignore them and use email and password.
 
+## OpenID Connect
+
+Email and password stay. Google and X stay, and they still appear only when the broker client is set. A company directory is a separate button.
+
+In Authentik, create an OAuth2/OpenID provider and an application for HoneyJar. The client type is confidential. The redirect URL is the public origin plus `/api/auth/oauth2/callback/oidc`. Scopes are `openid`, `email`, and `profile`. Set the provider's PKCE method to S256.
+
+```bash
+export OIDC_ISSUER="https://auth.example/application/o/honeyjar/"
+export OIDC_CLIENT_ID="honeyjar"
+export OIDC_CLIENT_SECRET="the-secret-from-authentik"
+export OIDC_LABEL="Acme"
+```
+
+`OIDC_ISSUER` is the issuer Authentik shows for that application. The HoneyJar process and the browser both have to reach it. Inside Docker, `localhost` is the container, not Authentik. Use a hostname both can open. Restart the container after the exports change. The same email links to an existing HoneyJar account instead of creating a second one.
+
+Set `OIDC_PKCE=false` only if that Authentik provider rejects a PKCE challenge. Leave it unset otherwise.
+
 There is no password-reset email unless you set SMTP. Then the sign-in page can email a link. Without SMTP, a signed-in owner can still change the password and can create a recovery code.
 
 | Variable | Why |
