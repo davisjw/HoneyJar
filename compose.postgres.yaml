@@ -14,7 +14,7 @@ services:
       POSTGRES_PASSWORD: honeyjar
       POSTGRES_DB: honeyjar
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - honeyjar-pg:/var/lib/postgresql/data
     healthcheck:

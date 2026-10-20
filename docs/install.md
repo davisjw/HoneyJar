@@ -38,7 +38,7 @@ App and Postgres together:
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. Set `BETTER_AUTH_SECRET` before `docker compose up` if anyone else can reach the machine. The password in `compose.postgres.yaml` is for a private machine. Change it if port 5432 is open to a network.
+Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. Set `BETTER_AUTH_SECRET` before `docker compose up` if anyone else can reach the machine. The database port is bound to `127.0.0.1` only. On a remote host, follow [Nginx in front of the Docker app](#nginx-in-front-of-the-docker-app) instead of opening port 8080.
 
 
 ## Keep the data
@@ -203,9 +203,44 @@ sudo ufw allow 443/tcp
 
 Sign up at `https://books.example.com`, not at `http://THE_IP:8080` and not through an SSH tunnel. Those are different origins, and the app rejects them. After a change to `/etc/honeyjar.env`, run `sudo systemctl restart honeyjar`.
 
-While you are still on `npm run dev`, point the proxy at `127.0.0.1:8080` instead, and do not leave that port published. Switch the proxy to `8081` once `npm run preview` is the process you keep running. The dev server is not the production setup.
+Skip this section when HoneyJar is already a container. Do not also install the systemd service.
 
-If the app is the Compose stack, publish its port on localhost only (`127.0.0.1:8080:8080`) and proxy to that. Override `BETTER_AUTH_URL` when you start Compose. The file's default is `http://localhost:8080`, which a public hostname will reject.
+## Nginx in front of the Docker app
+
+The container publishes `127.0.0.1:8080` on the host. nginx on that same host proxies to it. Nothing else should listen for HoneyJar, and port 8080 stays closed on the firewall.
+
+In the directory with `compose.yaml`, set the public origin and recreate the container. `BETTER_AUTH_URL` inside the container must be the address in the browser, not `http://localhost:8080`.
+
+```bash
+export BETTER_AUTH_URL="https://books.example.com"
+export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
+docker compose up --build -d
+curl -sI http://127.0.0.1:8080/
+```
+
+The curl has to succeed before nginx changes. Then:
+
+```bash
+sudo tee /etc/nginx/sites-available/honeyjar >/dev/null <<'EOF'
+server {
+	listen 80;
+	server_name books.example.com;
+
+	location / {
+		proxy_pass http://127.0.0.1:8080;
+		proxy_http_version 1.1;
+		proxy_set_header Host $host;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+	}
+}
+EOF
+sudo ln -sf /etc/nginx/sites-available/honeyjar /etc/nginx/sites-enabled/honeyjar
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d books.example.com
+```
+
+Sign up only at `https://books.example.com`. After either export changes, run `docker compose up -d` again so the container picks them up. Postgres is published on `127.0.0.1:5432` only. The app reaches it on the Docker network, not through nginx.
 
 ## Sign-in
 
