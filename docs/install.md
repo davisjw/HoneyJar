@@ -110,6 +110,99 @@ server {
 
 The app is mounted at `/`. Do not proxy it under a path such as `/honeyjar/`.
 
+## Remote host that already has nginx
+
+Do this on the server, not on your laptop. Replace `books.example.com` with the hostname you will type in the browser. That name needs a DNS record pointing at the server before the certificate step.
+
+Install Node 22, then create the database. Postgres on the same machine does not need `sslmode=require`. Add that only for a host such as Neon.
+
+```bash
+sudo -u postgres createuser --pwprompt honeyjar
+sudo -u postgres createdb --owner=honeyjar honeyjar
+sudo mkdir -p /opt/honeyjar
+sudo chown "$USER" /opt/honeyjar
+git clone https://github.com/davisjw/HoneyJar.git /opt/honeyjar
+cd /opt/honeyjar
+npm install
+```
+
+Put the secrets in a root-only file. The auth URL is the public `https` origin, even though nginx will talk to the app over plain HTTP on localhost.
+
+```bash
+sudo tee /etc/honeyjar.env >/dev/null <<'EOF'
+DATABASE_URL=postgres://honeyjar:PASSWORD@127.0.0.1:5432/honeyjar
+BETTER_AUTH_SECRET=PASTE_A_LONG_RANDOM_VALUE
+BETTER_AUTH_URL=https://books.example.com
+EOF
+sudo chmod 600 /etc/honeyjar.env
+```
+
+Generate the secret with `openssl rand -base64 32`. Then build and migrate:
+
+```bash
+set -a
+. /etc/honeyjar.env
+set +a
+npm run build
+```
+
+Keep the preview server running as a service. It listens on `127.0.0.1:8081` and must not be opened in the firewall.
+
+```bash
+sudo tee /etc/systemd/system/honeyjar.service >/dev/null <<'EOF'
+[Unit]
+Description=HoneyJar
+After=network.target postgresql.service
+
+[Service]
+WorkingDirectory=/opt/honeyjar
+EnvironmentFile=/etc/honeyjar.env
+ExecStart=/usr/bin/npm run preview
+Restart=on-failure
+User=REPLACE_WITH_YOUR_LOGIN
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now honeyjar
+```
+
+`User=` is the account that owns `/opt/honeyjar`. Check `systemctl status honeyjar` and `curl -sI http://127.0.0.1:8081/` before touching nginx. A failure here is the app, not the proxy.
+
+Proxy that local port. This block is HTTP only so Certbot can attach the certificate.
+
+```bash
+sudo tee /etc/nginx/sites-available/honeyjar >/dev/null <<'EOF'
+server {
+	listen 80;
+	server_name books.example.com;
+
+	location / {
+		proxy_pass http://127.0.0.1:8081;
+		proxy_http_version 1.1;
+		proxy_set_header Host $host;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+	}
+}
+EOF
+sudo ln -s /etc/nginx/sites-available/honeyjar /etc/nginx/sites-enabled/honeyjar
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d books.example.com
+```
+
+Certbot adds the `443` server and the redirect from port 80. If the site file already exists, edit `server_name` and `proxy_pass` instead of writing a second one. Do not proxy under a path.
+
+Open 80 and 443 only:
+
+```bash
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+```
+
+Sign up at `https://books.example.com`, not at `http://THE_IP:8080` and not through an SSH tunnel. Those are different origins, and the app rejects them. After a change to `/etc/honeyjar.env`, run `sudo systemctl restart honeyjar`.
+
 While you are still on `npm run dev`, point the proxy at `127.0.0.1:8080` instead, and do not leave that port published. Switch the proxy to `8081` once `npm run preview` is the process you keep running. The dev server is not the production setup.
 
 If the app is the Compose stack, publish its port on localhost only (`127.0.0.1:8080:8080`) and proxy to that. Override `BETTER_AUTH_URL` when you start Compose. The file's default is `http://localhost:8080`, which a public hostname will reject.
