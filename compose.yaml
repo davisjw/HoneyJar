@@ -2,10 +2,11 @@
 #
 #   docker compose up --build
 #
-# On this machine, open http://localhost:8080. The port is bound to localhost
-# so a remote nginx can proxy it without leaving the app on the public internet.
-# For that host, set BETTER_AUTH_URL to the https origin before starting:
+# The app port is published on localhost unless HONEYJAR_PUBLISH is set.
+# When nginx is on another machine, publish the app host's private address
+# and allow only that nginx host through the firewall:
 #
+#   export HONEYJAR_PUBLISH=10.0.0.5:8080
 #   export BETTER_AUTH_URL=https://books.example.com
 #   export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
 #   docker compose up --build -d
@@ -18,7 +19,7 @@ services:
   app:
     build: .
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${HONEYJAR_PUBLISH:-127.0.0.1:8080}:8080"
     environment:
       DATABASE_URL: postgres://honeyjar:honeyjar@postgres:5432/honeyjar
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}

@@ -38,7 +38,7 @@ App and Postgres together:
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. Set `BETTER_AUTH_SECRET` before `docker compose up` if anyone else can reach the machine. The database port is bound to `127.0.0.1` only. On a remote host, follow [Nginx in front of the Docker app](#nginx-in-front-of-the-docker-app) instead of opening port 8080.
+Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. Set `BETTER_AUTH_SECRET` before `docker compose up` if anyone else can reach the machine. The database port is bound to `127.0.0.1` only. On a remote host, follow [Nginx on a different machine from Docker](#nginx-on-a-different-machine-from-docker) instead of opening port 8080.
 
 
 ## Keep the data
@@ -205,20 +205,29 @@ Sign up at `https://books.example.com`, not at `http://THE_IP:8080` and not thro
 
 Skip this section when HoneyJar is already a container. Do not also install the systemd service.
 
-## Nginx in front of the Docker app
+## Nginx on a different machine from Docker
 
-The container publishes `127.0.0.1:8080` on the host. nginx on that same host proxies to it. Nothing else should listen for HoneyJar, and port 8080 stays closed on the firewall.
+HoneyJar and nginx do not share localhost. The browser still talks only to nginx. Nginx reaches HoneyJar over a private address. Postgres stays on the Docker machine and is not part of the proxy.
 
-In the directory with `compose.yaml`, set the public origin and recreate the container. `BETTER_AUTH_URL` inside the container must be the address in the browser, not `http://localhost:8080`.
+On the HoneyJar machine, `10.0.0.5` is that machine's private address and `10.0.0.4` is the nginx machine. Use your own addresses.
 
 ```bash
+export HONEYJAR_PUBLISH="10.0.0.5:8080"
 export BETTER_AUTH_URL="https://books.example.com"
 export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
 docker compose up --build -d
-curl -sI http://127.0.0.1:8080/
+curl -sI http://10.0.0.5:8080/
 ```
 
-The curl has to succeed before nginx changes. Then:
+`BETTER_AUTH_URL` is the public site, not `http://10.0.0.5:8080`. Allow port 8080 only from the nginx machine:
+
+```bash
+sudo ufw allow from 10.0.0.4 to any port 8080 proto tcp
+```
+
+Do not allow port 5432 from anywhere. The database publish is `127.0.0.1:5432` on the HoneyJar machine.
+
+On the nginx machine, proxy to the private address. The `Host` header stays the public name. The upgrade lines are for the dev server inside the container.
 
 ```bash
 sudo tee /etc/nginx/sites-available/honeyjar >/dev/null <<'EOF'
@@ -227,11 +236,13 @@ server {
 	server_name books.example.com;
 
 	location / {
-		proxy_pass http://127.0.0.1:8080;
+		proxy_pass http://10.0.0.5:8080;
 		proxy_http_version 1.1;
 		proxy_set_header Host $host;
 		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 		proxy_set_header X-Forwarded-Proto $scheme;
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection "upgrade";
 	}
 }
 EOF
@@ -240,7 +251,9 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d books.example.com
 ```
 
-Sign up only at `https://books.example.com`. After either export changes, run `docker compose up -d` again so the container picks them up. Postgres is published on `127.0.0.1:5432` only. The app reaches it on the Docker network, not through nginx.
+From the nginx machine, `curl -sI http://10.0.0.5:8080/` must succeed before Certbot. Sign up only at `https://books.example.com`. After the exports change, run `docker compose up -d` again on the HoneyJar machine.
+
+If nginx is on the same machine as Docker, skip `HONEYJAR_PUBLISH` and use `proxy_pass http://127.0.0.1:8080`. The default publish is already localhost.
 
 ## Sign-in
 
