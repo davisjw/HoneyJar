@@ -145,16 +145,37 @@ function authPopupPlugin(): Plugin {
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
+function proxyAllowedHosts(): string[] | undefined {
+  const hosts: string[] = [];
+  for (const part of (process.env.ALLOWED_HOSTS ?? "").split(",")) {
+    const host = part.trim();
+    if (host) hosts.push(host);
+  }
+  const authUrl = process.env.BETTER_AUTH_URL?.trim();
+  if (authUrl) {
+    try {
+      hosts.push(new URL(authUrl).hostname);
+    } catch {
+      // A bad auth URL fails sign-in on its own.
+    }
+  }
+  return hosts.length ? hosts : undefined;
+}
+
+const proxyHosts = proxyAllowedHosts();
+
 export default defineConfig(({ command, isPreview }) => ({
   server: {
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    ...(proxyHosts ? { allowedHosts: proxyHosts } : {}),
   },
   preview: {
     host: "127.0.0.1",
     port: 8081,
     strictPort: true,
+    ...(proxyHosts ? { allowedHosts: proxyHosts } : {}),
   },
   resolve: { tsconfigPaths: true },
   plugins: [

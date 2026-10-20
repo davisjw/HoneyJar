@@ -219,7 +219,7 @@ docker compose up --build -d
 curl -sI http://10.0.0.5:8080/
 ```
 
-`BETTER_AUTH_URL` is the public site, not `http://10.0.0.5:8080`. Allow port 8080 only from the nginx machine:
+`BETTER_AUTH_URL` is the public site, not `http://10.0.0.5:8080`. The dev server allows that public hostname, and no others, so the image has to be rebuilt after this setting changes. Allow port 8080 only from the nginx machine:
 
 ```bash
 sudo ufw allow from 10.0.0.4 to any port 8080 proto tcp
