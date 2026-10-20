@@ -261,20 +261,61 @@ Email and password are on. Google and X appear only when the host sets `GROK_AUT
 
 ## OpenID Connect
 
-Email and password stay. Google and X stay, and they still appear only when the broker client is set. A company directory is a separate button.
+Email and password stay on the sign-in page. Google and X stay too, and they still appear only when the broker client is set. A directory adds one more button. Leave the `OIDC_` variables unset and that button is not shown.
 
-In Authentik, create an OAuth2/OpenID provider and an application for HoneyJar. The client type is confidential. The redirect URL is the public origin plus `/api/auth/oauth2/callback/oidc`. Scopes are `openid`, `email`, and `profile`. Set the provider's PKCE method to S256.
+Any OpenID Connect directory works. The steps below use Authentik. Okta, Microsoft Entra, Google Workspace, Keycloak, and Auth0 use the same four variables. The redirect URL HoneyJar gives the directory is always:
+
+```text
+https://books.example.com/api/auth/oauth2/callback/oidc
+```
+
+Use the origin people type in the browser. No trailing slash on the origin. The path is fixed.
+
+### Authentik
+
+1. In the Authentik admin interface, open **Applications**, then **Providers**, then **Create**. Choose **OAuth2/OpenID Provider**.
+2. Name it HoneyJar. Authorization flow can stay the default. Client type is **Confidential**.
+3. Copy the client id and client secret. Authentik shows the secret once.
+4. Under Redirect URIs, add the URL above as a strict redirect. Scopes must include `openid`, `email`, and `profile`.
+5. Set PKCE to **S256**.
+6. Create an **Application**. The slug becomes part of the issuer, so `honeyjar` is a good slug. Select the provider you just made. Assign the users or group who may sign in. An application with no policy binding lets nobody through.
+7. Open the provider again and copy the **Issuer** URL. It looks like `https://auth.example/application/o/honeyjar/`. Do not paste the discovery document. If the page only shows a URL ending in `/.well-known/openid-configuration`, delete that suffix and use what remains.
+
+### HoneyJar
+
+On the machine that runs HoneyJar, set the variables and restart. `OIDC_LABEL` is the button text.
 
 ```bash
 export OIDC_ISSUER="https://auth.example/application/o/honeyjar/"
-export OIDC_CLIENT_ID="honeyjar"
-export OIDC_CLIENT_SECRET="the-secret-from-authentik"
+export OIDC_CLIENT_ID="the-client-id"
+export OIDC_CLIENT_SECRET="the-client-secret"
 export OIDC_LABEL="Acme"
 ```
 
-`OIDC_ISSUER` is the issuer Authentik shows for that application. The HoneyJar process and the browser both have to reach it. Inside Docker, `localhost` is the container, not Authentik. Use a hostname both can open. Restart the container after the exports change. The same email links to an existing HoneyJar account instead of creating a second one.
+With Docker, those exports have to be in the environment of `docker compose`. Pull first so the image contains this sign-in, then recreate:
 
-Set `OIDC_PKCE=false` only if that Authentik provider rejects a PKCE challenge. Leave it unset otherwise.
+```bash
+git pull
+docker compose up --build -d
+```
+
+A host that uses `/etc/honeyjar.env` and systemd adds the same four lines to that file, then runs `sudo systemctl restart honeyjar`.
+
+`OIDC_ISSUER` has to open from the browser and from the HoneyJar process. Inside the container, `localhost` is the container, not Authentik. Use a hostname both sides can resolve. A trailing slash on the issuer is fine.
+
+The sign-in page then shows **Continue with Acme** under the email form. The email form is still there. An Authentik email that already has a HoneyJar account signs into that account. A new email creates a household.
+
+Set `OIDC_PKCE=false` only when the provider rejects the code challenge. Leave it unset when Authentik is on S256.
+
+| Variable | Why |
+| --- | --- |
+| `OIDC_ISSUER` | Issuer URL from the directory. Not the discovery document. |
+| `OIDC_CLIENT_ID` | Client id of the confidential client. |
+| `OIDC_CLIENT_SECRET` | Client secret. Keep it in the environment, not in git. |
+| `OIDC_LABEL` | Button text. Defaults to "OpenID Connect". |
+| `OIDC_PKCE` | Optional. `false` turns the code challenge off. |
+
+## Password reset
 
 There is no password-reset email unless you set SMTP. Then the sign-in page can email a link. Without SMTP, a signed-in owner can still change the password and can create a recovery code.
 
