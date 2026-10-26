@@ -1145,7 +1145,7 @@ export function SettingsPage() {
             <Button tone="danger" onClick={() => run({ type: "sample.clear" })}>Clear books</Button>
             <Button tone="quiet" onClick={() => run({ type: "sample.load" })}>Load sample household</Button>
           </div>
-          <p className="mt-2 text-xs text-muted">Export is every jar this sign-in owns, including older transactions. Document bodies stay as stored. API keys are not included. Clear keeps starter categories and your sign-in. Load sample replaces the books with the Calder household.</p>
+          <p className="mt-2 text-xs text-muted">Export is every jar this sign-in owns, including older transactions. Document bodies stay as stored. API keys are not included. Clear keeps the starter category names and your sign-in. It removes the monthly plan amounts, wages, withholding, and last year’s tax, so Cash Flow and Taxes start empty. Load sample replaces the books with the Calder household.</p>
           <form
             className="mt-3 flex flex-wrap gap-2"
             onSubmit={async (e) => {

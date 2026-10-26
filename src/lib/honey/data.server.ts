@@ -1911,7 +1911,18 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     case "sample.clear": {
       await clearHousehold(sql, owner);
       await seedStarter(sql, owner);
-      await sql`update profiles set seeded = false, initialized = true where user_id = ${owner}`;
+      await sql`update categories set monthly_cents = 0 where user_id = ${owner}`;
+      await sql`
+        update profiles set
+          seeded = false,
+          initialized = true,
+          wages_cents = 0,
+          other_income_cents = 0,
+          withholding_cents = 0,
+          estimated_paid_cents = 0,
+          prior_year_tax_cents = 0
+        where user_id = ${owner}
+      `;
       return {};
     }
     case "sample.load": {
