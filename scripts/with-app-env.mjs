@@ -111,10 +111,25 @@ function main(argv) {
     process.exit(2);
   }
   const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  const child = spawn(command, args, { stdio: "inherit", env });
+  const child = spawn(command, args, {
+    stdio: "inherit",
+    env,
+    // Windows only exposes npm shims such as vite.cmd, and spawn will not find those without a shell.
+    shell: process.platform === "win32",
+  });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-    process.on(signal, () => child.kill(signal));
+    try {
+      process.on(signal, () => {
+        try {
+          child.kill(signal);
+        } catch {
+          child.kill();
+        }
+      });
+    } catch {
+      // Windows does not implement every Unix signal.
+    }
   }
   child.on("error", (err) => {
     console.error(`[with-app-env] failed to run ${command}:`, err?.message || err);

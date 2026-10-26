@@ -15,6 +15,17 @@ npm run dev
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Choose **Need an account**. The password has to be at least 8 characters. The display name becomes the household name.
 
+On Windows, install [Node 22](https://nodejs.org/) and Git, then use PowerShell in the project folder:
+
+```powershell
+git clone https://github.com/davisjw/HoneyJar.git
+cd HoneyJar
+npm install
+npm run dev
+```
+
+Open the same address. Leave `DATABASE_URL` unset for a first try. The books are stored in `data\pglite`. Ctrl+C stops the server. Docker is not required.
+
 The first sign-in fills the jar with a sample household (the Calders). It is fiction. Edit it, or open **Customize** and choose **Clear books**. **Load sample household** puts it back.
 
 With no `DATABASE_URL`, the database is a file at `data/pglite` (override the directory with `PGLITE_DATA_DIR`). Restarting the server keeps the book. That directory is gitignored. It is one machine and one process, and deleting it deletes the books. Use Postgres when the data should last, or when more than one machine should see it.
