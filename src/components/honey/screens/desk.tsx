@@ -920,6 +920,8 @@ export function SettingsPage() {
   const [sampleStep, setSampleStep] = useState<null | "risk" | "export" | "download">(null);
   const [blankOpen, setBlankOpen] = useState(false);
   const [blankName, setBlankName] = useState("");
+  const [rulePattern, setRulePattern] = useState("");
+  const [ruleCategory, setRuleCategory] = useState("");
   useEffect(() => {
     void localSignIn()
       .then((row) => setLocalPassword(row.password))
@@ -953,13 +955,40 @@ export function SettingsPage() {
       </Card>
       <Card>
         <h2 className="font-display text-xl">Rules</h2>
+        <p className="mt-1 text-sm text-muted">When a merchant contains this text, Auto-categorize on Transactions uses the category. Matching ignores capitalization. Saving a transaction can also make a rule from the checkbox “Also remember this merchant.”</p>
+        {isOwner || data.role === "editor" ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <Field label="Text to match">
+              <input className={fieldClass} value={rulePattern} onChange={(e) => setRulePattern(e.target.value)} placeholder="blue bottle" />
+            </Field>
+            <Field label="Category">
+              <select className={fieldClass} value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)}>
+                <option value="">Choose</option>
+                {data.categories.filter((c) => !c.archived).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </Field>
+            <div className="flex items-end">
+              <Button
+                onClick={async () => {
+                  if (!rulePattern.trim() || !ruleCategory) return;
+                  await run({ type: "rule.save", rule: { pattern: rulePattern, categoryId: ruleCategory, priority: 15 } });
+                  setRulePattern("");
+                }}
+              >
+                Add rule
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <ul className="mt-2 space-y-1 text-sm">
-          {data.rules.map((r) => (
+          {data.rules.length ? data.rules.map((r) => (
             <li key={r.id} className="flex justify-between gap-2">
               <span>“{r.pattern}” → {data.categories.find((c) => c.id === r.categoryId)?.name}</span>
-              <button type="button" className="text-clay" onClick={() => run({ type: "rule.delete", id: r.id })}>Remove</button>
+              {isOwner || data.role === "editor" ? <button type="button" className="text-clay" onClick={() => run({ type: "rule.delete", id: r.id })}>Remove</button> : null}
             </li>
-          ))}
+          )) : <li className="text-muted">No rules yet.</li>}
         </ul>
       </Card>
       {isOwner ? (
