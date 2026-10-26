@@ -326,4 +326,10 @@ describe("import matches", () => {
   it("does not treat a short fragment as a merchant match", () => {
     assert.equal(merchantClose("bar", "Blue Bottle Coffee"), false);
   });
+
+  it("treats a card prefix and a shortened merchant as the same name", () => {
+    assert.equal(merchantClose("VISA BLUE BOTTLE", "Blue Bottle"), true);
+    assert.equal(merchantClose("MC BLU BTTL", "Blue Bottle Coffee"), true);
+    assert.equal(merchantClose("MC BLU BTTL", "Chevron"), false);
+  });
 });

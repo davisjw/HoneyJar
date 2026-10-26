@@ -118,7 +118,7 @@ export function ImportReview({
         <div>
           <h2 className="font-display text-xl">Review import</h2>
           <p className="mt-1 max-w-3xl text-sm text-muted">
-            Nothing is saved until you import a row. A likely duplicate is the same account, the same amount, a date within seven days, and a merchant that matches after lowercasing. Open a row to see those. Click one field to copy only that field. The matches themselves are not imported.
+            A likely duplicate is the same account, the same amount, a date within seven days, and a close merchant. A leading VISA or MC is ignored, and a shortened name such as BLU BTTL still matches Blue Bottle. Open a row to see those. Click one field to copy only that field. The matches themselves are not imported.
           </p>
         </div>
         <div className="flex gap-2">

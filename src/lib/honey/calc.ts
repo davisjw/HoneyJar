@@ -1454,15 +1454,50 @@ function dayNumber(iso: string): number | null {
   return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 86_400_000;
 }
 
-/** Lowercase, drop punctuation, and collapse spaces so "BLUE BOTTLE" matches "Blue Bottle Coffee". */
+const CARD_PREFIX = new Set(["visa", "mc", "mastercard", "amex", "discover", "disc", "debit", "pos", "checkcard", "purchase"]);
+
+function merchantTokens(value: string): string[] {
+  const tokens = value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  while (tokens.length > 1 && CARD_PREFIX.has(tokens[0]!)) tokens.shift();
+  return tokens;
+}
+
+function skeleton(token: string): string {
+  return token.replace(/[aeiou]/g, "");
+}
+
+function tokenClose(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (shorter.length >= 3 && longer.startsWith(shorter)) return true;
+  const left = skeleton(a);
+  const right = skeleton(b);
+  return left.length >= 3 && left === right;
+}
+
+/**
+ * Case-insensitive merchant match. Drops a leading card prefix such as VISA or MC,
+ * then accepts a contained name or a shortened form such as "BLU BTTL" for "Blue Bottle".
+ */
 export function merchantClose(a: string, b: string): boolean {
-  const clean = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
-  const left = clean(a);
-  const right = clean(b);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
-  return shorter.length >= 4 && longer.includes(shorter);
+  const left = merchantTokens(a);
+  const right = merchantTokens(b);
+  if (!left.length || !right.length) return false;
+  const leftText = left.join(" ");
+  const rightText = right.join(" ");
+  if (leftText === rightText) return true;
+  const [shorter, longer] = leftText.length <= rightText.length ? [leftText, rightText] : [rightText, leftText];
+  if (shorter.length >= 4 && longer.includes(shorter)) return true;
+  const [few, many] = left.length <= right.length ? [left, right] : [right, left];
+  const used = new Set<number>();
+  for (const token of few) {
+    const at = many.findIndex((other, index) => !used.has(index) && tokenClose(token, other));
+    if (at < 0) return false;
+    used.add(at);
+  }
+  if (few.length >= 2) return true;
+  const only = few[0] ?? "";
+  return only.length >= 4 && skeleton(only).length >= 3;
 }
 
 export type ImportProbe = {
