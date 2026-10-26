@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
-import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, matchCategory, packTags, parseTags, portfolioPerformance, stepDue, todayISO } from "./calc";
+import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, importMatches, matchCategory, packTags, parseTags, portfolioPerformance, shiftDays, stepDue, todayISO } from "./calc";
 import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import { recordAudit } from "./care.server";
@@ -1077,25 +1077,72 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         : [];
       return { patch: { deletedTransactionIds: [action.id], accounts: accounts.map(mapAccount) } };
     }
+    case "txn.get": {
+      const rows = await sql<Record<string, unknown>>`select * from transactions where id = ${action.id} and user_id = ${owner}`;
+      const txn = rows[0] ? mapTxn(rows[0]) : undefined;
+      return txn ? { txn, patch: { transactions: [txn] } } : {};
+    }
+    case "txn.match": {
+      const probes = action.rows.slice(0, 500).filter((row) => row.key && row.accountId && row.postedOn);
+      if (!probes.length) return { matches: [] };
+      let min = probes[0]!.postedOn;
+      let max = probes[0]!.postedOn;
+      for (const row of probes) {
+        if (row.postedOn < min) min = row.postedOn;
+        if (row.postedOn > max) max = row.postedOn;
+      }
+      const from = shiftDays(min, -7);
+      const to = shiftDays(max, 7);
+      const accounts = [...new Set(probes.map((row) => row.accountId))];
+      const found: Txn[] = [];
+      for (const accountId of accounts) {
+        const raw = await sql<Record<string, unknown>>`
+          select * from transactions
+          where user_id = ${owner} and account_id = ${accountId} and posted_on >= ${from} and posted_on <= ${to}
+        `;
+        found.push(...raw.map(mapTxn));
+      }
+      return {
+        matches: probes.map((row) => ({
+          key: row.key,
+          txns: importMatches({ ...row, amountCents: num(row.amountCents) }, found).slice(0, 8),
+        })),
+      };
+    }
     case "txn.import": {
       const rows = action.rows.slice(0, 500);
-      const acct = await sql<{ ledger_id: string }>`select ledger_id from accounts where id = ${action.accountId} and user_id = ${owner}`;
-      const jar = acct[0]?.ledger_id || (await openJar());
-      const cats = await sql<{ id: string; name: string }>`select id, name from categories where user_id = ${owner} and ledger_id = ${jar}`;
-      const rules = await sql<{ pattern: string; category_id: string; priority: number }>`select pattern, category_id, priority from rules where user_id = ${owner} and ledger_id = ${jar}`;
+      const created: Txn[] = [];
+      const touched = new Set<string>();
       for (const row of rows) {
+        const accountId = str(row.accountId, 80) || action.accountId;
         const posted = dateOr(row.postedOn, "");
-        if (!posted) continue;
-        const categoryId = matchCategory(row.merchant, row.memo, rules.map((r) => ({ pattern: r.pattern, categoryId: r.category_id, priority: num(r.priority) })), cats);
+        if (!posted || !accountId) continue;
+        const acct = await sql<{ ledger_id: string }>`select ledger_id from accounts where id = ${accountId} and user_id = ${owner}`;
+        if (!acct[0]) continue;
+        const jar = acct[0].ledger_id || (await openJar());
+        const cats = await sql<{ id: string; name: string }>`select id, name from categories where user_id = ${owner} and ledger_id = ${jar}`;
+        const rules = await sql<{ pattern: string; category_id: string; priority: number }>`select pattern, category_id, priority from rules where user_id = ${owner} and ledger_id = ${jar}`;
+        const chosen = str(row.categoryId, 80);
+        const categoryId = chosen || matchCategory(row.merchant, row.memo, rules.map((r) => ({ pattern: r.pattern, categoryId: r.category_id, priority: num(r.priority) })), cats) || null;
+        const personId = str(row.personId, 80) || null;
+        const tags = packTags(row.tags ?? []);
         const id = nid();
         const amount = num(row.amountCents);
-        await adjust(sql, owner, action.accountId, amount);
+        await adjust(sql, owner, accountId, amount);
         await sql`
-          insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, ledger_id)
-          values (${id}, ${owner}, ${action.accountId}, ${categoryId}, ${posted}, ${amount}, ${str(row.merchant, 120)}, ${str(row.memo, 240)}, false, '', '', ${categoryId ? true : false}, 'import', ${jar})
+          insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id, tags, ledger_id)
+          values (${id}, ${owner}, ${accountId}, ${categoryId}, ${posted}, ${amount}, ${str(row.merchant, 120)}, ${str(row.memo, 240)}, false, '', '', ${categoryId ? true : false}, 'import', ${personId}, ${tags}, ${jar})
         `;
+        const saved = await sql<Record<string, unknown>>`select * from transactions where id = ${id} and user_id = ${owner}`;
+        created.push(...saved.map(mapTxn));
+        touched.add(accountId);
       }
-      return {};
+      const accounts: Record<string, unknown>[] = [];
+      for (const accountId of touched) {
+        const fresh = await sql<Record<string, unknown>>`select * from accounts where id = ${accountId} and user_id = ${owner}`;
+        if (fresh[0]) accounts.push(fresh[0]);
+      }
+      return { patch: { transactions: created, accounts: accounts.map(mapAccount) } };
     }
     case "txn.recategorize": {
       const jar = await openJar();

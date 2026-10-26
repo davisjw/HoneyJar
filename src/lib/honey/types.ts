@@ -543,6 +543,8 @@ export type ActionResult = {
   token?: string;
   code?: string;
   recoveryCode?: string;
+  txn?: Txn;
+  matches?: { key: string; txns: Txn[] }[];
   patch?: {
     transactions?: Txn[];
     deletedTransactionIds?: string[];
@@ -563,7 +565,9 @@ export type Action = (
   | { type: "person.delete"; id: string; ownerId?: string }
   | { type: "txn.save"; txn: Partial<Txn> & { accountId: string; postedOn: string; amountCents: number; merchant: string }; ownerId?: string }
   | { type: "txn.delete"; id: string; ownerId?: string }
-  | { type: "txn.import"; accountId: string; rows: { postedOn: string; amountCents: number; merchant: string; memo: string }[]; ownerId?: string }
+  | { type: "txn.import"; accountId: string; rows: { postedOn: string; amountCents: number; merchant: string; memo: string; accountId?: string; categoryId?: string | null; personId?: string | null; tags?: string[] }[]; ownerId?: string }
+  | { type: "txn.match"; rows: { key: string; accountId: string; postedOn: string; amountCents: number; merchant: string }[]; ownerId?: string }
+  | { type: "txn.get"; id: string; ownerId?: string }
   | { type: "txn.recategorize"; ownerId?: string }
   | { type: "bill.save"; bill: Partial<Bill> & { name: string; amountCents: number; nextDue: string }; ownerId?: string }
   | { type: "bill.delete"; id: string; ownerId?: string }

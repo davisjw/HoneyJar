@@ -1,5 +1,5 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { CashTip, RULE, axisTick } from "../charts";
 import {
@@ -22,6 +22,7 @@ import type { Bill, Payment, Txn, UtilityColumn, UtilityMeter, UtilityReading } 
 import { buildSheet, chargeCompare, suggestReadingId, type ReadLike, type UtilColumn } from "@/lib/honey/utility";
 import { useBook } from "../book";
 import { Button, Card, Empty, Field, Modal, MoneyText, PageIntro, fieldClass, pinCell } from "../kit";
+import { ImportReview, type ImportDraft } from "./import-review";
 
 function param(search: string, key: string) {
   return new URLSearchParams(search.replace(/^\?/, "")).get(key) ?? "";
@@ -151,6 +152,8 @@ export function TransactionsPage() {
   const [tag, setTag] = useState(tagFilter);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [drafts, setDrafts] = useState<ImportDraft[] | null>(null);
+  const openedTxn = useRef("");
   useEffect(() => {
     setWho(personFilter);
     setTag(tagFilter);
@@ -158,6 +161,22 @@ export function TransactionsPage() {
   useEffect(() => {
     if (param(search, "import") === "1") setImportOpen(true);
   }, [search]);
+  useEffect(() => {
+    if (!focus || !data || openedTxn.current === focus) return;
+    const found = data.transactions.find((txn) => txn.id === focus);
+    if (found) {
+      openedTxn.current = focus;
+      setEditing({ ...found });
+      setOpen(true);
+      return;
+    }
+    openedTxn.current = focus;
+    void run({ type: "txn.get", id: focus }).then((result) => {
+      if (!result.txn) return;
+      setEditing(result.txn);
+      setOpen(true);
+    });
+  }, [data, focus, run]);
   if (!data) return null;
   const month = periodOf(data.today, data.profile.monthStartDay);
   const rows = data.transactions.filter((t) => {
@@ -213,6 +232,26 @@ export function TransactionsPage() {
           ) : null
         }
       />
+      {drafts ? (
+        <ImportReview
+          drafts={drafts}
+          accounts={data.accounts}
+          categories={data.categories}
+          people={data.people}
+          currency={data.profile.currency}
+          onChange={setDrafts}
+          onMatches={(matches) => {
+            setDrafts((current) =>
+              current?.map((row) => {
+                if (row.status !== "waiting") return row;
+                const hit = matches.find((item) => item.key === row.key);
+                return hit ? { ...row, matches: hit.txns } : row;
+              }) ?? current,
+            );
+          }}
+          onClose={() => setDrafts(null)}
+        />
+      ) : null}
       <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
         <input className={`${fieldClass} max-w-xs`} placeholder="Search merchant" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className={`${fieldClass} max-w-xs`} value={who} onChange={(e) => setWho(e.target.value)}>
@@ -347,15 +386,30 @@ export function TransactionsPage() {
           }}
         />
         <Button
-          onClick={async () => {
+          onClick={() => {
             const parsed = parseCsv(csv);
             if (!accountId || !parsed.length) return;
-            await run({ type: "txn.import", accountId, rows: parsed });
+            setDrafts(
+              parsed.map((row, index) => ({
+                key: `${index}-${row.postedOn}-${row.amountCents}`,
+                postedOn: row.postedOn,
+                amount: centsToInput(row.amountCents),
+                merchant: row.merchant,
+                memo: row.memo,
+                accountId,
+                categoryId: "",
+                personId: "",
+                tags: "",
+                status: "waiting",
+                note: "",
+                matches: [],
+                open: false,
+              })),
+            );
             setImportOpen(false);
-            setCsv("");
           }}
         >
-          Import {parseCsv(csv).length || ""}
+          Review {parseCsv(csv).length || ""}
         </Button>
       </Modal>
     </div>

@@ -1440,6 +1440,63 @@ function normalizeDate(raw: string): string | null {
   return `${year}-${month}-${day}`;
 }
 
+/** Move a YYYY-MM-DD by a number of days. Used to look a week around an import. */
+export function shiftDays(iso: string, days: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return iso;
+  const utc = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days);
+  return new Date(utc).toISOString().slice(0, 10);
+}
+
+function dayNumber(iso: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return null;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 86_400_000;
+}
+
+/** Lowercase, drop punctuation, and collapse spaces so "BLUE BOTTLE" matches "Blue Bottle Coffee". */
+export function merchantClose(a: string, b: string): boolean {
+  const clean = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+  const left = clean(a);
+  const right = clean(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
+  return shorter.length >= 4 && longer.includes(shorter);
+}
+
+export type ImportProbe = {
+  key: string;
+  accountId: string;
+  postedOn: string;
+  amountCents: number;
+  merchant: string;
+};
+
+/**
+ * High-probability duplicates: same account, same amount, date within 7 days,
+ * and a close merchant. The expand shows these. They are not imported.
+ */
+export function importMatches<T extends { accountId: string; postedOn: string; amountCents: number; merchant: string }>(
+  probe: ImportProbe,
+  existing: T[],
+): T[] {
+  const probeDay = dayNumber(probe.postedOn);
+  if (probeDay == null || !probe.accountId) return [];
+  return existing
+    .filter((txn) => {
+      if (txn.accountId !== probe.accountId || txn.amountCents !== probe.amountCents) return false;
+      const day = dayNumber(txn.postedOn);
+      if (day == null || Math.abs(day - probeDay) > 7) return false;
+      return merchantClose(probe.merchant, txn.merchant);
+    })
+    .sort((a, b) => {
+      const ad = Math.abs((dayNumber(a.postedOn) ?? probeDay) - probeDay);
+      const bd = Math.abs((dayNumber(b.postedOn) ?? probeDay) - probeDay);
+      return ad - bd;
+    });
+}
+
 export function advisorBrief(input: {
   profile: Profile;
   today: string;

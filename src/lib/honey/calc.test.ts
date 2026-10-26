@@ -20,6 +20,8 @@ import {
   personFlow,
   planModel,
   scheduleD,
+  importMatches,
+  merchantClose,
 } from "./calc.ts";
 import type { Account, Asset, Category, Profile, Txn } from "./types.ts";
 
@@ -300,5 +302,28 @@ describe("portfolio", () => {
     const rate = modifiedDietz("2026-01-01", "2026-12-31", 11_000, [{ date: "2026-01-01", into: 10_000 }]);
     assert.ok(rate != null);
     assert.ok(Math.abs(rate - 0.1) < 0.000_001);
+  });
+});
+
+describe("import matches", () => {
+  const existing = {
+    accountId: "checking",
+    postedOn: "2026-10-01",
+    amountCents: -1240,
+    merchant: "Blue Bottle Coffee",
+  };
+
+  it("matches a close merchant on the same account within a week, ignoring case", () => {
+    assert.equal(merchantClose("BLUE BOTTLE", "Blue Bottle Coffee"), true);
+    const hits = importMatches(
+      { key: "a", accountId: "checking", postedOn: "2026-10-06", amountCents: -1240, merchant: "blue bottle" },
+      [existing, { ...existing, accountId: "card" }, { ...existing, amountCents: -1300 }, { ...existing, postedOn: "2026-09-01" }],
+    );
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0]?.accountId, "checking");
+  });
+
+  it("does not treat a short fragment as a merchant match", () => {
+    assert.equal(merchantClose("bar", "Blue Bottle Coffee"), false);
   });
 });
