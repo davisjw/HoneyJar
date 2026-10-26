@@ -917,6 +917,9 @@ export function SettingsPage() {
   const [audit, setAudit] = useState<{ id: string; action: string; detail: string; createdAt: string }[]>([]);
   const [careError, setCareError] = useState("");
   const [localPassword, setLocalPassword] = useState<boolean | null>(null);
+  const [sampleStep, setSampleStep] = useState<null | "risk" | "export" | "download">(null);
+  const [blankOpen, setBlankOpen] = useState(false);
+  const [blankName, setBlankName] = useState("");
   useEffect(() => {
     void localSignIn()
       .then((row) => setLocalPassword(row.password))
@@ -1143,9 +1146,10 @@ export function SettingsPage() {
               Export everything
             </Button>
             <Button tone="danger" onClick={() => run({ type: "sample.clear" })}>Clear books</Button>
-            <Button tone="quiet" onClick={() => run({ type: "sample.load" })}>Load sample household</Button>
+            <Button tone="quiet" onClick={() => { setBlankName(""); setBlankOpen(true); }}>Start blank</Button>
+            <Button tone="quiet" onClick={() => setSampleStep("risk")}>Load sample household</Button>
           </div>
-          <p className="mt-2 text-xs text-muted">Export is every jar this sign-in owns, including older transactions. Document bodies stay as stored. API keys are not included. Clear keeps the starter category names and your sign-in. It removes the monthly plan amounts, wages, withholding, and last year’s tax, so Cash Flow and Taxes start empty. Load sample replaces the books with the Calder household.</p>
+          <p className="mt-2 text-xs text-muted">Export is every jar this sign-in owns, including older transactions. Document bodies stay as stored. API keys are not included. Clear keeps the starter category names and your sign-in, and it zeros the monthly plan and the tax figures. Start blank does that and lets you name the household. Load sample replaces the books with the Calder household after you confirm. Deleting the account signs you out. The next sign-in starts blank and asks for a name. It does not bring the sample back.</p>
           <form
             className="mt-3 flex flex-wrap gap-2"
             onSubmit={async (e) => {
@@ -1168,6 +1172,63 @@ export function SettingsPage() {
           </form>
         </Card>
       ) : null}
+      <Modal open={sampleStep !== null} title="Load the sample household" onClose={() => setSampleStep(null)}>
+        {sampleStep === "risk" ? (
+          <div className="space-y-3">
+            <p className="text-sm">This erases the books on this sign-in. Jars, transactions, bills, and the tax figures are replaced by the Calder household. That cannot be undone unless you have an export.</p>
+            <div className="flex flex-wrap gap-2">
+              <Button tone="quiet" onClick={() => setSampleStep(null)}>Cancel</Button>
+              <Button onClick={() => setSampleStep("export")}>I understand the risk</Button>
+            </div>
+          </div>
+        ) : null}
+        {sampleStep === "export" ? (
+          <div className="space-y-3">
+            <p className="text-sm">Do you want to export the current books before they are replaced?</p>
+            <div className="flex flex-wrap gap-2">
+              <Button tone="quiet" onClick={() => setSampleStep(null)}>Cancel</Button>
+              <Button tone="quiet" onClick={async () => { await run({ type: "sample.load" }); setSampleStep(null); }}>No, load the sample</Button>
+              <Button
+                onClick={async () => {
+                  const book = await exportHousehold();
+                  downloadText("honeyjar.json", JSON.stringify(book, null, 2));
+                  setSampleStep("download");
+                }}
+              >
+                Yes, export
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {sampleStep === "download" ? (
+          <div className="space-y-3">
+            <p className="text-sm">A file named honeyjar.json should be downloading. Load the sample only after that file is saved.</p>
+            <div className="flex flex-wrap gap-2">
+              <Button tone="quiet" onClick={() => setSampleStep(null)}>Cancel</Button>
+              <Button onClick={async () => { await run({ type: "sample.load" }); setSampleStep(null); }}>The download is complete</Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+      <Modal open={blankOpen} title="Start a blank household" onClose={() => setBlankOpen(false)}>
+        <form
+          className="space-y-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            await run({ type: "household.blank", name: blankName });
+            setBlankOpen(false);
+          }}
+        >
+          <p className="text-sm">This erases the books on this sign-in and keeps the login. Category names stay, with no monthly amounts and no sample tax figures.</p>
+          <Field label="Household name">
+            <input className={fieldClass} value={blankName} onChange={(e) => setBlankName(e.target.value)} placeholder="Name" />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button tone="quiet" type="button" onClick={() => setBlankOpen(false)}>Cancel</Button>
+            <Button type="submit">Create blank household</Button>
+          </div>
+        </form>
+      </Modal>
       {cat ? <CategoryEditor category={cat} onClose={() => setCat(null)} /> : null}
     </div>
   );

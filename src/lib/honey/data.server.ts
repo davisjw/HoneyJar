@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, importMatches, matchCategory, packTags, parseTags, portfolioPerformance, shiftDays, stepDue, todayISO } from "./calc";
 import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA } from "./utility";
-import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
+import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedBlank, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import { recordAudit } from "./care.server";
 import { personEmail } from "./person";
 import type {
@@ -100,8 +100,16 @@ async function ensureProfile(sql: Sql, userId: string) {
 }
 
 async function ensureSeed(sql: Sql, userId: string) {
-  const rows = await sql<{ initialized: boolean }>`select initialized from profiles where user_id = ${userId}`;
-  if (!rows[0]?.initialized) await seedHousehold(sql, userId);
+  const rows = await sql<{ initialized: boolean; seeded: boolean }>`select initialized, seeded from profiles where user_id = ${userId}`;
+  if (!rows[0]?.initialized) {
+    await seedBlank(sql, userId);
+    return;
+  }
+  if (!rows[0].seeded) {
+    await ensureJars(sql, userId);
+    await ensureLeaseInvoices(sql, userId);
+    return;
+  }
   await ensureSamplePeople(sql, userId);
   await ensureSampleTags(sql, userId);
   await ensureSampleInvestments(sql, userId);
@@ -849,7 +857,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
 
   const scoped = await scope(sql, userId, action.ownerId);
   const owner = scoped.owner;
-  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load", "account.delete", "recovery.issue"]);
+  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load", "household.begin", "household.blank", "account.delete", "recovery.issue"]);
   if (ownerOnly.has(action.type)) assertOwner(scoped.role);
   else assertEdit(scoped.role);
 
@@ -1910,8 +1918,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     }
     case "sample.clear": {
       await clearHousehold(sql, owner);
-      await seedStarter(sql, owner);
-      await sql`update categories set monthly_cents = 0 where user_id = ${owner}`;
+      await seedBlank(sql, owner);
       await sql`
         update profiles set
           seeded = false,
@@ -1920,13 +1927,49 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
           other_income_cents = 0,
           withholding_cents = 0,
           estimated_paid_cents = 0,
-          prior_year_tax_cents = 0
+          prior_year_tax_cents = 0,
+          filing_status = 'single',
+          state_code = '',
+          dependents = 0,
+          state_rate_bps = 0,
+          deduction_mode = 'auto'
         where user_id = ${owner}
       `;
       return {};
     }
     case "sample.load": {
       await seedHousehold(sql, owner);
+      return {};
+    }
+    case "household.begin": {
+      const name = str(action.name, 80);
+      if (!name) throw new Error("Name the household.");
+      await sql`update profiles set display_name = ${name}, initialized = true where user_id = ${owner}`;
+      await sql`update ledgers set name = ${name} where user_id = ${owner} and kind = 'personal'`;
+      return {};
+    }
+    case "household.blank": {
+      const name = str(action.name, 80);
+      if (!name) throw new Error("Name the household.");
+      await clearHousehold(sql, owner);
+      await sql`
+        update profiles set
+          display_name = ${name},
+          seeded = false,
+          initialized = true,
+          wages_cents = 0,
+          other_income_cents = 0,
+          withholding_cents = 0,
+          estimated_paid_cents = 0,
+          prior_year_tax_cents = 0,
+          filing_status = 'single',
+          state_code = '',
+          dependents = 0,
+          state_rate_bps = 0,
+          deduction_mode = 'auto'
+        where user_id = ${owner}
+      `;
+      await seedBlank(sql, owner);
       return {};
     }
     case "advisor.log": {

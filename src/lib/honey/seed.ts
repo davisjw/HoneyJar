@@ -143,6 +143,12 @@ export async function seedStarter(sql: Sql, userId: string) {
   }
 }
 
+export async function seedBlank(sql: Sql, userId: string) {
+  await seedStarter(sql, userId);
+  await sql`update categories set monthly_cents = 0 where user_id = ${userId}`;
+  await ensureJars(sql, userId);
+}
+
 export async function seedHousehold(sql: Sql, userId: string) {
   await clearHousehold(sql, userId);
   await seedStarter(sql, userId);

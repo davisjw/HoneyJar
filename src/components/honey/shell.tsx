@@ -32,7 +32,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { UserButton } from "@/lib/auth/gates";
 import { monthLabel, periodOf } from "@/lib/honey/calc";
 import { SUMMARY, useBook } from "./book";
-import { JarMark, cn } from "./kit";
+import { JarMark, Button, Field, cn, fieldClass } from "./kit";
 
 const NAV = [
   {
@@ -320,6 +320,8 @@ export function Shell({ children }: { children: ReactNode }) {
                 Back to my household
               </button>
             </div>
+          ) : data && !data.profile.initialized && data.role === "owner" ? (
+            <NameHousehold />
           ) : data ? (
             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
               {data.profile.seeded ? (
@@ -345,3 +347,31 @@ export function Shell({ children }: { children: ReactNode }) {
 }
 
 export const NAV_IDS = NAV.flatMap((g) => g.items.map((i) => ({ id: i.id, label: i.label })));
+
+function NameHousehold() {
+  const { run } = useBook();
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  return (
+    <form
+      className="mx-auto w-full max-w-md space-y-3 rounded-2xl border border-line bg-card p-5"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError("");
+        try {
+          await run({ type: "household.begin", name });
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not create the household");
+        }
+      }}
+    >
+      <h1 className="font-display text-2xl">Name this household</h1>
+      <p className="text-sm text-muted">This starts blank. Nothing from the sample household is loaded. You can load that later from Customize.</p>
+      <Field label="Household name">
+        <input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoFocus />
+      </Field>
+      {error ? <p className="text-sm text-clay">{error}</p> : null}
+      <Button type="submit">Create</Button>
+    </form>
+  );
+}

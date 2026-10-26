@@ -620,6 +620,8 @@ export type Action = (
   | { type: "account.delete"; confirm: string; ownerId?: string }
   | { type: "sample.clear"; ownerId?: string }
   | { type: "sample.load"; ownerId?: string }
+  | { type: "household.begin"; name: string; ownerId?: string }
+  | { type: "household.blank"; name: string; ownerId?: string }
   | { type: "advisor.log"; question: string; answer: string; ownerId?: string }
   | { type: "ledger.save"; ledger: { id?: string; name: string; taxForm?: string; activity?: string; kind?: string }; ownerId?: string }
   | { type: "biz.account.save"; ledgerId: string; account: { id?: string; name: string; kind?: string }; ownerId?: string }

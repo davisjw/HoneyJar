@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Choose **Need an account**. The password has to be at least 8 characters. The display name becomes the household name.
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Choose **Need an account**. The password has to be at least 8 characters. The next screen asks you to name the household. That name starts a blank set of books. The sample household is loaded only from **Customize**, and only after you confirm.
 
 On Windows, install [Node 22](https://nodejs.org/) and Git, then use PowerShell in the project folder:
 
@@ -26,7 +26,7 @@ npm run dev
 
 Open the same address. Leave `DATABASE_URL` unset for a first try. The books are stored in `data\pglite`. Ctrl+C stops the server. Docker is not required.
 
-The first sign-in fills the jar with a sample household (the Calders). It is fiction. Edit it, or open **Customize** and choose **Clear books**. **Load sample household** puts it back.
+The first sign-in asks for a household name and starts blank. **Load sample household** in Customize puts the Calder books in, and it asks before it erases what is already there.
 
 With no `DATABASE_URL`, the database is a file at `data/pglite` (override the directory with `PGLITE_DATA_DIR`). Restarting the server keeps the book. That directory is gitignored. It is one machine and one process, and deleting it deletes the books. Use Postgres when the data should last, or when more than one machine should see it.
 
