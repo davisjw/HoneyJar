@@ -51,6 +51,8 @@ docker compose up --build
 
 Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. Set `BETTER_AUTH_SECRET` before `docker compose up` if anyone else can reach the machine. The database port is bound to `127.0.0.1` only. On a remote host, follow [Nginx on a different machine from Docker](#nginx-on-a-different-machine-from-docker) instead of opening port 8080.
 
+Local Compose changes belong in `compose.override.yaml`, copied from [compose.override.example.yaml](../compose.override.example.yaml). `docker compose up` loads that file when it is present and does not fail when it is absent. It is gitignored, so a pull does not replace it. An `include` cannot do this: Compose stops if an included path is missing, and an include is not allowed to override a service defined in the included file. If you pass `-f` yourself, Compose no longer looks for the override. Add `-f compose.override.yaml` last, and only when the file exists.
+
 
 ## Keep the data
 

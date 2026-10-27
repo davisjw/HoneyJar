@@ -1,0 +1,15 @@
+# Copy to compose.override.yaml. That copy is gitignored, so git pull will not touch it.
+# docker compose up loads compose.override.yaml when the file is there and continues
+# when it is not. Do not add it under include: a missing include stops Compose.
+#
+# Passing -f yourself turns off that automatic load. Add -f compose.override.yaml
+# at the end only after this file exists:
+#
+#   docker compose -f compose.yaml -f compose.oidc-ca.yaml -f compose.override.yaml up -d
+#
+# services:
+#   app:
+#     environment:
+#       OIDC_ISSUER: https://auth.example/application/o/honeyjar/
+#     ports:
+#       - "10.0.0.5:8080:8080"

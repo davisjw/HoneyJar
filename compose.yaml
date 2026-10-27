@@ -10,6 +10,11 @@
 #   export BETTER_AUTH_URL=https://books.example.com
 #   export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
 #   docker compose up --build -d
+#
+# A compose.override.yaml next to this file is local and gitignored. Compose
+# loads it when it exists and does not fail when it does not. See
+# compose.override.example.yaml. Do not include that file from here: include
+# requires the path to exist.
 name: honeyjar
 
 include:

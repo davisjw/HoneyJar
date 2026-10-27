@@ -27,5 +27,6 @@ data/
 
 public/summary-examples/
 
-# Private CA used to trust an OpenID Connect issuer.
-oidc-ca.pem
+# Local Compose overrides. docker compose up loads this when it exists.
+compose.override.yaml
+compose.override.yml
