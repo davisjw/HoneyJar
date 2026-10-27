@@ -161,6 +161,22 @@ describe("utility sheet", () => {
     assert.equal(rows[1]?.computed.bill_amount, 12.5);
   });
 
+  it("keeps a typed charge when the bill total is a different column", () => {
+    const columns: UtilColumn[] = [
+      { id: "1", utilityId: "m", key: "bill_total", label: "Bill Amount", kind: "calculated", unit: "$", formula: "{delivery} + {supply}", rollup: "", fromChildren: false },
+      { id: "2", utilityId: "m", key: "delivery_charge", label: "Delivery", kind: "calculated", unit: "$", formula: "{month_cust_charge} + {riders}", rollup: "", fromChildren: false },
+      { id: "3", utilityId: "m", key: "bill_amount", label: "Month Cust Charge", kind: "money", unit: "", formula: "", rollup: "bill", fromChildren: false },
+      { id: "4", utilityId: "m", key: "riders", label: "Riders", kind: "money", unit: "", formula: "", rollup: "", fromChildren: false },
+      { id: "5", utilityId: "m", key: "supply", label: "Supply", kind: "number", unit: "", formula: "", rollup: "", fromChildren: false },
+    ];
+    const rows = buildSheet("m", columns, [
+      read({ id: "b", utilityId: "m", date: "2022-09-19", amountCents: 1900, cells: { bill_amount: 19, riders: 3.71, supply: 2.91 } }),
+    ]);
+    assert.equal(rows[0]?.computed.bill_amount, 19);
+    assert.equal(rows[0]?.computed.delivery_charge, 22.71);
+    assert.equal(rows[0]?.computed.bill_total, 25.62);
+  });
+
   it("rolls a child calculated column up to the parent", () => {
     const parent: UtilColumn = {
       id: "gal",

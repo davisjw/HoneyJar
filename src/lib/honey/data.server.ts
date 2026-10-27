@@ -1533,7 +1533,17 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const kind = c.kind === "money" || c.kind === "calculated" || c.kind === "date" ? c.kind : "number";
       const id = str(c.id, 80) || nid();
       const current = await sql<{ id: string; key: string; rollup: string }>`select id, key, rollup from utility_columns where id = ${id} and user_id = ${owner}`;
-      const key = current[0]?.key || label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "field";
+      let key = current[0]?.key || label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "field";
+      if (!current.length) {
+        const existing = await sql<{ key: string }>`select key from utility_columns where user_id = ${owner} and meter_id = ${meterId}`;
+        const used = new Set(existing.map((row) => row.key));
+        if (used.has(key)) {
+          const base = key.slice(0, 36);
+          let n = 2;
+          while (used.has(`${base}_${n}`)) n += 1;
+          key = `${base}_${n}`;
+        }
+      }
       if (kind === "date") {
         const taken = await sql<{ id: string }>`select id from utility_columns where user_id = ${owner} and meter_id = ${meterId} and (rollup = 'readDate' or key = 'read_on') and id <> ${id}`;
         if (taken.length) throw new Error("This meter already has a read date.");
