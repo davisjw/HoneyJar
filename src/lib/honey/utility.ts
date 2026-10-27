@@ -203,6 +203,7 @@ const STARTERS: Starter[] = [
     slug: "cellular",
     unit: "none",
     columns: [
+      { key: "read_on", label: "Bill date", kind: "date", rollup: "readDate" },
       { key: "plan_amount", label: "Plan", kind: "money", fromChildren: true },
       { key: "equipment", label: "Equipment", kind: "money", fromChildren: true },
       { key: "surcharges", label: "Surcharges", kind: "money", fromChildren: true },
@@ -327,7 +328,7 @@ export function ensureReadDateColumn(columns: UtilColumn[]): UtilColumn[] {
 }
 
 export function hasMeter(columns: { rollup: Rollup }[], unit = ""): boolean {
-  if (columns.some((c) => c.rollup === "meter" || c.rollup === "readDate")) return true;
+  if (columns.some((c) => c.rollup === "meter")) return true;
   return Boolean(unit) && unit !== "none";
 }
 
@@ -813,17 +814,19 @@ export function buildSheet(
         if (Number.isFinite(epochDays)) entered[column.key] = epochDays;
         continue;
       }
+      if (column.fromChildren && column.kind !== "calculated") {
+        const rolled = childRolled(column, nested, childReads, childColumns, monthOf(reading.date));
+        if (rolled != null) {
+          entered[column.key] = rolled;
+          continue;
+        }
+      }
       if (column.rollup === "bill") {
         const typed = reading.cells?.[column.key];
         entered[column.key] = typed != null && Number.isFinite(typed) ? typed : reading.amountCents / 100;
         continue;
       }
       if (column.kind === "calculated" || entered[column.key] != null) continue;
-      if (column.fromChildren) {
-        const rolled = childRolled(column, nested, childReads, childColumns, monthOf(reading.date));
-        if (rolled != null) entered[column.key] = rolled;
-        continue;
-      }
       if (column.rollup === "meter" && reading.meter != null) entered[column.key] = reading.meter;
       if (column.rollup === "days") entered[column.key] = days ?? 30;
       if (column.rollup === "usage" && prev?.meter != null && reading.meter != null && !reading.opening) {

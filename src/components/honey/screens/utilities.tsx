@@ -734,13 +734,13 @@ function ColumnDialog({
           onChange={(e) => {
             const next = e.target.value as typeof kind;
             setKind(next);
-            if (next === "date" && !label.trim()) setLabel("Meter read date");
+            if (next === "date" && !label.trim()) setLabel(metered ? "Meter read date" : "Bill date");
           }}
         >
           <option value="number">Number</option>
           <option value="money">Money</option>
           <option value="calculated">Calculated</option>
-          {metered && !structural ? <option value="date">Meter read date</option> : null}
+          {!structural ? <option value="date">{metered ? "Meter read date" : "Bill date"}</option> : null}
         </select>
       </Field>
       {kind === "date" ? (

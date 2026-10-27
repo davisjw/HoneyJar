@@ -104,6 +104,7 @@ describe("utility sheet", () => {
     assert.equal(starterColumns("m", "electric").find((c) => c.key === "read_days")?.formula, "{read_on} - {prev.read_on}");
     assert.equal(starterColumns("m", "water").find((c) => c.key === "usage_ccf")?.formula, "{meter_read} - {prev.meter_read}");
     assert.equal(starterColumns("m", "cellular").some((c) => c.rollup === "usage"), false);
+    assert.equal(starterColumns("m", "cellular").find((c) => c.rollup === "readDate")?.label, "Bill date");
     assert.equal(last.computed.grid_kwh, 150);
     assert.equal(last.computed.energy_tier_charge, 21.08);
     assert.equal(last.computed.bill_sum, 108);
@@ -136,6 +137,22 @@ describe("utility sheet", () => {
     assert.equal(last.computed.tesla_kwh, 54);
     assert.equal(last.computed.plan_amount, 25);
     assert.notEqual(last.computed.plan_amount, 54);
+  });
+
+  it("sums a child bill onto the parent row for that month", () => {
+    const parent = starterColumns("phone", "cellular");
+    const child = starterColumns("line", "cellular");
+    const rows = buildSheet(
+      "phone",
+      parent,
+      [read({ id: "p", utilityId: "phone", date: "2026-02-06", amountCents: 0 })],
+      [read({ id: "c", utilityId: "line", date: "2026-02-04", amountCents: 4200, cells: { plan_amount: 30, minutes: 40 } })],
+      [],
+      child,
+    );
+    assert.equal(rows[0]?.computed.plan_amount, 30);
+    assert.equal(rows[0]?.computed.minutes, 40);
+    assert.equal(rows[0]?.computed.bill_amount, 42);
   });
 
   it("fills a calculated column from another calculated column, even when listed first", () => {
