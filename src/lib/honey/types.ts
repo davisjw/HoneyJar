@@ -102,6 +102,21 @@ export type Rule = {
   priority: number;
 };
 
+export type Contact = {
+  id: string;
+  name: string;
+  kind: string;
+  phone: string;
+  website: string;
+  email: string;
+  street: string;
+  city: string;
+  region: string;
+  postal: string;
+  hours: string;
+  notes: string;
+};
+
 export type Person = {
   id: string;
   name: string;
@@ -509,6 +524,7 @@ export type Workspace = {
   categories: Category[];
   rules: Rule[];
   people: Person[];
+  contacts: Contact[];
   transactions: Txn[];
   bills: Bill[];
   payments: Payment[];
@@ -545,6 +561,17 @@ export type ActionResult = {
   recoveryCode?: string;
   txn?: Txn;
   matches?: { key: string; txns: Txn[] }[];
+  lookup?: {
+    name: string;
+    phone: string;
+    website: string;
+    email: string;
+    street: string;
+    city: string;
+    region: string;
+    postal: string;
+    hours: string;
+  };
   patch?: {
     transactions?: Txn[];
     deletedTransactionIds?: string[];
@@ -563,6 +590,9 @@ export type Action = (
   | { type: "rule.delete"; id: string; ownerId?: string }
   | { type: "person.save"; person: Partial<Person> & { name: string }; ownerId?: string }
   | { type: "person.delete"; id: string; ownerId?: string }
+  | { type: "contact.save"; contact: Partial<Contact> & { name: string }; ownerId?: string }
+  | { type: "contact.delete"; id: string; ownerId?: string }
+  | { type: "contact.lookup"; name: string; ownerId?: string }
   | { type: "txn.save"; txn: Partial<Txn> & { accountId: string; postedOn: string; amountCents: number; merchant: string }; ownerId?: string }
   | { type: "txn.delete"; id: string; ownerId?: string }
   | { type: "txn.import"; accountId: string; rows: { postedOn: string; amountCents: number; merchant: string; memo: string; accountId?: string; categoryId?: string | null; personId?: string | null; tags?: string[] }[]; ownerId?: string }

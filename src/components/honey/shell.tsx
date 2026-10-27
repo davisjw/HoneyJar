@@ -5,6 +5,7 @@ import {
   Briefcase,
   Car,
   ChevronDown,
+  Contact,
   FileText,
   Flag,
   HandCoins,
@@ -69,6 +70,7 @@ const NAV = [
     group: "Household",
     items: [
       { to: "/people", id: "people", label: "People", icon: Users },
+      { to: "/contacts", id: "contacts", label: "Contacts", icon: Contact },
       { to: "/documents", id: "documents", label: "Documents", icon: FileText },
       { to: "/share", id: "share", label: "Sharing", icon: Share2 },
       { to: "/accounts", id: "accounts", label: "Accounts", icon: Landmark },
@@ -112,6 +114,7 @@ const BUSINESS_NAV = [
     group: "Books",
     items: [
       { to: "/accounts", id: "accounts", label: "Accounts", icon: Landmark },
+      { to: "/contacts", id: "contacts", label: "Contacts", icon: Contact },
       { to: "/documents", id: "documents", label: "Documents", icon: FileText },
       { to: "/jars", id: "jars", label: "Jars", icon: Boxes },
     ],

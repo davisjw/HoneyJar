@@ -20,6 +20,7 @@ import {
 } from "@/lib/honey/calc";
 import type { Bill, Payment, Txn, UtilityColumn, UtilityMeter, UtilityReading } from "@/lib/honey/types";
 import { buildSheet, chargeCompare, suggestReadingId, type ReadLike, type UtilColumn } from "@/lib/honey/utility";
+import { ContactField } from "../contact-field";
 import { useBook } from "../book";
 import { Button, Card, Empty, Field, Modal, MoneyText, PageIntro, fieldClass, pinCell } from "../kit";
 import { ImportReview, type ImportDraft } from "./import-review";
@@ -447,7 +448,7 @@ function TxnEditor({
   const guess = matchCategory(merchant, memo, data.rules, data.categories);
   return (
     <Modal open={open} title={initial.id ? merchant || "Transaction" : "New transaction"} onClose={onClose}>
-      <Field label="Merchant"><input className={fieldClass} value={merchant} onChange={(e) => setMerchant(e.target.value)} /></Field>
+      <ContactField label="Merchant" kind="merchant" value={merchant} onChange={setMerchant} />
       <Field label="Amount (negative for spending)"><input className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
       <div className="grid grid-cols-2 gap-2">
         <Field label="Date"><input type="date" className={fieldClass} value={postedOn} onChange={(e) => setPostedOn(e.target.value)} /></Field>
@@ -747,7 +748,7 @@ function BillEditor({ bill, onClose }: { bill: Partial<Bill>; onClose: () => voi
   return (
     <Modal open title={bill.id ? "Edit bill" : "New bill"} onClose={onClose}>
       <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label="Payee"><input className={fieldClass} value={payee} onChange={(e) => setPayee(e.target.value)} /></Field>
+      <ContactField label="Payee" kind={kind === "utility" ? "utility" : "merchant"} value={payee} onChange={setPayee} />
       <div className="grid grid-cols-2 gap-2">
         <Field label="Amount"><input className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Principal (optional)"><input className={fieldClass} value={principal} onChange={(e) => setPrincipal(e.target.value)} /></Field>

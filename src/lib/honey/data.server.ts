@@ -15,6 +15,7 @@ import type {
   Asset,
   Bill,
   Category,
+  Contact,
   Contribution,
   CreditScore,
   DocumentRow,
@@ -247,6 +248,7 @@ export async function readWorkspace(
       sql<Record<string, unknown>>`select * from utility_columns where user_id = ${owner} order by sort, label`,
       sql<Record<string, unknown>>`select * from utility_readings where user_id = ${owner} order by read_on`,
     ]);
+  const contactRows = await sql<Record<string, unknown>>`select * from contacts where user_id = ${owner} order by name`;
 
   const mapAccess = (row: Record<string, unknown>): AccessRow => ({
     id: num(row.id),
@@ -285,6 +287,7 @@ export async function readWorkspace(
     categories: primary?.categories ?? [],
     rules: primary?.rules ?? [],
     people: people.map(mapPerson),
+    contacts: contactRows.map(mapContact),
     transactions: primary?.transactions ?? [],
     bills: primary?.bills ?? [],
     payments: payments.map(mapPayment),
@@ -357,6 +360,22 @@ function mapPerson(r: Record<string, unknown>): Person {
     linkedUserId: r.linked_user_id ? String(r.linked_user_id) : null,
     archived: Boolean(r.archived),
     sort: num(r.sort),
+  };
+}
+function mapContact(r: Record<string, unknown>): Contact {
+  return {
+    id: String(r.id),
+    name: String(r.name ?? ""),
+    kind: String(r.kind ?? "merchant"),
+    phone: String(r.phone ?? ""),
+    website: String(r.website ?? ""),
+    email: String(r.email ?? ""),
+    street: String(r.street ?? ""),
+    city: String(r.city ?? ""),
+    region: String(r.region ?? ""),
+    postal: String(r.postal ?? ""),
+    hours: String(r.hours ?? ""),
+    notes: String(r.notes ?? ""),
   };
 }
 function mapRule(r: Record<string, unknown>): Rule {
@@ -1017,6 +1036,52 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         await sql`insert into people (id, user_id, name, relation, email, linked_user_id, archived, sort) values (${id}, ${owner}, ${name}, ${relation}, ${email}, ${linked}, false, ${num(p.sort)})`;
       }
       return {};
+    }
+    case "contact.save": {
+      const c = action.contact;
+      const id = str(c.id, 80) || nid();
+      const name = str(c.name, 120);
+      if (!name) throw new Error("Name the contact.");
+      const kind = ["bank", "merchant", "utility", "other"].includes(String(c.kind)) ? String(c.kind) : "merchant";
+      const existing = await sql`select id from contacts where id = ${id} and user_id = ${owner}`;
+      const fields = {
+        name,
+        kind,
+        phone: str(c.phone, 40),
+        website: str(c.website, 200),
+        email: str(c.email, 120),
+        street: str(c.street, 120),
+        city: str(c.city, 80),
+        region: str(c.region, 40),
+        postal: str(c.postal, 20),
+        hours: str(c.hours, 240),
+        notes: str(c.notes, 400),
+      };
+      if (existing.length) {
+        await sql`
+          update contacts set
+            name = ${fields.name}, kind = ${fields.kind}, phone = ${fields.phone}, website = ${fields.website},
+            email = ${fields.email}, street = ${fields.street}, city = ${fields.city}, region = ${fields.region},
+            postal = ${fields.postal}, hours = ${fields.hours}, notes = ${fields.notes}
+          where id = ${id} and user_id = ${owner}
+        `;
+      } else {
+        await sql`
+          insert into contacts (id, user_id, name, kind, phone, website, email, street, city, region, postal, hours, notes)
+          values (${id}, ${owner}, ${fields.name}, ${fields.kind}, ${fields.phone}, ${fields.website}, ${fields.email}, ${fields.street}, ${fields.city}, ${fields.region}, ${fields.postal}, ${fields.hours}, ${fields.notes})
+        `;
+      }
+      return {};
+    }
+    case "contact.delete": {
+      await sql`delete from contacts where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "contact.lookup": {
+      const { lookupBusiness } = await import("./lookup");
+      const lookup = await lookupBusiness(str(action.name, 120));
+      if (!lookup.phone && !lookup.street && !lookup.website) throw new Error("No public phone, address, or website was found for that name.");
+      return { lookup };
     }
     case "person.delete": {
       await sql`update transactions set person_id = null where person_id = ${action.id} and user_id = ${owner}`;

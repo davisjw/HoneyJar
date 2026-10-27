@@ -19,6 +19,7 @@ import {
   type SheetRow,
   type UtilColumn,
 } from "@/lib/honey/utility";
+import { ContactField } from "../contact-field";
 import { useBook } from "../book";
 import { Button, Card, Field, Modal, PageIntro, fieldClass, pinCell } from "../kit";
 
@@ -554,7 +555,7 @@ function MeterDialog({ meter, parents, onClose }: { meter?: UtilityMeter; parent
   return (
     <Modal open title={meter ? "Edit meter" : "New meter"} onClose={onClose}>
       <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label="Provider"><input className={fieldClass} value={provider} onChange={(e) => setProvider(e.target.value)} /></Field>
+      <ContactField label="Provider" kind="utility" value={provider} onChange={setProvider} />
       <Field label="Unit"><input className={fieldClass} value={unit} onChange={(e) => setUnit(e.target.value)} /></Field>
       <Field label="Parent">
         <select className={fieldClass} value={parentId} onChange={(e) => setParentId(e.target.value)}>

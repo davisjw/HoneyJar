@@ -24,6 +24,7 @@ import {
 import type { Account, Category, Profile, ProfilePatch, Reminder, Watch } from "@/lib/honey/types";
 import { createVault, decryptText, encryptText, unlockVault } from "@/lib/honey/vault";
 import { NAV_IDS } from "../shell";
+import { ContactField } from "../contact-field";
 import { useBook } from "../book";
 import { Button, Card, Field, Modal, PageIntro, downloadText, fieldClass } from "../kit";
 
@@ -800,7 +801,7 @@ function AccountEditor({ account, onClose }: { account: Partial<Account>; onClos
   return (
     <Modal open title="Account" onClose={onClose}>
       <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label="Institution"><input className={fieldClass} value={institution} onChange={(e) => setInstitution(e.target.value)} /></Field>
+      <ContactField label="Institution" kind="bank" value={institution} onChange={setInstitution} />
       <Field label="Kind">
         <select className={fieldClass} value={kind} onChange={(e) => setKind(e.target.value)}>
           {["checking", "savings", "cash", "credit", "loan", "mortgage", "investment"].map((k) => <option key={k}>{k}</option>)}
