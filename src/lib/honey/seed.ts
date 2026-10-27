@@ -47,6 +47,7 @@ export async function clearHousehold(sql: Sql, userId: string) {
     "realizations",
     "people",
     "contacts",
+    "weather_months",
   ];
   for (const table of tables) {
     await sql.query(`delete from ${table} where user_id = $1`, [userId]);

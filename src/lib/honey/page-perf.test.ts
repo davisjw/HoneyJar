@@ -173,6 +173,7 @@ function profile(): Profile {
     seeded: true,
     initialized: true,
     monthStartDay: 1,
+    postal: "",
   };
 }
 

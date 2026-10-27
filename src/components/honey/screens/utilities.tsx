@@ -1,9 +1,10 @@
 import { useRouterState } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { GripVertical } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { MUTED, RULE, axisTick } from "../charts";
 import { money, prettyDate } from "@/lib/honey/calc";
-import type { UtilityColumn, UtilityMeter, UtilityReading } from "@/lib/honey/types";
+import type { UtilityColumn, UtilityMeter, UtilityReading, Workspace } from "@/lib/honey/types";
 import {
   UTILITY_TEMPLATES,
   buildSheet,
@@ -146,6 +147,10 @@ export function UtilitiesPage() {
                 columns={columns.map(engineColumn)}
                 rows={rows}
                 payments={data.payments}
+                climate={data.weather}
+                postal={data.profile.postal}
+                today={data.today}
+                run={run}
               />
             </div>
           ) : null}
@@ -180,11 +185,19 @@ function Graphs({
   columns,
   rows,
   payments,
+  climate,
+  postal,
+  today,
+  run,
 }: {
   meter: UtilityMeter;
   columns: UtilColumn[];
   rows: SheetRow[];
   payments: { readingId: string | null; amountCents: number }[];
+  climate: Workspace["weather"];
+  postal: string;
+  today: string;
+  run: ReturnType<typeof useBook>["run"];
 }) {
   const series = historySeries(columns);
   const preferred =
@@ -193,6 +206,9 @@ function Graphs({
     series[0]?.key ??
     "";
   const [picked, setPicked] = useState("");
+  const [pending, setPending] = useState(false);
+  const [tried, setTried] = useState(false);
+  const asked = useRef("");
   const key = series.some((item) => item.key === picked) ? picked : preferred;
   const chosen = series.find((item) => item.key === key);
   const year = Number(rows[rows.length - 1]?.date.slice(0, 4)) || new Date().getFullYear();
@@ -203,6 +219,33 @@ function Graphs({
     year,
     payments.flatMap((payment) => (payment.readingId ? [{ readingId: payment.readingId, amountCents: payment.amountCents }] : [])),
   );
+  const chart = points.map((point, index) => {
+    const month = `${year}-${String(index + 1).padStart(2, "0")}`;
+    return { ...point, temp: climate.find((row) => row.month === month)?.avgF ?? null };
+  });
+  const hasTemp = chart.some((point) => point.temp != null);
+  const zip = postal.replace(/\D/g, "").slice(0, 5);
+  const zipOk = /^\d{5}$/.test(zip);
+  useEffect(() => {
+    if (!zipOk) return;
+    const cap = today.slice(0, 7);
+    const months: string[] = [];
+    for (const y of [year - 1, year]) {
+      for (let m = 1; m <= 12; m++) {
+        const month = `${y}-${String(m).padStart(2, "0")}`;
+        if (month <= cap) months.push(month);
+      }
+    }
+    const have = new Set(climate.map((row) => row.month));
+    const missing = months.filter((month) => !have.has(month));
+    if (!missing.length) return;
+    const token = `${zip}:${missing.join(",")}`;
+    if (asked.current === token) return;
+    asked.current = token;
+    setTried(true);
+    setPending(true);
+    void run({ type: "weather.ensure", months: missing }).finally(() => setPending(false));
+  }, [climate, run, today, year, zip, zipOk]);
   const gaps = points.filter((point) => point.lineGap).map((point) => point.label);
   const usageKey = columns.find((column) => column.rollup === "usage")?.key;
   const latest = [...rows].reverse().find((row) => usageKey && row.computed[usageKey] != null);
@@ -219,16 +262,21 @@ function Graphs({
           </select>
         </div>
         {tier != null && used != null ? <p className="mb-2 text-sm">Latest tier energy on {Math.round(used)} {meter.unit}: {money(tier)}</p> : null}
+        {!zipOk ? <p className="mb-2 text-sm text-muted">Add a US ZIP under Customize to plot each month’s average temperature.</p> : null}
+        {zipOk && pending ? <p className="mb-2 text-sm text-muted">Looking up average temperatures…</p> : null}
+        {zipOk && tried && !pending && !hasTemp ? <p className="mb-2 text-sm text-muted">No temperature is stored for these months yet.</p> : null}
         <div className="h-64">
           <ResponsiveContainer>
-            <ComposedChart data={points}>
+            <ComposedChart data={chart}>
               <CartesianGrid stroke={RULE} vertical={false} />
               <XAxis dataKey="label" tick={axisTick} />
-              <YAxis tick={axisTick} />
+              <YAxis yAxisId="use" tick={axisTick} />
+              {hasTemp ? <YAxis yAxisId="temp" orientation="right" tick={axisTick} width={40} unit="°" /> : null}
               <Tooltip />
               <Legend />
-              <Bar dataKey="lastYear" name={String(year - 1)} fill={MUTED} />
-              <Line dataKey="thisYear" name={String(year)} stroke="#c4841d" strokeWidth={2} dot={false} />
+              <Bar yAxisId="use" dataKey="lastYear" name={String(year - 1)} fill={MUTED} />
+              <Line yAxisId="use" dataKey="thisYear" name={String(year)} stroke="#c4841d" strokeWidth={2} dot={false} />
+              {hasTemp ? <Line yAxisId="temp" dataKey="temp" name="Avg °F" stroke="#2c6e8a" strokeWidth={2} dot={false} /> : null}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -415,35 +463,86 @@ function ColumnsTab({
 }) {
   const [editing, setEditing] = useState<UtilityColumn | "new" | null>(null);
   const [tiers, setTiers] = useState(meter.tiers.map((t) => `${t.upTo ?? ""} ${t.rateCents}`).join("\n"));
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const metered = hasMeter(columns, meter.unit);
+  const shift = (index: number, direction: -1 | 1) => {
+    const ids = columns.map((col) => col.id);
+    const swap = index + direction;
+    if (swap < 0 || swap >= ids.length) return;
+    const moved = ids[index]!;
+    ids[index] = ids[swap]!;
+    ids[swap] = moved;
+    void run({ type: "column.order", meterId: meter.id, ids });
+  };
   return (
     <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <Card>
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
             <p className="font-medium">Columns</p>
-            <p className="text-xs text-muted">Select a column to rename it, change its kind, or edit the formula. Calculated cells are not stored.</p>
+            <p className="text-xs text-muted">Drag a row to reorder it, or use Up and Down. Select a column to rename it, change its kind, or edit the formula. Calculated cells are not stored.</p>
           </div>
           {canEdit ? <Button tone="quiet" onClick={() => setEditing("new")}>Add column</Button> : null}
         </div>
         <ul className="space-y-2">
           {columns.map((c, i) => (
-            <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-line py-2 text-sm">
-              <button type="button" className="min-w-0 text-left" onClick={() => canEdit && setEditing(c)}>
-                <span className="font-medium">{c.label}</span>
-                <span className="mt-0.5 block text-muted">
-                  {c.kind}
-                  {c.unit ? ` · ${c.unit}` : ""}
-                  {c.rollup ? ` · from ${c.rollup}` : ""}
-                  {c.fromChildren ? " · sum children" : ""}
-                  {c.formula ? ` · ${c.formula}` : ""}
-                </span>
-              </button>
+            <li
+              key={c.id}
+              className={`flex flex-wrap items-center justify-between gap-2 border-b border-line py-2 text-sm ${overId === c.id && dragId !== c.id ? "bg-honey-soft" : ""}`}
+              onDragOver={(e) => {
+                if (!canEdit || !dragId) return;
+                e.preventDefault();
+                setOverId(c.id);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const from = dragId;
+                setDragId(null);
+                setOverId(null);
+                if (!from || from === c.id) return;
+                const ids = columns.map((col) => col.id);
+                const at = ids.indexOf(from);
+                const to = ids.indexOf(c.id);
+                if (at < 0 || to < 0) return;
+                ids.splice(at, 1);
+                ids.splice(to, 0, from);
+                void run({ type: "column.order", meterId: meter.id, ids });
+              }}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                {canEdit ? (
+                  <span
+                    draggable
+                    title="Drag to reorder"
+                    aria-label={`Drag ${c.label}`}
+                    className="inline-flex min-h-11 min-w-11 cursor-grab items-center justify-center text-muted active:cursor-grabbing"
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", c.id);
+                      setDragId(c.id);
+                    }}
+                    onDragEnd={() => { setDragId(null); setOverId(null); }}
+                  >
+                    <GripVertical className="h-4 w-4" />
+                  </span>
+                ) : null}
+                <button type="button" className="min-w-0 text-left" onClick={() => canEdit && setEditing(c)}>
+                  <span className="font-medium">{c.label}</span>
+                  <span className="mt-0.5 block text-muted">
+                    {c.kind}
+                    {c.unit ? ` · ${c.unit}` : ""}
+                    {c.rollup ? ` · from ${c.rollup}` : ""}
+                    {c.fromChildren ? " · sum children" : ""}
+                    {c.formula ? ` · ${c.formula}` : ""}
+                  </span>
+                </button>
+              </span>
               {canEdit ? (
                 <span className="flex flex-wrap gap-1">
                   <Button tone="quiet" onClick={() => setEditing(c)}>Edit</Button>
-                  <Button tone="ghost" disabled={i === 0} onClick={() => run({ type: "column.move", id: c.id, direction: "up" })}>Up</Button>
-                  <Button tone="ghost" disabled={i === columns.length - 1} onClick={() => run({ type: "column.move", id: c.id, direction: "down" })}>Down</Button>
+                  <Button tone="ghost" disabled={i === 0} onClick={() => shift(i, -1)}>Up</Button>
+                  <Button tone="ghost" disabled={i === columns.length - 1} onClick={() => shift(i, 1)}>Down</Button>
                   <Button tone="danger" onClick={() => run({ type: "column.delete", id: c.id })}>Remove</Button>
                 </span>
               ) : null}
@@ -455,6 +554,7 @@ function ColumnsTab({
             key={editing === "new" ? "new" : editing.id}
             meterId={meter.id}
             column={editing === "new" ? undefined : editing}
+            columns={columns}
             metered={metered}
             onClose={() => setEditing(null)}
           />
@@ -473,11 +573,13 @@ function ColumnsTab({
 function ColumnDialog({
   meterId,
   column,
+  columns,
   metered,
   onClose,
 }: {
   meterId: string;
   column?: UtilityColumn;
+  columns: UtilityColumn[];
   metered: boolean;
   onClose: () => void;
 }) {
@@ -488,9 +590,19 @@ function ColumnDialog({
   const [unit, setUnit] = useState(column?.unit ?? "");
   const [formula, setFormula] = useState(column?.formula ?? "");
   const [fromChildren, setFromChildren] = useState(column?.fromChildren ?? false);
+  const [afterId, setAfterId] = useState("");
   return (
     <Modal open title={column ? "Edit column" : "Add column"} onClose={onClose}>
       <Field label="Label"><input className={fieldClass} value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
+      {!column ? (
+        <Field label="Place after">
+          <select className={fieldClass} value={afterId} onChange={(e) => setAfterId(e.target.value)}>
+            <option value="__start">At the start</option>
+            {columns.map((item) => <option key={item.id} value={item.id}>After {item.label}</option>)}
+            <option value="">At the end</option>
+          </select>
+        </Field>
+      ) : null}
       <Field label="Kind">
         <select
           className={fieldClass}
@@ -537,6 +649,7 @@ function ColumnDialog({
             formula: kind === "calculated" ? formula.trim() : "",
             rollup: kind === "date" ? "readDate" : (column?.rollup ?? ""),
             fromChildren: kind === "date" ? false : fromChildren,
+            ...(column ? {} : { afterId }),
           },
         });
         onClose();

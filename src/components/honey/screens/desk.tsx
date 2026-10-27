@@ -1260,17 +1260,26 @@ function HouseholdForm() {
   const [name, setName] = useState(data?.profile.displayName ?? "");
   const [currency, setCurrency] = useState(data?.profile.currency ?? "USD");
   const [day, setDay] = useState(String(data?.profile.monthStartDay ?? 1));
+  const [postal, setPostal] = useState(data?.profile.postal ?? "");
   if (!data) return null;
   return (
-    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-      <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label="Currency">
-        <select className={fieldClass} value={currency} onChange={(e) => setCurrency(e.target.value)}>
-          {["USD", "CAD", "EUR", "GBP"].map((c) => <option key={c}>{c}</option>)}
-        </select>
-      </Field>
-      <Field label="Month starts on day"><input className={fieldClass} value={day} onChange={(e) => setDay(e.target.value)} /></Field>
-      <Button onClick={() => run({ type: "profile.update", patch: { displayName: name, currency, monthStartDay: Number(day) || 1 } })}>Save</Button>
+    <div className="mt-3">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="Currency">
+          <select className={fieldClass} value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            {["USD", "CAD", "EUR", "GBP"].map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Month starts on day"><input className={fieldClass} value={day} onChange={(e) => setDay(e.target.value)} /></Field>
+        <Field label="ZIP">
+          <input className={fieldClass} inputMode="numeric" maxLength={10} value={postal} onChange={(e) => setPostal(e.target.value)} placeholder="04101" />
+        </Field>
+      </div>
+      <p className="mt-2 text-xs text-muted">A US ZIP lets utility graphs show that month’s average temperature.</p>
+      <div className="mt-2">
+        <Button onClick={() => run({ type: "profile.update", patch: { displayName: name, currency, monthStartDay: Number(day) || 1, postal } })}>Save</Button>
+      </div>
     </div>
   );
 }

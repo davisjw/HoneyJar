@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { LogOut } from "lucide-react";
 import { Navigate } from "@tanstack/react-router";
 import { GROK_PROVIDERS, authEnabled, signIn, signOut } from "./client";
 import { hasGateSessionMarker } from "./gate-session-marker";
@@ -113,7 +114,7 @@ export function SignInButtons() {
  * gate-materialized — behind the gate the next request signs the viewer
  * straight back in, so a sign-out control there is a broken loop.
  */
-export function UserButton() {
+export function UserButton({ compact = false }: { compact?: boolean }) {
   const user = useCurrentUser();
   // Sign-out can take a moment (and can fail when deployed), so the control
   // shows it is working and cannot be fired twice.
@@ -125,34 +126,45 @@ export function UserButton() {
   );
   if (!user) return null;
   const label = user.displayName ?? user.primaryEmail ?? "Account";
+  const avatar = user.profileImageUrl ? (
+    <img src={user.profileImageUrl} alt="" title={label} className="h-8 w-8 rounded-full object-cover" />
+  ) : (
+    <span title={label} className="grid h-8 w-8 place-items-center rounded-full bg-black/10 text-sm font-medium dark:bg-white/20">
+      {label.charAt(0).toUpperCase()}
+    </span>
+  );
+  const signOutButton = authEnabled && !gateSession ? (
+    <button
+      type="button"
+      title="Sign out"
+      aria-label="Sign out"
+      disabled={signingOut}
+      onClick={() => {
+        setSigningOut(true);
+        void signOut().catch(() => setSigningOut(false));
+      }}
+      className={
+        compact
+          ? "inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg opacity-80 hover:bg-white/10 disabled:cursor-wait"
+          : "cursor-pointer text-sm underline-offset-4 opacity-70 hover:underline disabled:cursor-wait disabled:no-underline"
+      }
+    >
+      {compact ? signingOut ? "…" : <LogOut className="h-4 w-4" /> : signingOut ? "Signing out…" : "Sign out"}
+    </button>
+  ) : null;
+  if (compact) {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        {avatar}
+        {signOutButton}
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2">
-      {user.profileImageUrl ? (
-        <img
-          src={user.profileImageUrl}
-          alt=""
-          className="h-8 w-8 rounded-full object-cover"
-        />
-      ) : (
-        <span className="grid h-8 w-8 place-items-center rounded-full bg-black/10 text-sm font-medium dark:bg-white/20">
-          {label.charAt(0).toUpperCase()}
-        </span>
-      )}
-      <span className="text-sm font-medium">{label}</span>
-      {authEnabled && !gateSession && (
-        <button
-          type="button"
-          disabled={signingOut}
-          onClick={() => {
-            setSigningOut(true);
-            // Success navigates away; on failure re-enable so it can be retried.
-            void signOut().catch(() => setSigningOut(false));
-          }}
-          className="cursor-pointer text-sm underline-offset-4 opacity-70 hover:underline disabled:cursor-wait disabled:no-underline"
-        >
-          {signingOut ? "Signing out…" : "Sign out"}
-        </button>
-      )}
+      {avatar}
+      <span className="min-w-0 truncate text-sm font-medium">{label}</span>
+      {signOutButton}
     </div>
   );
 }

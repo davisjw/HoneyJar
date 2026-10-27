@@ -113,6 +113,7 @@ export async function deleteOwnedAccount(sql: Sql, userId: string, confirm: stri
     "utility_meters",
     "utility_columns",
     "utility_readings",
+    "weather_months",
     "profiles",
     "recovery_codes",
     "audit_events",

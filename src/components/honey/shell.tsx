@@ -15,6 +15,8 @@ import {
   LineChart,
   ListChecks,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   PiggyBank,
   Receipt,
   Scale,
@@ -123,20 +125,27 @@ const BUSINESS_NAV = [
 
 const BUSINESS_PATHS = new Set<string>(BUSINESS_NAV.flatMap((group) => group.items.map((item) => item.to)));
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({ onNavigate, compact = false }: { onNavigate?: () => void; compact?: boolean }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const { data, jar, summary } = useBook();
   if (summary) {
     const active = path.startsWith("/summary");
     return (
       <div>
-        <p className="px-3 text-xs tracking-wide text-sidebar-muted uppercase">All jars</p>
+        {compact ? null : <p className="px-3 text-xs tracking-wide text-sidebar-muted uppercase">All jars</p>}
         <Link
           to="/summary"
           onClick={onNavigate}
-          className={cn("mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm", active ? "bg-honey font-medium text-ink" : "text-sidebar-fg hover:bg-white/10")}
+          title="Summary"
+          aria-label="Summary"
+          className={cn(
+            "mt-1 flex min-h-11 items-center gap-2 rounded-lg text-sm",
+            compact ? "justify-center px-0" : "px-3",
+            active ? "bg-honey font-medium text-ink" : "text-sidebar-fg hover:bg-white/10",
+          )}
         >
-          Summary
+          <LayoutDashboard className="h-4 w-4 shrink-0" />
+          {compact ? <span className="sr-only">Summary</span> : "Summary"}
         </Link>
       </div>
     );
@@ -144,7 +153,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const hidden = new Set((data?.profile.navHidden ?? "").split(",").filter(Boolean));
   const nav = jar?.kind === "business" || jar?.kind === "property" ? BUSINESS_NAV : NAV;
   return (
-    <div className="space-y-5">
+    <div className={compact ? "space-y-3" : "space-y-5"}>
       {nav.map((group) => {
         const items = group.items.filter((item) => {
           if (item.id === "leases" && jar?.kind !== "property") return false;
@@ -153,7 +162,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         if (!items.length) return null;
         return (
           <div key={group.group}>
-            <p className="px-3 text-xs tracking-wide text-sidebar-muted uppercase">{group.group}</p>
+            {compact ? <div className="mx-2 border-t border-white/10" /> : <p className="px-3 text-xs tracking-wide text-sidebar-muted uppercase">{group.group}</p>}
             <div className="mt-1 space-y-1">
               {items.map((item) => {
                 const active = item.to === "/" ? path === "/" : path.startsWith(item.to);
@@ -163,13 +172,16 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                     key={item.id}
                     to={item.to}
                     onClick={onNavigate}
+                    title={item.label}
+                    aria-label={item.label}
                     className={cn(
-                      "flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm",
+                      "flex min-h-11 items-center gap-2 rounded-lg text-sm",
+                      compact ? "justify-center px-0" : "px-3",
                       active ? "bg-honey font-medium text-ink" : "text-sidebar-fg hover:bg-white/10",
                     )}
                   >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {compact ? <span className="sr-only">{item.label}</span> : item.label}
                   </Link>
                 );
               })}
@@ -181,7 +193,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
+function JarSwitcher({ onNavigate, compact = false }: { onNavigate?: () => void; compact?: boolean }) {
   const { jar, jars, summary, setJar } = useBook();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -207,18 +219,31 @@ function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
     <div className="relative mb-4">
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/10"
+        className={cn("flex w-full items-center gap-2 rounded-lg py-2 text-left hover:bg-white/10", compact ? "justify-center px-0" : "justify-between px-2")}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        title={summary ? "All open jars" : jar?.name}
+        aria-label={summary ? "All open jars" : jar?.name}
       >
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{summary ? "Summary" : jar?.name}</span>
-          <span className="block text-xs text-sidebar-muted">{label}</span>
-        </span>
-        <ChevronDown className="h-4 w-4 shrink-0" />
+        {compact ? (
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-xs font-medium">
+            {(summary ? "All" : jar?.name ?? "?").slice(0, 1).toUpperCase()}
+          </span>
+        ) : (
+          <>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">{summary ? "Summary" : jar?.name}</span>
+              <span className="block text-xs text-sidebar-muted">{label}</span>
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0" />
+          </>
+        )}
       </button>
       {open ? (
-        <div className="absolute left-0 right-0 z-20 mt-1 rounded-xl border border-white/10 bg-sidebar p-1 shadow-lg">
+        <div className={cn(
+          "absolute z-30 mt-1 rounded-xl border border-white/10 bg-sidebar p-1 shadow-lg",
+          compact ? "top-0 left-full ml-2 max-h-[70vh] w-56 overflow-y-auto" : "left-0 right-0",
+        )}>
           <div className="py-1">
             <p className="px-2 text-xs uppercase tracking-wide text-sidebar-muted">Summary</p>
             <button type="button" className={cn("block w-full rounded-lg px-2 py-2 text-left text-sm", summary ? "bg-honey text-ink" : "hover:bg-white/10")} onClick={pickSummary}>
@@ -254,10 +279,15 @@ function JarSwitcher({ onNavigate }: { onNavigate?: () => void }) {
 export function Shell({ children }: { children: ReactNode }) {
   const { data, jar, summary, loading, error, setOwnerId } = useBook();
   const [open, setOpen] = useState(false);
+  const [compact, setCompact] = useState(false);
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const period = data ? monthLabel(periodOf(data.today, data.profile.monthStartDay)) : "";
   const home = summary ? "/summary" : jar?.kind === "business" || jar?.kind === "property" ? "/business" : "/";
+
+  useEffect(() => {
+    setCompact(window.localStorage.getItem("honeyjar.nav.compact") === "1");
+  }, []);
 
   useEffect(() => {
     if (summary || path === "/summary") return;
@@ -266,19 +296,38 @@ export function Shell({ children }: { children: ReactNode }) {
     if (jar.kind === "personal" && path === "/business") navigate({ to: "/" });
   }, [jar, navigate, path, summary]);
 
+  const toggleCompact = () => {
+    setCompact((on) => {
+      const next = !on;
+      window.localStorage.setItem("honeyjar.nav.compact", next ? "1" : "0");
+      return next;
+    });
+  };
+
   return (
-    <div className="h-dvh overflow-hidden bg-paper text-ink md:grid md:grid-cols-[16.5rem_1fr]">
-      <aside className="hidden bg-sidebar text-sidebar-fg md:flex md:h-dvh md:flex-col md:overflow-hidden md:p-4">
-        <Link to={home} className="mb-2 flex items-center gap-2 px-2">
-          <JarMark className="h-8 w-8 text-honey" />
-          <span className="font-display text-2xl">HoneyJar</span>
-        </Link>
-        <JarSwitcher />
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <NavLinks />
+    <div className={cn("h-dvh overflow-hidden bg-paper text-ink md:grid", compact ? "md:grid-cols-[4.5rem_1fr]" : "md:grid-cols-[16.5rem_1fr]")}>
+      <aside className={cn("relative z-20 hidden bg-sidebar text-sidebar-fg md:flex md:h-dvh md:flex-col", compact ? "md:overflow-visible md:p-2" : "md:overflow-hidden md:p-4")}>
+        <div className={cn("mb-2 flex items-center gap-2", compact ? "flex-col" : "px-2")}>
+          <Link to={home} className="flex items-center gap-2" title="HoneyJar">
+            <JarMark className="h-8 w-8 shrink-0 text-honey" />
+            {compact ? <span className="sr-only">HoneyJar</span> : <span className="font-display text-2xl">HoneyJar</span>}
+          </Link>
+          <button
+            type="button"
+            className={cn("inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-sidebar-fg hover:bg-white/10", compact ? "" : "ml-auto")}
+            onClick={toggleCompact}
+            aria-label={compact ? "Expand menu" : "Collapse menu"}
+            title={compact ? "Expand menu" : "Collapse menu"}
+          >
+            {compact ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
         </div>
-        <div className="mt-4 border-t border-white/10 pt-3 text-sidebar-fg">
-          <UserButton />
+        <JarSwitcher compact={compact} />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <NavLinks compact={compact} />
+        </div>
+        <div className={cn("mt-4 border-t border-white/10 pt-3 text-sidebar-fg", compact && "flex justify-center")}>
+          <UserButton compact={compact} />
         </div>
       </aside>
       <div className="flex h-dvh min-w-0 flex-col">

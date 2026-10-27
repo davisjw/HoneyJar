@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, importMatches, matchCategory, otherTransferAccount, packTags, parseTags, portfolioPerformance, shiftDays, stepDue, todayISO, transferMatches } from "./calc";
+import { averagesFromDaily, monthBounds } from "./weather";
 import { readReceipt, removeReceipt, removeUserFiles, writeReceipt } from "./files.server";
 import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedBlank, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
@@ -170,6 +171,7 @@ function mapProfile(row: Record<string, unknown>): Profile {
     seeded: Boolean(row.seeded),
     initialized: Boolean(row.initialized),
     monthStartDay: Math.min(28, Math.max(1, num(row.month_start_day, 1))),
+    postal: String(row.postal ?? "").replace(/\D/g, "").slice(0, 5),
   };
 }
 
@@ -250,6 +252,10 @@ export async function readWorkspace(
       sql<Record<string, unknown>>`select * from utility_readings where user_id = ${owner} order by read_on`,
     ]);
   const contactRows = await sql<Record<string, unknown>>`select * from contacts where user_id = ${owner} order by name`;
+  const postal = String(profileRows[0].postal ?? "").replace(/\D/g, "").slice(0, 5);
+  const weatherRows = postal
+    ? await sql<{ month: string; avg_f: number }>`select month, avg_f from weather_months where user_id = ${owner} and postal = ${postal} order by month`
+    : [];
 
   const mapAccess = (row: Record<string, unknown>): AccessRow => ({
     id: num(row.id),
@@ -295,6 +301,7 @@ export async function readWorkspace(
     meters: primary?.meters ?? [],
     columns: primary?.columns ?? [],
     readings: primary?.readings ?? [],
+    weather: weatherRows.map((row) => ({ month: String(row.month), avgF: num(row.avg_f) })),
     assets: assets.map(mapAsset),
     valuations: valuations.map(mapValuation),
     snapshots: snapshots.map(mapSnapshot),
@@ -877,6 +884,68 @@ async function deleteLinkedReceipts(sql: Sql, owner: string, relatedType: string
   if (docs.length) await sql`delete from documents where user_id = ${owner} and related_type = ${relatedType} and related_id = ${relatedId}`;
 }
 
+async function orderColumns(sql: Sql, owner: string, meterId: string, ids: string[]) {
+  const rows = await sql<{ id: string }>`select id from utility_columns where user_id = ${owner} and meter_id = ${meterId} order by sort, label`;
+  const known = new Set(rows.map((row) => String(row.id)));
+  const next = ids.filter((id) => known.has(id));
+  for (const id of known) if (!next.includes(id)) next.push(id);
+  for (let i = 0; i < next.length; i++) {
+    await sql`update utility_columns set sort = ${i + 1} where id = ${next[i]} and user_id = ${owner}`;
+  }
+}
+
+async function geocodeZip(postal: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const res = await fetch(`https://api.zippopotam.us/us/${encodeURIComponent(postal)}`, {
+      signal: AbortSignal.timeout(8000),
+      headers: { "user-agent": "HoneyJar/2" },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { places?: { latitude?: string; longitude?: string }[] };
+    const place = body.places?.[0];
+    const lat = Number(place?.latitude);
+    const lon = Number(place?.longitude);
+    return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function dailyMeans(lat: number, lon: number, start: string, end: string, source: "archive" | "forecast") {
+  if (start > end) return [];
+  const host = source === "archive" ? "https://archive-api.open-meteo.com/v1/archive" : "https://api.open-meteo.com/v1/forecast";
+  const qs = `latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_mean&temperature_unit=fahrenheit&timezone=auto`;
+  try {
+    const res = await fetch(`${host}?${qs}`, { signal: AbortSignal.timeout(12000), headers: { "user-agent": "HoneyJar/2" } });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { daily?: { time?: string[]; temperature_2m_mean?: (number | null)[] } };
+    const time = body.daily?.time ?? [];
+    const temps = body.daily?.temperature_2m_mean ?? [];
+    return time.map((date, i) => ({ date, temp: temps[i] ?? null }));
+  } catch {
+    return [];
+  }
+}
+
+/** One archive request for the span, then the forecast API for months the archive does not have yet. */
+async function temperaturesForMonths(lat: number, lon: number, months: string[], today: string) {
+  const sorted = [...months].sort();
+  const start = `${sorted[0]}-01`;
+  const last = monthBounds(sorted[sorted.length - 1] ?? "");
+  const end = last && last.end < today ? last.end : today;
+  const wanted = new Set(months);
+  const found = averagesFromDaily(await dailyMeans(lat, lon, start, end, "archive"));
+  const still = sorted.filter((month) => !found.has(month));
+  if (still.length) {
+    const tail = monthBounds(still[still.length - 1] ?? "");
+    const tailEnd = tail && tail.end < today ? tail.end : today;
+    const forecast = averagesFromDaily(await dailyMeans(lat, lon, `${still[0]}-01`, tailEnd, "forecast"));
+    for (const [month, avg] of forecast) if (wanted.has(month) && !found.has(month)) found.set(month, avg);
+  }
+  for (const month of [...found.keys()]) if (!wanted.has(month)) found.delete(month);
+  return found;
+}
+
 export async function applyAction(userId: string, action: Action): Promise<ActionResult> {
   const sql = await getSql();
   await ensureProfile(sql, userId);
@@ -885,8 +954,10 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
   const scoped = await scope(sql, userId, action.ownerId);
   const owner = scoped.owner;
   const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load", "household.begin", "household.blank", "account.delete", "recovery.issue"]);
-  if (ownerOnly.has(action.type)) assertOwner(scoped.role);
-  else assertEdit(scoped.role);
+  if (action.type !== "weather.ensure") {
+    if (ownerOnly.has(action.type)) assertOwner(scoped.role);
+    else assertEdit(scoped.role);
+  }
 
   async function openJar(): Promise<string> {
     const requested = str((action as { ledgerId?: string }).ledgerId, 80);
@@ -932,7 +1003,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
           ollama_model = ${str(p.ollamaModel ?? row.ollama_model, 80) || "llama3.1"},
           vault_salt = ${p.vaultSalt === undefined ? String(row.vault_salt ?? "") : str(p.vaultSalt, 200)},
           vault_verifier = ${p.vaultVerifier === undefined ? String(row.vault_verifier ?? "") : str(p.vaultVerifier, 500)},
-          month_start_day = ${Math.min(28, Math.max(1, p.monthStartDay === undefined ? num(row.month_start_day, 1) : num(p.monthStartDay, 1)))}
+          month_start_day = ${Math.min(28, Math.max(1, p.monthStartDay === undefined ? num(row.month_start_day, 1) : num(p.monthStartDay, 1)))},
+          postal = ${p.postal === undefined ? String(row.postal ?? "") : str(p.postal, 12).replace(/\D/g, "").slice(0, 5)}
         where user_id = ${owner}
       `;
       return {};
@@ -1483,11 +1555,21 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
           where id = ${id} and user_id = ${owner}
         `;
       } else {
-        const top = await sql<{ sort: number }>`select coalesce(max(sort), 0) as sort from utility_columns where user_id = ${owner} and meter_id = ${meterId}`;
+        const siblings = await sql<{ id: string; sort: number }>`select id, sort from utility_columns where user_id = ${owner} and meter_id = ${meterId} order by sort, label`;
+        const ids = siblings.map((row) => String(row.id));
+        const afterId = str(c.afterId, 80);
+        let at = ids.length;
+        if (afterId === "__start") at = 0;
+        else if (afterId) {
+          const index = ids.indexOf(afterId);
+          at = index < 0 ? ids.length : index + 1;
+        }
+        ids.splice(at, 0, id);
         await sql`
           insert into utility_columns (id, user_id, meter_id, key, label, kind, unit, formula, rollup, from_children, sort)
-          values (${id}, ${owner}, ${meterId}, ${key}, ${fields.label}, ${fields.kind}, ${fields.unit}, ${fields.formula}, ${fields.rollup}, ${fields.from_children}, ${num(top[0]?.sort) + 1})
+          values (${id}, ${owner}, ${meterId}, ${key}, ${fields.label}, ${fields.kind}, ${fields.unit}, ${fields.formula}, ${fields.rollup}, ${fields.from_children}, ${at + 1})
         `;
+        await orderColumns(sql, owner, meterId, ids);
       }
       return {};
     }
@@ -1497,14 +1579,49 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     }
     case "column.move": {
       const id = str(action.id, 80);
-      const current = await sql<{ meter_id: string; sort: number }>`select meter_id, sort from utility_columns where id = ${id} and user_id = ${owner}`;
+      const current = await sql<{ meter_id: string }>`select meter_id from utility_columns where id = ${id} and user_id = ${owner}`;
       if (!current[0]) return {};
-      const siblings = await sql<{ id: string; sort: number }>`select id, sort from utility_columns where user_id = ${owner} and meter_id = ${current[0].meter_id} order by sort, label`;
-      const index = siblings.findIndex((row) => row.id === id);
-      const swap = siblings[index + (action.direction === "up" ? -1 : 1)];
-      if (index < 0 || !swap) return {};
-      await sql`update utility_columns set sort = ${swap.sort} where id = ${id} and user_id = ${owner}`;
-      await sql`update utility_columns set sort = ${current[0].sort} where id = ${swap.id} and user_id = ${owner}`;
+      const siblings = await sql<{ id: string }>`select id from utility_columns where user_id = ${owner} and meter_id = ${current[0].meter_id} order by sort, label`;
+      const ids = siblings.map((row) => String(row.id));
+      const index = ids.indexOf(id);
+      const swap = index + (action.direction === "up" ? -1 : 1);
+      if (index < 0 || swap < 0 || swap >= ids.length) return {};
+      const moved = ids[index]!;
+      ids[index] = ids[swap]!;
+      ids[swap] = moved;
+      await orderColumns(sql, owner, String(current[0].meter_id), ids);
+      return {};
+    }
+    case "column.order": {
+      const meterId = str(action.meterId, 80);
+      const meter = await sql`select id from utility_meters where id = ${meterId} and user_id = ${owner}`;
+      if (!meter.length) return {};
+      await orderColumns(sql, owner, meterId, action.ids.map((id) => str(id, 80)).filter(Boolean));
+      return {};
+    }
+    case "weather.ensure": {
+      const postal = String((await sql<{ postal: string }>`select postal from profiles where user_id = ${owner}`)[0]?.postal ?? "").replace(/\D/g, "").slice(0, 5);
+      if (!/^\d{5}$/.test(postal)) return {};
+      const today = todayISO();
+      const cap = today.slice(0, 7);
+      const wanted = [...new Set(action.months.map((month) => str(month, 7)))].filter((month) => monthBounds(month) && month <= cap).slice(0, 24);
+      if (!wanted.length) return {};
+      const have = await sql<{ month: string }>`select month from weather_months where user_id = ${owner} and postal = ${postal}`;
+      const known = new Set(have.map((row) => String(row.month)));
+      const missing = wanted.filter((month) => !known.has(month));
+      if (!missing.length) return {};
+      const place = await geocodeZip(postal);
+      if (!place) return {};
+      const temps = await temperaturesForMonths(place.lat, place.lon, missing, today);
+      for (const month of missing) {
+        const avg = temps.get(month);
+        if (avg == null) continue;
+        await sql`
+          insert into weather_months (user_id, postal, month, avg_f)
+          values (${owner}, ${postal}, ${month}, ${avg})
+          on conflict (user_id, postal, month) do update set avg_f = ${avg}
+        `;
+      }
       return {};
     }
     case "reading.save": {
