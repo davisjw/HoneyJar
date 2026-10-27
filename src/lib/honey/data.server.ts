@@ -1656,12 +1656,21 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const id = str(action.id, 80);
       const rows = await sql<{ meter_id: string; amount_cents: number; meter_value: number | null }>`select meter_id, amount_cents, meter_value from utility_readings where id = ${id} and user_id = ${owner}`;
       if (!rows[0]) return {};
-      const cells = parseCells(action.cells);
+      const incoming = action.cells ?? {};
+      const cells: Record<string, number> = {};
+      for (const [key, item] of Object.entries(incoming)) {
+        if (item == null) continue;
+        const n = typeof item === "number" ? item : Number(item);
+        if (Number.isFinite(n)) cells[key.slice(0, 40)] = n;
+      }
       const cols = await sql<{ key: string; rollup: string }>`select key, rollup from utility_columns where user_id = ${owner} and meter_id = ${rows[0].meter_id}`;
       const meterKey = cols.find((c) => c.rollup === "meter")?.key;
       const billKey = cols.find((c) => c.rollup === "bill")?.key;
-      const meterValue = meterKey && cells[meterKey] != null ? cells[meterKey]! : rows[0].meter_value;
-      const amount = billKey && cells[billKey] != null ? Math.round(cells[billKey]! * 100) : num(rows[0].amount_cents);
+      const meterValue = meterKey && meterKey in incoming
+        ? (incoming[meterKey] == null ? null : cells[meterKey] ?? null)
+        : rows[0].meter_value;
+      let amount = num(rows[0].amount_cents);
+      if (billKey && billKey in incoming) amount = incoming[billKey] == null ? 0 : Math.round((cells[billKey] ?? 0) * 100);
       await sql`
         update utility_readings set cells_json = ${JSON.stringify(cells)}, meter_value = ${meterValue}, amount_cents = ${amount}
         where id = ${id} and user_id = ${owner}

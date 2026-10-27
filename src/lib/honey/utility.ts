@@ -765,6 +765,11 @@ export function buildSheet(
         if (Number.isFinite(epochDays)) entered[column.key] = epochDays;
         continue;
       }
+      if (column.rollup === "bill") {
+        const typed = reading.cells?.[column.key];
+        entered[column.key] = typed != null && Number.isFinite(typed) ? typed : reading.amountCents / 100;
+        continue;
+      }
       if (column.kind === "calculated" || entered[column.key] != null) continue;
       if (column.fromChildren) {
         const rolled = childRolled(column, nested, childReads, childColumns, monthOf(reading.date));
@@ -772,7 +777,6 @@ export function buildSheet(
         continue;
       }
       if (column.rollup === "meter" && reading.meter != null) entered[column.key] = reading.meter;
-      if (column.rollup === "bill") entered[column.key] = reading.amountCents / 100;
       if (column.rollup === "days") entered[column.key] = days ?? 30;
       if (column.rollup === "usage" && prev?.meter != null && reading.meter != null && !reading.opening) {
         entered[column.key] = reading.meter - prev.meter;

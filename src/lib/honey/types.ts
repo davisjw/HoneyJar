@@ -616,7 +616,7 @@ export type Action = (
   | { type: "column.order"; meterId: string; ids: string[]; ownerId?: string }
   | { type: "weather.ensure"; meterId: string; months: string[]; ownerId?: string }
   | { type: "reading.save"; reading: Partial<UtilityReading> & { meterId: string; readOn: string }; ownerId?: string }
-  | { type: "reading.cells"; id: string; cells: Record<string, number>; ownerId?: string }
+  | { type: "reading.cells"; id: string; cells: Record<string, number | null>; ownerId?: string }
   | { type: "reading.date"; id: string; readOn: string; ownerId?: string }
   | { type: "reading.delete"; id: string; ownerId?: string }
   | { type: "reading.import"; meterId: string; rows: { readOn: string; create: boolean; cells: Record<string, number> }[]; ownerId?: string }

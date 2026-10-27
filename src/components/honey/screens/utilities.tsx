@@ -16,6 +16,7 @@ import {
   importTargets,
   previousMonth,
   priorRead,
+  parseUtilityNumber,
   templateUnit,
   hasMeter,
   tierChargeCents,
@@ -343,7 +344,7 @@ function Workbook({
   bills: { id: string; name: string }[];
   focus: string;
   canEdit: boolean;
-  onCell: (id: string, cells: Record<string, number>) => void;
+  onCell: (id: string, cells: Record<string, number | null>) => void;
   onDate: (id: string, readOn: string) => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
@@ -393,9 +394,10 @@ function Workbook({
                         value={row.computed[c.key]}
                         onDone={() => setEditing(null)}
                         onCommit={(value) => {
-                          const next = { ...row.entered };
-                          if (value == null) delete next[c.key];
-                          else next[c.key] = value;
+                          const next: Record<string, number | null> = { ...(reading?.cells ?? {}) };
+                          const moneyCell = c.kind === "money" || c.rollup === "bill" || c.rollup === "charges" || c.unit === "$";
+                          if (value == null) next[c.key] = null;
+                          else next[c.key] = moneyCell ? Math.round(value * 100) / 100 : value;
                           onCell(row.id, next);
                         }}
                       />
@@ -403,6 +405,7 @@ function Workbook({
                       <button
                         type="button"
                         className="w-28 rounded border border-transparent bg-transparent px-1 py-1 text-left hover:border-line"
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => setEditing(key)}
                       >
                         {text}
@@ -462,31 +465,44 @@ function Cell({ value, onCommit, onDone }: { value: number | undefined; onCommit
   const shown = value == null ? "" : String(value);
   const [text, setText] = useState(shown);
   const [seen, setSeen] = useState(shown);
-  if (seen !== shown) {
+  const focused = useRef(false);
+  const skip = useRef(false);
+  if (!focused.current && seen !== shown) {
     setSeen(shown);
     setText(shown);
+  }
+  function commit() {
+    if (skip.current) {
+      onDone();
+      return;
+    }
+    const parsed = parseUtilityNumber(text);
+    if ("blank" in parsed) {
+      if (value != null) onCommit(null);
+    } else if ("value" in parsed && parsed.value !== value) onCommit(parsed.value);
+    onDone();
   }
   return (
     <input
       autoFocus
       inputMode="decimal"
-      className="w-24 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
+      className="w-28 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
       value={text}
+      onFocus={() => { focused.current = true; }}
       onChange={(e) => setText(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === "Escape") {
+          skip.current = true;
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
       onBlur={() => {
-        const trimmed = text.trim();
-        if (!trimmed) {
-          if (value != null) onCommit(null);
-          onDone();
-          return;
-        }
-        const next = Number(trimmed);
-        if (!Number.isFinite(next)) {
-          onDone();
-          return;
-        }
-        if (next !== value) onCommit(next);
-        onDone();
+        focused.current = false;
+        commit();
       }}
     />
   );

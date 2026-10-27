@@ -152,6 +152,15 @@ describe("utility sheet", () => {
     assert.equal(named[0]?.computed.double, 20);
   });
 
+  it("shows a typed bill cell instead of the old statement amount", () => {
+    const columns = starterColumns("m", "gas");
+    const rows = buildSheet("m", columns, [
+      read({ id: "a", utilityId: "m", date: "2026-01-06", meter: 10, opening: true }),
+      read({ id: "b", utilityId: "m", date: "2026-02-05", meter: 20, amountCents: 9999, cells: { bill_amount: 12.5 } }),
+    ]);
+    assert.equal(rows[1]?.computed.bill_amount, 12.5);
+  });
+
   it("rolls a child calculated column up to the parent", () => {
     const parent: UtilColumn = {
       id: "gal",
