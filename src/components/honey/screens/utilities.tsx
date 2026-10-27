@@ -587,7 +587,7 @@ function ColumnsTab({
   return (
     <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <Card>
-        <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-3 flex items-center justify-between gap-2 border-b border-line bg-card px-4 py-3">
           <div>
             <p className="font-medium">Columns</p>
             <p className="text-xs text-muted">Drag a row to reorder it, or use Up and Down. Select a column to rename it, change its kind, or edit the formula. Calculated cells are not stored.</p>
