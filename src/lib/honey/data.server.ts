@@ -482,6 +482,7 @@ function mapUtilColumn(r: Record<string, unknown>): UtilityColumn {
     formula: String(r.formula ?? ""),
     rollup: allowed.find((item) => item === rollup) ?? "",
     fromChildren: Boolean(r.from_children),
+    carryForward: Boolean(r.carry_forward),
     sort: num(r.sort),
   };
 }
@@ -1545,10 +1546,11 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         formula: kind === "calculated" ? str(c.formula, 200) : "",
         rollup,
         from_children: kind === "date" ? false : Boolean(c.fromChildren),
+        carry_forward: (kind === "number" || kind === "money") && !c.fromChildren && Boolean(c.carryForward),
       };
       if (current.length) {
         await sql`
-          update utility_columns set label = ${fields.label}, kind = ${fields.kind}, unit = ${fields.unit}, formula = ${fields.formula}, rollup = ${fields.rollup}, from_children = ${fields.from_children}
+          update utility_columns set label = ${fields.label}, kind = ${fields.kind}, unit = ${fields.unit}, formula = ${fields.formula}, rollup = ${fields.rollup}, from_children = ${fields.from_children}, carry_forward = ${fields.carry_forward}
           where id = ${id} and user_id = ${owner}
         `;
       } else {
@@ -1563,8 +1565,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         }
         ids.splice(at, 0, id);
         await sql`
-          insert into utility_columns (id, user_id, meter_id, key, label, kind, unit, formula, rollup, from_children, sort)
-          values (${id}, ${owner}, ${meterId}, ${key}, ${fields.label}, ${fields.kind}, ${fields.unit}, ${fields.formula}, ${fields.rollup}, ${fields.from_children}, ${at + 1})
+          insert into utility_columns (id, user_id, meter_id, key, label, kind, unit, formula, rollup, from_children, carry_forward, sort)
+          values (${id}, ${owner}, ${meterId}, ${key}, ${fields.label}, ${fields.kind}, ${fields.unit}, ${fields.formula}, ${fields.rollup}, ${fields.from_children}, ${fields.carry_forward}, ${at + 1})
         `;
         await orderColumns(sql, owner, meterId, ids);
       }

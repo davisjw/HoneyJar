@@ -1235,6 +1235,29 @@ export function importTargets<T extends { kind: string; rollup: string; fromChil
   );
 }
 
+/** The latest read dated before this one. That is the "last month" a new read can copy. */
+export function priorRead<T extends { readOn: string }>(readings: T[], readOn: string): T | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(readOn)) return null;
+  let best: T | null = null;
+  for (const reading of readings) {
+    if (reading.readOn >= readOn) continue;
+    if (!best || reading.readOn > best.readOn) best = reading;
+  }
+  return best;
+}
+
+/** A column's typed value on a read. Meter and bill fall back to the stored rollup. */
+export function carriedValue(
+  column: { key: string; rollup: string },
+  reading: { meter: number | null; amountCents: number; cells: Record<string, number> },
+): number | null {
+  const cell = reading.cells[column.key];
+  if (typeof cell === "number" && Number.isFinite(cell)) return cell;
+  if (column.rollup === "meter" && reading.meter != null && Number.isFinite(reading.meter)) return reading.meter;
+  if (column.rollup === "bill" && Number.isFinite(reading.amountCents)) return reading.amountCents / 100;
+  return null;
+}
+
 /** A utility CSV date. Month and year are required. A missing day becomes the first of the month. */
 export function utilityReadDate(raw: string): { month: string; readOn: string } | null {
   const text = raw.trim().replace(/,/g, " ").replace(/\s+/g, " ");

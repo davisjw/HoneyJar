@@ -460,6 +460,7 @@ export type UtilityColumn = {
   formula: string;
   rollup: "" | "meter" | "usage" | "bill" | "days" | "readDate" | "charges";
   fromChildren: boolean;
+  carryForward: boolean;
   sort: number;
 };
 

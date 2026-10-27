@@ -12,6 +12,8 @@ import {
   importTargets,
   parseUtilityNumber,
   planUtilityCsv,
+  priorRead,
+  carriedValue,
   readCsvTable,
   starterColumns,
   tierChargeCents,
@@ -242,5 +244,26 @@ describe("utility csv import", () => {
     const guess = guessUtilityMap(["Bill date", "Meter read", "Notes"], [{ key: "meter_read", label: "Meter read" }]);
     assert.equal(guess.dateIndex, 0);
     assert.deepEqual(guess.mapping, { 1: "meter_read" });
+  });
+});
+
+describe("last month default", () => {
+  const readings: { readOn: string; meter: number | null; amountCents: number; cells: Record<string, number> }[] = [
+    { readOn: "2024-02-15", meter: 100, amountCents: 4000, cells: { plan: 55 } },
+    { readOn: "2024-03-18", meter: 120, amountCents: 4400, cells: { plan: 55 } },
+    { readOn: "2024-04-02", meter: 140, amountCents: 5000, cells: {} },
+  ];
+
+  it("uses the latest read before the new date", () => {
+    assert.equal(priorRead(readings, "2024-04-01")?.readOn, "2024-03-18");
+    assert.equal(priorRead(readings, "2024-02-15"), null);
+    assert.equal(priorRead(readings, "2024-02"), null);
+  });
+
+  it("copies a typed cell, then the meter, then the bill in dollars", () => {
+    const march = readings[1]!;
+    assert.equal(carriedValue({ key: "plan", rollup: "" }, march), 55);
+    assert.equal(carriedValue({ key: "meter_read", rollup: "meter" }, march), 120);
+    assert.equal(carriedValue({ key: "bill_amount", rollup: "bill" }, readings[2]!), 50);
   });
 });

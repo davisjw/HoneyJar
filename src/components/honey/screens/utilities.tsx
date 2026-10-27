@@ -8,11 +8,14 @@ import type { UtilityColumn, UtilityMeter, UtilityReading, Workspace } from "@/l
 import {
   UTILITY_TEMPLATES,
   buildSheet,
+  carriedValue,
   chargeCompare,
   cellMount,
   historySeries,
   historyYear,
+  importTargets,
   previousMonth,
+  priorRead,
   templateUnit,
   hasMeter,
   tierChargeCents,
@@ -187,7 +190,14 @@ export function UtilitiesPage() {
       )}
       {adding ? <MeterDialog parents={roots} onClose={() => setAdding(false)} /> : null}
       {editing ? <MeterDialog meter={editing} parents={data.meters.filter((m) => !m.parentId && m.id !== editing.id)} onClose={() => setEditing(null)} /> : null}
-      {reading && meter ? <ReadDialog meter={meter} onClose={() => setReading(false)} /> : null}
+      {reading && meter ? (
+        <ReadDialog
+          meter={meter}
+          columns={columns}
+          readings={data.readings.filter((row) => row.meterId === meter.id)}
+          onClose={() => setReading(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -567,6 +577,7 @@ function ColumnsTab({
                     {c.unit ? ` · ${c.unit}` : ""}
                     {c.rollup ? ` · from ${c.rollup}` : ""}
                     {c.fromChildren ? " · sum children" : ""}
+                    {c.carryForward ? " · last month" : ""}
                     {c.formula ? ` · ${c.formula}` : ""}
                   </span>
                 </button>
@@ -623,7 +634,9 @@ function ColumnDialog({
   const [unit, setUnit] = useState(column?.unit ?? "");
   const [formula, setFormula] = useState(column?.formula ?? "");
   const [fromChildren, setFromChildren] = useState(column?.fromChildren ?? false);
+  const [carryForward, setCarryForward] = useState(column?.carryForward ?? false);
   const [afterId, setAfterId] = useState("");
+  const canCarry = (kind === "number" || kind === "money") && !fromChildren;
   return (
     <Modal open title={column ? "Edit column" : "Add column"} onClose={onClose}>
       <Field label="Label"><input className={fieldClass} value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
@@ -668,6 +681,13 @@ function ColumnDialog({
       {kind !== "date" ? (
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={fromChildren} onChange={(e) => setFromChildren(e.target.checked)} /> Sum children</label>
       ) : null}
+      {canCarry ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={carryForward} onChange={(e) => setCarryForward(e.target.checked)} />
+          Default to last month
+        </label>
+      ) : null}
+      {canCarry ? <p className="text-xs text-muted">A new read starts with this column’s value from the previous read. You can change it before saving.</p> : null}
       {structural ? <p className="text-xs text-muted">The source stays {column?.rollup}. The key stays put so formulas that mention it keep working.</p> : null}
       <Button onClick={async () => {
         if (!label.trim()) return;
@@ -682,6 +702,7 @@ function ColumnDialog({
             formula: kind === "calculated" ? formula.trim() : "",
             rollup: kind === "date" ? "readDate" : (column?.rollup ?? ""),
             fromChildren: kind === "date" ? false : fromChildren,
+            carryForward: canCarry && carryForward,
             ...(column ? {} : { afterId }),
           },
         });
@@ -744,29 +765,82 @@ function MeterDialog({ meter, parents, onClose }: { meter?: UtilityMeter; parent
   );
 }
 
-function ReadDialog({ meter, onClose }: { meter: UtilityMeter; onClose: () => void }) {
+function formatCarry(column: UtilityColumn, value: number) {
+  if (column.kind === "money" || column.rollup === "bill" || column.rollup === "charges") return (Math.round(value * 100) / 100).toFixed(2);
+  return String(Math.round(value * 1000) / 1000);
+}
+
+function ReadDialog({ meter, columns, readings, onClose }: { meter: UtilityMeter; columns: UtilityColumn[]; readings: UtilityReading[]; onClose: () => void }) {
   const { data, run } = useBook();
   const [readOn, setReadOn] = useState(data?.today ?? "");
-  const [meterValue, setMeterValue] = useState("");
-  const [amount, setAmount] = useState("");
   const [opening, setOpening] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState("");
+  const entry = importTargets(columns);
+  const meterColumn = entry.find((column) => column.rollup === "meter");
+  const billColumn = entry.find((column) => column.rollup === "bill");
+  const extras = entry.filter((column) => column.carryForward && column.rollup !== "meter" && column.rollup !== "bill");
+  const prior = priorRead(readings, readOn);
+
+  function fieldValue(column: UtilityColumn | undefined, key: string) {
+    if (touched[key]) return values[key] ?? "";
+    if (!column?.carryForward || !prior) return "";
+    const value = carriedValue(column, prior);
+    return value == null ? "" : formatCarry(column, value);
+  }
+
+  function edit(key: string, value: string) {
+    setTouched((current) => ({ ...current, [key]: true }));
+    setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  const meterText = fieldValue(meterColumn, meterColumn?.key ?? "meter");
+  const billText = fieldValue(billColumn, billColumn?.key ?? "bill");
+  const copied = Boolean(prior && (meterColumn?.carryForward || billColumn?.carryForward || extras.length));
+
   return (
     <Modal open title={`Read ${meter.name}`} onClose={onClose}>
       <Field label="Read date"><input type="date" className={fieldClass} value={readOn} onChange={(e) => setReadOn(e.target.value)} /></Field>
-      <Field label={`Meter (${meter.unit})`}><input className={fieldClass} value={meterValue} onChange={(e) => setMeterValue(e.target.value)} /></Field>
-      <Field label="Statement"><input className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+      <Field label={meterColumn ? meterColumn.label : `Meter (${meter.unit})`}>
+        <input className={fieldClass} value={meterText} onChange={(e) => edit(meterColumn?.key ?? "meter", e.target.value)} />
+      </Field>
+      <Field label={billColumn?.label ?? "Statement"}>
+        <input className={fieldClass} value={billText} onChange={(e) => edit(billColumn?.key ?? "bill", e.target.value)} />
+      </Field>
+      {extras.map((column) => (
+        <Field key={column.id} label={column.label}>
+          <input className={fieldClass} value={fieldValue(column, column.key)} onChange={(e) => edit(column.key, e.target.value)} />
+        </Field>
+      ))}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={opening} onChange={(e) => setOpening(e.target.checked)} /> Opening read, no usage</label>
       <p className="text-xs text-muted">Bill month is {readOn.slice(0, 7) || "—"}. The month before is {readOn ? previousMonth(readOn) : "—"}.</p>
+      {copied && prior ? <p className="text-xs text-muted">Columns set to last month start from the {prettyDate(prior.readOn)} read. Change any of them before saving.</p> : null}
+      {error ? <p className="text-sm text-clay">{error}</p> : null}
       <Button onClick={async () => {
+        const cells: Record<string, number> = {};
+        const taken: { column?: UtilityColumn; key: string; text: string; rollup: string }[] = [
+          { column: meterColumn, key: meterColumn?.key ?? "meter", text: meterText, rollup: "meter" },
+          { column: billColumn, key: billColumn?.key ?? "bill", text: billText, rollup: "bill" },
+          ...extras.map((column) => ({ column, key: column.key, text: fieldValue(column, column.key), rollup: column.rollup })),
+        ];
+        let meterValue: number | null = null;
+        let amountCents = 0;
+        for (const field of taken) {
+          const text = field.text.trim();
+          if (!text) continue;
+          const value = Number(text);
+          if (!Number.isFinite(value)) {
+            setError("Enter numbers only.");
+            return;
+          }
+          if (field.column) cells[field.column.key] = value;
+          if (field.rollup === "meter") meterValue = value;
+          if (field.rollup === "bill") amountCents = Math.round(value * 100);
+        }
         await run({
           type: "reading.save",
-          reading: {
-            meterId: meter.id,
-            readOn,
-            meter: meterValue.trim() === "" ? null : Number(meterValue),
-            amountCents: Math.round(Number(amount || "0") * 100),
-            opening,
-          },
+          reading: { meterId: meter.id, readOn, meter: meterValue, amountCents, opening, cells },
         });
         onClose();
       }}>Save read</Button>
