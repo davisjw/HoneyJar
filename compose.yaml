@@ -29,6 +29,11 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       OIDC_LABEL: ${OIDC_LABEL:-}
       OIDC_PKCE: ${OIDC_PKCE:-}
+    volumes:
+      - honeyjar-files:/app/data/files
     depends_on:
       postgres:
         condition: service_healthy
+
+volumes:
+  honeyjar-files:

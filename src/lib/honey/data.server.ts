@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
-import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, importMatches, matchCategory, packTags, parseTags, portfolioPerformance, shiftDays, stepDue, todayISO } from "./calc";
+import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, importMatches, matchCategory, otherTransferAccount, packTags, parseTags, portfolioPerformance, shiftDays, stepDue, todayISO, transferMatches } from "./calc";
+import { readReceipt, removeReceipt, removeUserFiles, writeReceipt } from "./files.server";
 import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedBlank, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import { recordAudit } from "./care.server";
@@ -570,6 +571,7 @@ function mapDocument(r: Record<string, unknown>): DocumentRow {
     body: String(r.body ?? ""),
     encrypted: Boolean(r.encrypted),
     fileName: String(r.file_name ?? ""),
+    mime: String(r.mime ?? ""),
   };
 }
 function mapScore(r: Record<string, unknown>): CreditScore {
@@ -869,6 +871,12 @@ async function adjust(sql: Sql, owner: string, accountId: string, amountCents: n
   await sql`update accounts set balance_cents = balance_cents + ${delta} where id = ${accountId} and user_id = ${owner}`;
 }
 
+async function deleteLinkedReceipts(sql: Sql, owner: string, relatedType: string, relatedId: string) {
+  const docs = await sql<{ id: string }>`select id from documents where user_id = ${owner} and related_type = ${relatedType} and related_id = ${relatedId}`;
+  for (const doc of docs) await removeReceipt(owner, String(doc.id));
+  if (docs.length) await sql`delete from documents where user_id = ${owner} and related_type = ${relatedType} and related_id = ${relatedId}`;
+}
+
 export async function applyAction(userId: string, action: Action): Promise<ActionResult> {
   const sql = await getSql();
   await ensureProfile(sql, userId);
@@ -1144,6 +1152,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         select account_id, amount_cents from transactions where id = ${action.id} and user_id = ${owner}
       `;
       if (existing[0]) await adjust(sql, owner, existing[0].account_id, -num(existing[0].amount_cents));
+      await deleteLinkedReceipts(sql, owner, "txn", action.id);
       await sql`delete from transactions where id = ${action.id} and user_id = ${owner}`;
       const accounts = existing[0]
         ? await sql<Record<string, unknown>>`select * from accounts where id = ${existing[0].account_id} and user_id = ${owner}`
@@ -1166,9 +1175,14 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       }
       const from = shiftDays(min, -7);
       const to = shiftDays(max, 7);
-      const accounts = [...new Set(probes.map((row) => row.accountId))];
+      const accounts = await sql<{ id: string; name: string; mask: string }>`select id, name, mask from accounts where user_id = ${owner}`;
+      const needed = new Set(probes.map((row) => row.accountId));
+      for (const row of probes) {
+        const other = otherTransferAccount(`${row.merchant} ${row.memo ?? ""}`, row.accountId, accounts);
+        if (other) needed.add(other.id);
+      }
       const found: Txn[] = [];
-      for (const accountId of accounts) {
+      for (const accountId of needed) {
         const raw = await sql<Record<string, unknown>>`
           select * from transactions
           where user_id = ${owner} and account_id = ${accountId} and posted_on >= ${from} and posted_on <= ${to}
@@ -1178,7 +1192,10 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       return {
         matches: probes.map((row) => ({
           key: row.key,
-          txns: importMatches({ ...row, amountCents: num(row.amountCents) }, found).slice(0, 8),
+          txns: [
+            ...importMatches({ ...row, amountCents: num(row.amountCents) }, found),
+            ...transferMatches({ ...row, amountCents: num(row.amountCents) }, found, accounts),
+          ].slice(0, 8),
         })),
       };
     }
@@ -1186,13 +1203,16 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const rows = action.rows.slice(0, 500);
       const created: Txn[] = [];
       const touched = new Set<string>();
+      const directory = await sql<{ id: string; name: string; mask: string; ledger_id: string }>`
+        select id, name, mask, ledger_id from accounts where user_id = ${owner}
+      `;
       for (const row of rows) {
         const accountId = str(row.accountId, 80) || action.accountId;
         const posted = dateOr(row.postedOn, "");
         if (!posted || !accountId) continue;
-        const acct = await sql<{ ledger_id: string }>`select ledger_id from accounts where id = ${accountId} and user_id = ${owner}`;
-        if (!acct[0]) continue;
-        const jar = acct[0].ledger_id || (await openJar());
+        const acct = directory.find((account) => account.id === accountId);
+        if (!acct) continue;
+        const jar = acct.ledger_id || (await openJar());
         const cats = await sql<{ id: string; name: string }>`select id, name from categories where user_id = ${owner} and ledger_id = ${jar}`;
         const rules = await sql<{ pattern: string; category_id: string; priority: number }>`select pattern, category_id, priority from rules where user_id = ${owner} and ledger_id = ${jar}`;
         const chosen = str(row.categoryId, 80);
@@ -1209,6 +1229,37 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         const saved = await sql<Record<string, unknown>>`select * from transactions where id = ${id} and user_id = ${owner}`;
         created.push(...saved.map(mapTxn));
         touched.add(accountId);
+        const other = otherTransferAccount(`${row.merchant} ${row.memo ?? ""}`, accountId, directory);
+        const inBatch = !!other && rows.some((item) => {
+          if (item === row) return false;
+          const itemAccount = str(item.accountId, 80) || action.accountId;
+          const itemPosted = dateOr(item.postedOn, "");
+          if (itemAccount !== other.id || !itemPosted || num(item.amountCents) !== -amount) return false;
+          if (itemPosted < shiftDays(posted, -7) || itemPosted > shiftDays(posted, 7)) return false;
+          return otherTransferAccount(`${item.merchant} ${item.memo ?? ""}`, itemAccount, directory)?.id === accountId;
+        });
+        if (!other || inBatch) continue;
+        const prior = await sql<{ merchant: string }>`
+          select merchant from transactions
+          where user_id = ${owner} and account_id = ${other.id} and amount_cents = ${-amount}
+            and posted_on >= ${shiftDays(posted, -7)} and posted_on <= ${shiftDays(posted, 7)}
+        `;
+        if (prior.some((item) => /\b(transfer|xfer|tfr)\b/i.test(String(item.merchant)))) continue;
+        const otherJar = other.ledger_id || jar;
+        const transferCat = await sql<{ id: string }>`
+          select id from categories where user_id = ${owner} and ledger_id = ${otherJar} and flow = 'transfer' order by name limit 1
+        `;
+        const last4 = acct.mask.replace(/\D/g, "").slice(-4);
+        const mirror = `Transfer with ${acct.name}${last4 ? ` -${last4}` : ""}`;
+        const mirrorId = nid();
+        await adjust(sql, owner, other.id, -amount);
+        await sql`
+          insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id, tags, ledger_id)
+          values (${mirrorId}, ${owner}, ${other.id}, ${transferCat[0]?.id ?? null}, ${posted}, ${-amount}, ${mirror}, ${""}, false, '', '', true, 'import', ${personId}, ${tags}, ${otherJar})
+        `;
+        const mirrored = await sql<Record<string, unknown>>`select * from transactions where id = ${mirrorId} and user_id = ${owner}`;
+        created.push(...mirrored.map(mapTxn));
+        touched.add(other.id);
       }
       const accounts: Record<string, unknown>[] = [];
       for (const accountId of touched) {
@@ -1294,6 +1345,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       return {};
     }
     case "bill.delete": {
+      await deleteLinkedReceipts(sql, owner, "bill", action.id);
       await sql`delete from bills where id = ${action.id} and user_id = ${owner}`;
       return {};
     }
@@ -1672,6 +1724,45 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       return {};
     }
     case "document.delete": {
+      await removeReceipt(owner, action.id);
+      await sql`delete from documents where id = ${action.id} and user_id = ${owner}`;
+      return {};
+    }
+    case "receipt.save": {
+      const relatedType = action.relatedType === "bill" ? "bill" : "txn";
+      const relatedId = str(action.relatedId, 80);
+      if (!relatedId) throw new Error("Save the transaction or bill before attaching a file.");
+      const mime = str(action.mime, 80).toLowerCase();
+      if (!["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"].includes(mime)) {
+        throw new Error("Attach a JPEG, PNG, WebP, GIF, or PDF.");
+      }
+      const bytes = Buffer.from(String(action.dataBase64 ?? "").replace(/^data:[^,]*,/, ""), "base64");
+      if (!bytes.length || bytes.length > 8_000_000) throw new Error("That file is empty or larger than 8 MB.");
+      const linked = relatedType === "txn"
+        ? await sql<{ ledger_id: string }>`select ledger_id from transactions where id = ${relatedId} and user_id = ${owner}`
+        : await sql<{ ledger_id: string }>`select ledger_id from bills where id = ${relatedId} and user_id = ${owner}`;
+      if (!linked[0]) throw new Error("That transaction or bill is not in this household.");
+      const id = nid();
+      const fileName = str(action.fileName, 120) || "receipt";
+      await writeReceipt(owner, id, bytes);
+      await sql`
+        insert into documents (id, user_id, title, kind, year, related_type, related_id, notes, body, encrypted, file_name, mime, ledger_id)
+        values (${id}, ${owner}, ${fileName}, 'receipt', ${num(todayISO().slice(0, 4))}, ${relatedType}, ${relatedId}, '', '', true, ${fileName}, ${mime}, ${linked[0].ledger_id || (await openJar())})
+      `;
+      return {};
+    }
+    case "receipt.open": {
+      const rows = await sql<{ file_name: string; mime: string }>`
+        select file_name, mime from documents where id = ${action.id} and user_id = ${owner} and kind = 'receipt'
+      `;
+      if (!rows[0]) throw new Error("That receipt is gone.");
+      const bytes = await readReceipt(owner, action.id);
+      return { file: { mime: String(rows[0].mime), fileName: String(rows[0].file_name), dataBase64: bytes.toString("base64") }, patch: {} };
+    }
+    case "receipt.delete": {
+      const rows = await sql`select id from documents where id = ${action.id} and user_id = ${owner}`;
+      if (!rows.length) return {};
+      await removeReceipt(owner, action.id);
       await sql`delete from documents where id = ${action.id} and user_id = ${owner}`;
       return {};
     }
@@ -1983,6 +2074,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     }
     case "sample.clear": {
       await clearHousehold(sql, owner);
+      await removeUserFiles(owner);
       await seedBlank(sql, owner);
       await sql`
         update profiles set
@@ -2003,6 +2095,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       return {};
     }
     case "sample.load": {
+      await removeUserFiles(owner);
       await seedHousehold(sql, owner);
       return {};
     }
@@ -2017,6 +2110,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const name = str(action.name, 80);
       if (!name) throw new Error("Name the household.");
       await clearHousehold(sql, owner);
+      await removeUserFiles(owner);
       await sql`
         update profiles set
           display_name = ${name},

@@ -9,6 +9,7 @@ import {
   matchCategory,
   money,
   monthLabel,
+  otherTransferAccount,
   parseStatement,
   parseTags,
   periodOf,
@@ -17,9 +18,11 @@ import {
   projectCash,
   shiftPeriod,
   historyStart,
+  transferOtherMask,
 } from "@/lib/honey/calc";
 import type { Bill, Payment, Txn, UtilityColumn, UtilityMeter, UtilityReading } from "@/lib/honey/types";
 import { buildSheet, chargeCompare, suggestReadingId, type ReadLike, type UtilColumn } from "@/lib/honey/utility";
+import { Receipts } from "../receipts";
 import { ContactField } from "../contact-field";
 import { useBook } from "../book";
 import { Button, Card, Empty, Field, Modal, MoneyText, PageIntro, fieldClass, pinCell } from "../kit";
@@ -389,7 +392,14 @@ export function TransactionsPage() {
         <Button
           onClick={() => {
             const parsed = parseStatement(csv);
-            if (!accountId || !parsed.length) return;
+            if (!accountId || !parsed.length || !data) return;
+            const suggest = (merchant: string, memo: string) => {
+              if (transferOtherMask(`${merchant} ${memo}`) && otherTransferAccount(`${merchant} ${memo}`, accountId, data.accounts)) {
+                const transfer = data.categories.find((category) => !category.archived && category.flow === "transfer");
+                if (transfer) return transfer.id;
+              }
+              return matchCategory(merchant, memo, data.rules, data.categories) ?? "";
+            };
             setDrafts(
               parsed.map((row, index) => ({
                 key: `${index}-${row.postedOn}-${row.amountCents}`,
@@ -398,7 +408,7 @@ export function TransactionsPage() {
                 merchant: row.merchant,
                 memo: row.memo,
                 accountId,
-                categoryId: "",
+                categoryId: suggest(row.merchant, row.memo),
                 personId: "",
                 tags: "",
                 status: "waiting",
@@ -528,6 +538,7 @@ function TxnEditor({
           {initial.id ? <Button tone="danger" onClick={() => onDelete(initial.id!)}>Delete</Button> : null}
         </div>
       ) : null}
+      <Receipts relatedType="txn" relatedId={initial.id} />
     </Modal>
   );
 }
@@ -613,6 +624,7 @@ export function BillsPage() {
   const focus = param(search, "bill");
   const [editing, setEditing] = useState<Partial<Bill> | null>(null);
   const [pay, setPay] = useState<Bill | null>(null);
+  const [receiptBill, setReceiptBill] = useState("");
   const [amount, setAmount] = useState("");
   const [paidOn, setPaidOn] = useState("");
   const [payReading, setPayReading] = useState("");
@@ -669,6 +681,9 @@ export function BillsPage() {
                         </Button>
                       ) : null}
                       <Button tone="quiet" onClick={() => setEditing(b)}>Edit</Button>
+                      {data.documents.some((doc) => doc.kind === "receipt" && doc.relatedType === "bill" && doc.relatedId === b.id) ? (
+                        <Button tone="quiet" onClick={() => setReceiptBill(b.id)}>Receipt</Button>
+                      ) : null}
                       {b.url ? <a className="inline-flex min-h-11 items-center text-sm text-honey-deep" href={b.url} target="_blank" rel="noreferrer">Site</a> : null}
                     </div>
                   </td>
@@ -680,6 +695,9 @@ export function BillsPage() {
         </div>
       </Card>
       {editing ? <BillEditor key={editing.id ?? "new"} bill={editing} onClose={() => setEditing(null)} /> : null}
+      <Modal open={!!receiptBill} title="Receipt" onClose={() => setReceiptBill("")}>
+        <Receipts relatedType="bill" relatedId={receiptBill} />
+      </Modal>
       <Modal open={!!pay} title={pay ? `Pay ${pay.name}` : "Pay"} onClose={() => setPay(null)}>
         <Field label="Paid on">
           <input type="date" className={fieldClass} value={paidOn} onChange={(e) => {
@@ -818,6 +836,7 @@ function BillEditor({ bill, onClose }: { bill: Partial<Bill>; onClose: () => voi
       ) : null}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={status === "paused"} onChange={(e) => setStatus(e.target.checked ? "paused" : "active")} /> Paused</label>
       <Field label="Notes"><input className={fieldClass} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <Receipts relatedType="bill" relatedId={bill.id} />
       {canEdit ? (
         <div className="flex gap-2">
           <Button

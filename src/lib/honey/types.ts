@@ -269,6 +269,7 @@ export type DocumentRow = {
   body: string;
   encrypted: boolean;
   fileName: string;
+  mime: string;
 };
 
 export type CreditScore = {
@@ -572,6 +573,7 @@ export type ActionResult = {
     postal: string;
     hours: string;
   };
+  file?: { mime: string; fileName: string; dataBase64: string };
   patch?: {
     transactions?: Txn[];
     deletedTransactionIds?: string[];
@@ -596,7 +598,7 @@ export type Action = (
   | { type: "txn.save"; txn: Partial<Txn> & { accountId: string; postedOn: string; amountCents: number; merchant: string }; ownerId?: string }
   | { type: "txn.delete"; id: string; ownerId?: string }
   | { type: "txn.import"; accountId: string; rows: { postedOn: string; amountCents: number; merchant: string; memo: string; accountId?: string; categoryId?: string | null; personId?: string | null; tags?: string[] }[]; ownerId?: string }
-  | { type: "txn.match"; rows: { key: string; accountId: string; postedOn: string; amountCents: number; merchant: string }[]; ownerId?: string }
+  | { type: "txn.match"; rows: { key: string; accountId: string; postedOn: string; amountCents: number; merchant: string; memo?: string }[]; ownerId?: string }
   | { type: "txn.get"; id: string; ownerId?: string }
   | { type: "txn.recategorize"; ownerId?: string }
   | { type: "bill.save"; bill: Partial<Bill> & { name: string; amountCents: number; nextDue: string }; ownerId?: string }
@@ -626,6 +628,9 @@ export type Action = (
   | { type: "reminder.delete"; id: string; ownerId?: string }
   | { type: "document.save"; document: Partial<DocumentRow> & { title: string }; ownerId?: string }
   | { type: "document.delete"; id: string; ownerId?: string }
+  | { type: "receipt.save"; relatedType: "txn" | "bill"; relatedId: string; fileName: string; mime: string; dataBase64: string; ownerId?: string }
+  | { type: "receipt.open"; id: string; ownerId?: string }
+  | { type: "receipt.delete"; id: string; ownerId?: string }
   | { type: "score.save"; score: Partial<CreditScore> & { bureau: string; score: number; asOf: string }; ownerId?: string }
   | { type: "score.delete"; id: string; ownerId?: string }
   | { type: "milestone.save"; milestone: Partial<Milestone> & { name: string; kind: string; targetCents: number }; ownerId?: string }

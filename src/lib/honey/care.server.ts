@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import type { Sql } from "@/lib/db";
+import { removeUserFiles } from "./files.server";
 import { hashRecoveryCode, makeRecoveryCode, namesMatch, publicExport } from "./care";
 
 function nid(): string {
@@ -122,6 +123,7 @@ export async function deleteOwnedAccount(sql: Sql, userId: string, confirm: stri
   await sql`delete from "account" where "userId" = ${userId}`;
   await sql`delete from "verification" where value = ${userId}`;
   await sql`delete from "user" where id = ${userId}`;
+  await removeUserFiles(userId);
 }
 
 export async function exportOwned(sql: Sql, userId: string) {

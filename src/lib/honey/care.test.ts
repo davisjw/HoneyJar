@@ -40,6 +40,7 @@ describe("account care", () => {
       body: "ciphertext",
       encrypted: true,
       fileName: "deed.pdf",
+      mime: "",
     };
     assert.equal("body" in apiDocument(doc), false);
     const exported = publicExport({ documents: [doc], keys: [{ id: "k" }], profile: { displayName: "Calder" } } as unknown as Workspace);

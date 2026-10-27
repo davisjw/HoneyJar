@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { centsToInput, dollarsToCents, money, parseTags, prettyDate } from "@/lib/honey/calc";
+import { centsToInput, dollarsToCents, money, otherTransferAccount, parseTags, prettyDate, transferOtherMask } from "@/lib/honey/calc";
 import type { Account, Category, Person, Txn } from "@/lib/honey/types";
 import { useBook } from "../book";
 import { Button, Card, fieldClass } from "../kit";
@@ -57,7 +57,7 @@ export function ImportReview({
   const { run } = useBook();
   const [error, setError] = useState("");
   const waiting = drafts.filter((row) => row.status === "waiting");
-  const probe = waiting.map((row) => `${row.key}\u001f${row.accountId}\u001f${row.postedOn}\u001f${dollarsToCents(row.amount)}\u001f${row.merchant}`).join("\n");
+  const probe = waiting.map((row) => `${row.key}\u001f${row.accountId}\u001f${row.postedOn}\u001f${dollarsToCents(row.amount)}\u001f${row.merchant}\u001f${row.memo}`).join("\n");
   const probeNow = useRef(probe);
   const waitingNow = useRef(waiting);
   const onMatchesNow = useRef(onMatches);
@@ -79,6 +79,7 @@ export function ImportReview({
           postedOn: row.postedOn,
           amountCents: dollarsToCents(row.amount),
           merchant: row.merchant,
+          memo: row.memo,
         }));
       void runNow.current({ type: "txn.match", rows })
         .then((result) => {
@@ -118,10 +119,28 @@ export function ImportReview({
         <div>
           <h2 className="font-display text-xl">Review import</h2>
           <p className="mt-1 max-w-3xl text-sm text-muted">
-            A likely duplicate is the same account, the same amount, a date within seven days, and a close merchant. A leading VISA or MC is ignored, and a shortened name such as BLU BTTL still matches Blue Bottle. Open a row to see those. Click one field to copy only that field. The matches themselves are not imported.
+            Categories are filled from your rules before you import. A transfer that names another account’s last four digits, such as “Transfer From Checking -4253”, is posted on both accounts. Importing the other account later treats that opposite amount as the same transfer.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm">
+            <span className="text-muted">Person for all</span>
+            <select
+              className={fieldClass}
+              value=""
+              onChange={(e) => {
+                if (!e.target.value) return;
+                const personId = e.target.value === "__none" ? "" : e.target.value;
+                onChange(drafts.map((row) => (row.status === "waiting" ? { ...row, personId } : row)));
+              }}
+            >
+              <option value="">Person for all</option>
+              <option value="__none">Household</option>
+              {people.filter((person) => !person.archived).map((person) => (
+                <option key={person.id} value={person.id}>{person.name}</option>
+              ))}
+            </select>
+          </label>
           <Button tone="quiet" onClick={onClose}>Discard</Button>
           <Button disabled={!waiting.length} onClick={() => commit(waiting.map((row) => row.key))}>
             Import all {waiting.length || ""}
@@ -182,6 +201,21 @@ export function ImportReview({
                   <input className={fieldClass} disabled={locked} value={row.tags} placeholder="comma separated" onChange={(e) => onChange(patchDraft(drafts, row.key, { tags: e.target.value }))} />
                 </label>
               </div>
+              {(() => {
+                const text = `${row.merchant} ${row.memo}`;
+                const mask = transferOtherMask(text);
+                const other = otherTransferAccount(text, row.accountId, accounts);
+                const paired = !!other && row.matches.some((txn) => txn.accountId === other.id);
+                if (!mask) return null;
+                if (!other) return <p className="mt-2 text-xs text-muted">This looks like a transfer, but no account ends in {mask}. Put those digits in the account’s last 4 and import again.</p>;
+                return (
+                  <p className="mt-2 text-xs text-muted">
+                    {paired
+                      ? `${other.name} already has the opposite transfer, so importing this row will not post it again.`
+                      : `Importing this also posts the opposite amount to ${other.name}.`}
+                  </p>
+                );
+              })()}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {locked ? (
                   <span className="text-sm text-muted">{row.note || (row.status === "imported" ? "Imported" : "Ignored")}</span>

@@ -1545,6 +1545,7 @@ export type ImportProbe = {
   postedOn: string;
   amountCents: number;
   merchant: string;
+  memo?: string;
 };
 
 /**
@@ -1569,6 +1570,43 @@ export function importMatches<T extends { accountId: string; postedOn: string; a
       const bd = Math.abs((dayNumber(b.postedOn) ?? probeDay) - probeDay);
       return ad - bd;
     });
+}
+
+/** "Transfer From Checking -4253" names the other account by its last four digits. */
+export function transferOtherMask(text: string): string | null {
+  if (!/\b(transfer|xfer|tfr)\b/i.test(text)) return null;
+  const marked = /[-*#]\s*(\d{4})\b/.exec(text);
+  return marked?.[1] ?? null;
+}
+
+function mask4(mask: string): string {
+  return mask.replace(/\D/g, "").slice(-4);
+}
+
+export function otherTransferAccount<T extends { id: string; mask: string }>(text: string, accountId: string, accounts: T[]): T | null {
+  const mask = transferOtherMask(text);
+  if (!mask) return null;
+  return accounts.find((account) => account.id !== accountId && mask4(account.mask) === mask) ?? null;
+}
+
+/**
+ * The other side of a transfer: opposite amount, the account named by the last four,
+ * within a week. A later import of that account can treat it as the same movement.
+ */
+export function transferMatches<T extends { accountId: string; postedOn: string; amountCents: number; merchant: string }>(
+  probe: ImportProbe,
+  existing: T[],
+  accounts: { id: string; mask: string; name: string }[],
+): T[] {
+  const other = otherTransferAccount(`${probe.merchant} ${probe.memo ?? ""}`, probe.accountId, accounts);
+  const probeDay = dayNumber(probe.postedOn);
+  if (!other || probeDay == null) return [];
+  return existing.filter((txn) => {
+    if (txn.accountId !== other.id || txn.amountCents !== -probe.amountCents) return false;
+    const day = dayNumber(txn.postedOn);
+    if (day == null || Math.abs(day - probeDay) > 7) return false;
+    return transferOtherMask(txn.merchant) != null || /\b(transfer|xfer|tfr)\b/i.test(txn.merchant);
+  });
 }
 
 export function advisorBrief(input: {

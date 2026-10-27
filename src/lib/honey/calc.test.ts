@@ -22,8 +22,11 @@ import {
   scheduleD,
   importMatches,
   merchantClose,
+  otherTransferAccount,
   parseOfx,
   parseStatement,
+  transferMatches,
+  transferOtherMask,
 } from "./calc.ts";
 import type { Account, Asset, Category, Profile, Txn } from "./types.ts";
 
@@ -367,5 +370,27 @@ DATA:OFXSGML
   it("treats an OFX paste as a statement and a CSV as a CSV", () => {
     assert.equal(parseStatement(ofx).length, 2);
     assert.equal(parseStatement("date,amount,merchant\n2026-10-01,-12.40,Blue Bottle").length, 1);
+  });
+});
+
+describe("transfer imports", () => {
+  const accounts = [
+    { id: "checking", name: "Everyday checking", mask: "4418" },
+    { id: "savings", name: "Reserve savings", mask: "4253" },
+  ];
+
+  it("reads the other account's last four from a transfer description", () => {
+    assert.equal(transferOtherMask("Transfer From Checking -4253"), "4253");
+    assert.equal(otherTransferAccount("Transfer From Checking -4253", "checking", accounts)?.id, "savings");
+    assert.equal(transferOtherMask("Blue Bottle"), null);
+  });
+
+  it("matches the opposite amount already posted on the other account", () => {
+    const hits = transferMatches(
+      { key: "1", accountId: "savings", postedOn: "2026-10-02", amountCents: 50000, merchant: "Transfer From Checking -4418" },
+      [{ accountId: "checking", postedOn: "2026-10-01", amountCents: -50000, merchant: "Transfer to savings -4253" }],
+      accounts,
+    );
+    assert.equal(hits.length, 1);
   });
 });
