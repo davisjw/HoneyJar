@@ -168,6 +168,23 @@ describe("utility sheet", () => {
     assert.equal(rows[0]?.errors.c6, undefined);
   });
 
+  it("treats a blank column as zero", () => {
+    const columns: UtilColumn[] = [
+      { id: "r", utilityId: "m", key: "riders", label: "Riders", kind: "money", unit: "$", formula: "", rollup: "", fromChildren: false },
+      { id: "t", utilityId: "m", key: "taxes", label: "Taxes", kind: "money", unit: "$", formula: "", rollup: "", fromChildren: false },
+      { id: "d", utilityId: "m", key: "delivery", label: "Delivery", kind: "calculated", unit: "$", formula: "{riders} + {taxes}", rollup: "", fromChildren: false },
+      { id: "u", utilityId: "m", key: "usage_ccf", label: "Gas Used", kind: "calculated", unit: "CCF", formula: "{meter_read} - {prev.meter_read}", rollup: "usage", fromChildren: false },
+      { id: "th", utilityId: "m", key: "therms", label: "Therms", kind: "calculated", unit: "therms", formula: "{gas_used} * {therm_mult}", rollup: "", fromChildren: false },
+      { id: "m", utilityId: "m", key: "therm_mult", label: "Therm Mult", kind: "number", unit: "", formula: "", rollup: "", fromChildren: false },
+    ];
+    const rows = buildSheet("m", columns, [
+      read({ id: "a", utilityId: "m", date: "2026-02-01", cells: { riders: 5 } }),
+    ]);
+    assert.equal(rows[0]?.computed.delivery, 5);
+    assert.equal(rows[0]?.computed.therms, 0);
+    assert.equal(rows[0]?.errors.delivery, undefined);
+  });
+
   it("uses a column name and treats a blank number beside a calculated field as zero", () => {
     const columns = starterColumns("m", "electric");
     const rows = buildSheet("m", columns, [

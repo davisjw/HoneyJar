@@ -754,7 +754,7 @@ function ColumnDialog({
         </Field>
       ) : null}
       {kind === "calculated" ? (
-        <p className="text-xs text-muted">Use {"{field}"} or the column’s name, {"{prev.field}"}, days, avg_daily, yoy, avg_same_month, max_same_month, avg, and tier_charge. A calculated column can use another calculated column. A blank number beside one counts as zero.</p>
+        <p className="text-xs text-muted">Use {"{field}"} or the column’s name, {"{prev.field}"}, days, avg_daily, yoy, avg_same_month, max_same_month, avg, and tier_charge. A calculated column can use another calculated column. A blank column on the same row counts as zero.</p>
       ) : null}
       {kind !== "date" ? (
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={fromChildren} onChange={(e) => setFromChildren(e.target.checked)} /> Sum children</label>

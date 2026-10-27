@@ -359,8 +359,9 @@ type FormulaContext = {
   history: { year: number; month: number; values: Record<string, number | null> }[];
   tiers: RateTier[];
   columns?: FormulaColumn[];
-  /** When a formula uses a calculated column, an empty typed number counts as zero. */
+  /** An empty column on this row counts as zero. A calculated column that is not ready yet stays pending. */
   zeroBlanks?: boolean;
+  zeroCalculated?: boolean;
 };
 
 type Token =
@@ -591,9 +592,9 @@ class Parser {
       const key = column?.key ?? parts[0];
       const value = this.ctx.current[key];
       if (typeof value === "number" && Number.isFinite(value)) return { ok: true, value };
-      if (column?.kind === "calculated") return { ok: false, error: `Missing {${key}}`, pending: true };
-      if (column && this.ctx.zeroBlanks) return { ok: true, value: 0 };
-      return { ok: false, error: `Missing {${column?.key ?? parts[0]}}` };
+      if (column?.kind === "calculated" && !this.ctx.zeroCalculated) return { ok: false, error: `Missing {${key}}`, pending: true };
+      if (column) return { ok: true, value: 0 };
+      return { ok: false, error: `Missing {${parts[0]}}` };
     }
     if (parts[0] === "prev") {
       const name = parts[1] ?? "";
@@ -736,15 +737,6 @@ function formulaDeps(formula: string): string[] {
     .filter((ref) => ref && !ref.startsWith("prev."));
 }
 
-function usesCalculated(formula: string, columns: UtilColumn[]): boolean {
-  const norm = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return formulaDeps(formula).some((ref) => {
-    const want = norm(ref);
-    const column = columns.find((item) => norm(item.key) === want || norm(item.label) === want);
-    return column?.kind === "calculated";
-  });
-}
-
 function orderCalc(columns: UtilColumn[]): UtilColumn[] {
   const calc = columns.filter((column) => column.kind === "calculated" && column.formula.trim());
   const norm = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -876,7 +868,6 @@ export function buildSheet(
           history,
           tiers,
           columns: known,
-          zeroBlanks: usesCalculated(column.formula, columns),
         });
         if (result.ok) {
           const next = Math.round(result.value * 1000) / 1000;
@@ -886,6 +877,37 @@ export function buildSheet(
         } else if (!result.pending && row.computed[column.key] == null) {
           row.errors[column.key] = result.error;
         }
+      }
+    }
+    if (!changed) break;
+  }
+  for (let round = 0; round < calc.length + 1; round += 1) {
+    let changed = false;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i]!;
+      const [year, month] = row.date.split("-").map(Number);
+      for (const column of calc) {
+        if (row.computed[column.key] != null) continue;
+        const prevRow = rows[i - 1];
+        if (column.rollup === "days" && !prevRow) continue;
+        if (column.rollup === "usage" && (sorted[i]?.opening || !prevRow)) continue;
+        const result = evaluateFormula(column.formula, {
+          year: year!,
+          month: month!,
+          days: daysInMonth(year!, month!),
+          periodDays: daysKey != null && row.computed[daysKey] != null ? row.computed[daysKey]! : null,
+          current: row.computed,
+          prev: rows[i - 1]?.computed ?? {},
+          history: [],
+          tiers,
+          columns: known,
+          zeroCalculated: true,
+        });
+        if (!result.ok) continue;
+        const next = Math.round(result.value * 1000) / 1000;
+        if (row.computed[column.key] !== next) changed = true;
+        row.computed[column.key] = next;
+        delete row.errors[column.key];
       }
     }
     if (!changed) break;
@@ -905,7 +927,7 @@ export function buildSheet(
         history: [],
         tiers,
         columns: known,
-        zeroBlanks: usesCalculated(column.formula, columns),
+        zeroCalculated: true,
       });
       if (!result.ok) row.errors[column.key] = result.error;
     }
