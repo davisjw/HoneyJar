@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import type { Sql } from "@/lib/db";
-import { removeUserFiles } from "./files.server";
+import { readReceipt, removeUserFiles } from "./files.server";
+import type { DocumentRow, Workspace } from "./types";
 import { hashRecoveryCode, makeRecoveryCode, namesMatch, publicExport } from "./care";
 
 function nid(): string {
@@ -130,5 +131,30 @@ export async function exportOwned(sql: Sql, userId: string) {
   const { readWorkspace } = await import("./data.server");
   const ws = await readWorkspace(sql, userId, undefined, { window: false });
   await recordAudit(sql, userId, "export", "");
-  return publicExport(ws);
+  const book = publicExport(ws);
+  const files = [];
+  for (const doc of receiptDocs(ws)) {
+    try {
+      const bytes = await readReceipt(userId, doc.id);
+      files.push({ id: doc.id, fileName: doc.fileName || doc.title || doc.id, mime: doc.mime, dataBase64: bytes.toString("base64") });
+    } catch {
+      files.push({ id: doc.id, fileName: doc.fileName || doc.title || doc.id, mime: doc.mime, dataBase64: "" });
+    }
+  }
+  return { book, files };
+}
+
+function receiptDocs(ws: Workspace): DocumentRow[] {
+  const seen = new Set<string>();
+  const out: DocumentRow[] = [];
+  const take = (docs: DocumentRow[] | undefined) => {
+    for (const doc of docs ?? []) {
+      if (doc.kind !== "receipt" || seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      out.push(doc);
+    }
+  };
+  take(ws.documents);
+  for (const book of ws.ledgers ?? []) take(book.documents);
+  return out;
 }

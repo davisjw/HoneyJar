@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SliceTip, axisTick } from "../charts";
 import { askAdvisor, changeOwnPassword, exportHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
+import { exportZip } from "@/lib/honey/zip";
 import { signOut } from "@/lib/auth/client";
 import {
   centsToInput,
@@ -27,6 +28,17 @@ import { NAV_IDS } from "../shell";
 import { BankSelect } from "../contact-field";
 import { useBook } from "../book";
 import { Button, Card, Field, Modal, PageIntro, downloadText, fieldClass } from "../kit";
+
+async function downloadHousehold() {
+  const { book, files } = await exportHousehold();
+  const zip = exportZip(book, files);
+  const url = URL.createObjectURL(new Blob([zip as BlobPart], { type: "application/zip" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "honeyjar.zip";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function param(search: string, key: string) {
   return new URLSearchParams(search.replace(/^\?/, "")).get(key) ?? "";
@@ -1168,10 +1180,7 @@ export function SettingsPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               tone="quiet"
-              onClick={async () => {
-                const book = await exportHousehold();
-                downloadText("honeyjar.json", JSON.stringify(book, null, 2));
-              }}
+              onClick={() => void downloadHousehold()}
             >
               Export everything
             </Button>
@@ -1179,7 +1188,7 @@ export function SettingsPage() {
             <Button tone="quiet" onClick={() => { setBlankName(""); setBlankOpen(true); }}>Start blank</Button>
             <Button tone="quiet" onClick={() => setSampleStep("risk")}>Load sample household</Button>
           </div>
-          <p className="mt-2 text-xs text-muted">Export is every jar this sign-in owns, including older transactions. Document bodies stay as stored. API keys are not included. Clear keeps the starter category names and your sign-in, and it zeros the monthly plan and the tax figures. Start blank does that and lets you name the household. Load sample replaces the books with the Calder household after you confirm. Deleting the account signs you out. The next sign-in starts blank and asks for a name. It does not bring the sample back.</p>
+          <p className="mt-2 text-xs text-muted">Export is a zip of every jar this sign-in owns, including older transactions, plus the receipt files decrypted from disk. honeyjar.json is the books. The files folder holds each picture or PDF. A receipt that cannot be read is named in files-missing.txt. API keys are not included. Clear keeps the starter category names and your sign-in, and it zeros the monthly plan and the tax figures. Start blank does that and lets you name the household. Load sample replaces the books with the Calder household after you confirm. Deleting the account signs you out. The next sign-in starts blank and asks for a name. It does not bring the sample back.</p>
           <form
             className="mt-3 flex flex-wrap gap-2"
             onSubmit={async (e) => {
@@ -1220,8 +1229,7 @@ export function SettingsPage() {
               <Button tone="quiet" onClick={async () => { await run({ type: "sample.load" }); setSampleStep(null); }}>No, load the sample</Button>
               <Button
                 onClick={async () => {
-                  const book = await exportHousehold();
-                  downloadText("honeyjar.json", JSON.stringify(book, null, 2));
+                  await downloadHousehold();
                   setSampleStep("download");
                 }}
               >
@@ -1232,7 +1240,7 @@ export function SettingsPage() {
         ) : null}
         {sampleStep === "download" ? (
           <div className="space-y-3">
-            <p className="text-sm">A file named honeyjar.json should be downloading. Load the sample only after that file is saved.</p>
+            <p className="text-sm">A file named honeyjar.zip should be downloading. It contains the books and any receipt files. Load the sample only after that file is saved.</p>
             <div className="flex flex-wrap gap-2">
               <Button tone="quiet" onClick={() => setSampleStep(null)}>Cancel</Button>
               <Button onClick={async () => { await run({ type: "sample.load" }); setSampleStep(null); }}>The download is complete</Button>
