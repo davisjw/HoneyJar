@@ -462,34 +462,34 @@ function DateCell({ value, onCommit, onDone }: { value: string; onCommit: (value
 }
 
 function Cell({ value, onCommit, onDone }: { value: number | undefined; onCommit: (value: number | null) => void; onDone: () => void }) {
-  const shown = value == null ? "" : String(value);
-  const [text, setText] = useState(shown);
-  const [seen, setSeen] = useState(shown);
-  const focused = useRef(false);
   const skip = useRef(false);
-  if (!focused.current && seen !== shown) {
-    setSeen(shown);
-    setText(shown);
-  }
-  function commit() {
+  const picked = useRef(false);
+  const shown = value == null ? null : Math.round(value * 1000) / 1000;
+  function commit(raw: string) {
     if (skip.current) {
       onDone();
       return;
     }
-    const parsed = parseUtilityNumber(text);
+    const parsed = parseUtilityNumber(raw);
     if ("blank" in parsed) {
-      if (value != null) onCommit(null);
-    } else if ("value" in parsed && parsed.value !== value) onCommit(parsed.value);
+      if (shown != null) onCommit(null);
+    } else if ("value" in parsed && parsed.value !== shown) onCommit(parsed.value);
     onDone();
   }
   return (
     <input
       autoFocus
+      ref={(node) => {
+        if (!node || picked.current) return;
+        picked.current = true;
+        node.focus();
+        node.select();
+      }}
       inputMode="decimal"
       className="w-28 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
-      value={text}
-      onFocus={() => { focused.current = true; }}
-      onChange={(e) => setText(e.target.value)}
+      defaultValue={shown == null ? "" : String(shown)}
+      onFocus={(e) => e.currentTarget.select()}
+      onMouseUp={(e) => e.currentTarget.select()}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
@@ -500,10 +500,7 @@ function Cell({ value, onCommit, onDone }: { value: number | undefined; onCommit
           e.currentTarget.blur();
         }
       }}
-      onBlur={() => {
-        focused.current = false;
-        commit();
-      }}
+      onBlur={(e) => commit(e.currentTarget.value)}
     />
   );
 }
