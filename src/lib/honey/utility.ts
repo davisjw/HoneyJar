@@ -342,8 +342,10 @@ export function cellMount(
 }
 
 type FormulaOk = { ok: true; value: number };
-type FormulaErr = { ok: false; error: string };
+type FormulaErr = { ok: false; error: string; pending?: boolean };
 type FormulaResult = FormulaOk | FormulaErr;
+
+type FormulaColumn = { key: string; label: string; kind: string };
 
 type FormulaContext = {
   year: number;
@@ -354,6 +356,9 @@ type FormulaContext = {
   prev: Record<string, number | null>;
   history: { year: number; month: number; values: Record<string, number | null> }[];
   tiers: RateTier[];
+  columns?: FormulaColumn[];
+  /** When a formula uses a calculated column, an empty typed number counts as zero. */
+  zeroBlanks?: boolean;
 };
 
 type Token =
@@ -522,23 +527,23 @@ class Parser {
     if (name === "tier_charge") {
       const a0 = args[0];
       if (!a0) return { ok: false, error: "tier_charge needs usage" };
-      const n = a0.kind === "num" ? a0.v : this.numOrNull(this.resolveRef(a0.v));
-      if (n == null) return { ok: false, error: "tier_charge missing usage" };
+      const resolved = a0.kind === "num" ? ({ ok: true, value: a0.v } as FormulaResult) : this.resolveRef(a0.v);
+      if (!resolved.ok) return resolved.pending ? resolved : { ok: false, error: "tier_charge missing usage" };
       if (!this.ctx.tiers.length) return { ok: false, error: "No rate tiers on this meter" };
-      return { ok: true, value: tierChargeDollars(n, this.ctx.tiers) };
+      return { ok: true, value: tierChargeDollars(resolved.value, this.ctx.tiers) };
     }
     if (name === "avg_daily") {
       const a0 = args[0];
       if (!a0) return { ok: false, error: "avg_daily needs a value" };
-      const n = a0.kind === "num" ? a0.v : this.numOrNull(this.resolveRef(a0.v));
-      if (n == null) return { ok: false, error: "avg_daily missing value" };
+      const resolved = a0.kind === "num" ? ({ ok: true, value: a0.v } as FormulaResult) : this.resolveRef(a0.v);
+      if (!resolved.ok) return resolved.pending ? resolved : { ok: false, error: "avg_daily missing value" };
       const denom = this.ctx.periodDays && this.ctx.periodDays > 0 ? this.ctx.periodDays : this.ctx.days;
       if (!denom) return { ok: false, error: "Division by zero" };
-      return { ok: true, value: n / denom };
+      return { ok: true, value: resolved.value / denom };
     }
     const field = args[0]?.kind === "ref" ? args[0].v : "";
     if (!field) return { ok: false, error: `${name} needs a {field}` };
-    const key = field.includes(".") ? field.split(".").pop()! : field;
+    const key = this.canon(field.includes(".") ? field.split(".").pop()! : field);
     if (name === "avg") {
       const nums = this.ctx.history.map((h) => h.values[key]).filter((v): v is number => v != null && Number.isFinite(v));
       if (!nums.length) return { ok: false, error: `No history for {${key}}` };
@@ -565,21 +570,35 @@ class Parser {
     }
     return { ok: false, error: `Unknown function ${name}` };
   }
-  numOrNull(r: FormulaResult): number | null {
-    return r.ok ? r.value : null;
+  norm(value: string): string {
+    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  }
+  columnFor(raw: string): FormulaColumn | undefined {
+    const want = this.norm(raw);
+    if (!want) return undefined;
+    return this.ctx.columns?.find((column) => this.norm(column.key) === want || this.norm(column.label) === want);
+  }
+  canon(raw: string): string {
+    return this.columnFor(raw)?.key ?? raw.trim();
   }
   resolveRef(raw: string): FormulaResult {
     const parts = raw.trim().split(".");
     if (!parts[0]) return { ok: false, error: "Empty {}" };
     if (parts.length === 1) {
-      const v = this.ctx.current[parts[0]];
-      if (v == null) return { ok: false, error: `Missing {${parts[0]}}` };
-      return { ok: true, value: v };
+      const column = this.columnFor(parts[0]);
+      const key = column?.key ?? parts[0];
+      const value = this.ctx.current[key];
+      if (typeof value === "number" && Number.isFinite(value)) return { ok: true, value };
+      if (column?.kind === "calculated") return { ok: false, error: `Missing {${key}}`, pending: true };
+      if (column && this.ctx.zeroBlanks) return { ok: true, value: 0 };
+      return { ok: false, error: `Missing {${column?.key ?? parts[0]}}` };
     }
     if (parts[0] === "prev") {
-      const v = this.ctx.prev[parts[1] ?? ""];
-      if (v == null) return { ok: false, error: `Missing {prev.${parts[1]}}` };
-      return { ok: true, value: v };
+      const name = parts[1] ?? "";
+      const key = this.canon(name);
+      const value = this.ctx.prev[key];
+      if (typeof value === "number" && Number.isFinite(value)) return { ok: true, value };
+      return { ok: false, error: `Missing {prev.${name}}` };
     }
     return { ok: false, error: `Missing {${raw}}` };
   }
@@ -617,24 +636,27 @@ function daysInMonth(year: number, month: number): number {
 
 function childRolled(
   column: UtilColumn,
-  children: ReadLike[],
+  sheets: Map<string, SheetRow[]>,
+  childReads: ReadLike[],
   childColumns: UtilColumn[],
   month: string,
 ): number | null {
-  const ids = [...new Set(children.map((r) => r.utilityId))];
   let sum = 0;
   let any = false;
-  for (const id of ids) {
+  for (const id of sheets.keys()) {
     const cols = childColumns.filter((c) => c.utilityId === id);
-    const same = cols.find((c) => c.key === column.key);
-    const rows = children.filter((r) => r.utilityId === id).slice().sort((a, b) => a.date.localeCompare(b.date));
+    const rows = childReads.filter((r) => r.utilityId === id).slice().sort((a, b) => a.date.localeCompare(b.date));
     const idx = rows.findIndex((r) => monthOf(r.date) === month);
     if (idx < 0) continue;
     const cur = rows[idx]!;
     const prev = rows[idx - 1];
     const usage = prev && cur.meter != null && prev.meter != null && !cur.opening ? cur.meter - prev.meter : null;
+    const sheetRow = sheets.get(id)?.find((row) => row.id === cur.id);
+    const same = cols.find((c) => c.key === column.key);
     let value: number | null = null;
-    if (same) {
+    const computed = same && sheetRow ? sheetRow.computed[same.key] : undefined;
+    if (typeof computed === "number" && Number.isFinite(computed)) value = computed;
+    else if (same) {
       if (same.rollup === "usage") value = usage;
       else if (same.rollup === "bill") value = cur.amountCents / 100;
       else if (same.rollup === "meter" && cur.meter != null) value = cur.meter;
@@ -652,6 +674,71 @@ function childRolled(
   return any ? sum : null;
 }
 
+function formulaDeps(formula: string): string[] {
+  return [...formula.matchAll(/\{([^}]+)\}/g)]
+    .map((match) => match[1]!.trim())
+    .filter((ref) => ref && !ref.startsWith("prev."));
+}
+
+function usesCalculated(formula: string, columns: UtilColumn[]): boolean {
+  const norm = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return formulaDeps(formula).some((ref) => {
+    const want = norm(ref);
+    const column = columns.find((item) => norm(item.key) === want || norm(item.label) === want);
+    return column?.kind === "calculated";
+  });
+}
+
+function orderCalc(columns: UtilColumn[]): UtilColumn[] {
+  const calc = columns.filter((column) => column.kind === "calculated" && column.formula.trim());
+  const norm = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const canon = (raw: string) => {
+    const want = norm(raw);
+    return columns.find((column) => norm(column.key) === want || norm(column.label) === want)?.key ?? raw;
+  };
+  const byKey = new Map(calc.map((column) => [column.key, column]));
+  const indegree = new Map(calc.map((column) => [column.key, 0]));
+  const next = new Map(calc.map((column) => [column.key, [] as string[]]));
+  for (const column of calc) {
+    for (const ref of formulaDeps(column.formula)) {
+      const key = canon(ref);
+      if (!byKey.has(key) || key === column.key) continue;
+      next.get(key)!.push(column.key);
+      indegree.set(column.key, (indegree.get(column.key) ?? 0) + 1);
+    }
+  }
+  const queue = calc.filter((column) => indegree.get(column.key) === 0).map((column) => column.key);
+  const ordered: UtilColumn[] = [];
+  const seen = new Set<string>();
+  while (queue.length) {
+    const key = queue.shift()!;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ordered.push(byKey.get(key)!);
+    for (const dep of next.get(key) ?? []) {
+      indegree.set(dep, (indegree.get(dep) ?? 1) - 1);
+      if (indegree.get(dep) === 0) queue.push(dep);
+    }
+  }
+  for (const column of calc) if (!seen.has(column.key)) ordered.push(column);
+  return ordered;
+}
+
+function childSheets(childReads: ReadLike[], childColumns: UtilColumn[]): Map<string, SheetRow[]> {
+  const out = new Map<string, SheetRow[]>();
+  for (const id of [...new Set(childReads.map((reading) => reading.utilityId))]) {
+    out.set(
+      id,
+      buildSheet(
+        id,
+        childColumns.filter((column) => column.utilityId === id),
+        childReads.filter((reading) => reading.utilityId === id),
+      ),
+    );
+  }
+  return out;
+}
+
 export function buildSheet(
   utilityId: string,
   columns: UtilColumn[],
@@ -662,6 +749,7 @@ export function buildSheet(
 ): SheetRow[] {
   const sorted = readings.filter((r) => r.utilityId === utilityId).slice().sort((a, b) => a.date.localeCompare(b.date));
   const metered = hasMeter(columns);
+  const nested = childSheets(childReads, childColumns);
   const rows: SheetRow[] = sorted.map((reading, i) => {
     const prev = sorted[i - 1];
     const entered: Record<string, number> = { ...(reading.cells ?? {}) };
@@ -679,7 +767,7 @@ export function buildSheet(
       }
       if (column.kind === "calculated" || entered[column.key] != null) continue;
       if (column.fromChildren) {
-        const rolled = childRolled(column, childReads, childColumns, monthOf(reading.date));
+        const rolled = childRolled(column, nested, childReads, childColumns, monthOf(reading.date));
         if (rolled != null) entered[column.key] = rolled;
         continue;
       }
@@ -692,9 +780,12 @@ export function buildSheet(
     }
     return { id: reading.id, date: reading.date, entered, computed: { ...entered }, errors: {} };
   });
-  const calc = columns.filter((c) => c.kind === "calculated" && c.formula.trim());
+  const calc = orderCalc(columns);
+  const known = columns.map((column) => ({ key: column.key, label: column.label, kind: column.kind }));
   const daysKey = columns.find((c) => c.rollup === "days")?.key;
-  for (let pass = 0; pass < 4; pass += 1) {
+  const limit = Math.max(calc.length + 2, 4);
+  for (let pass = 0; pass < limit; pass += 1) {
+    let changed = false;
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i]!;
       const [year, month] = row.date.split("-").map(Number);
@@ -715,14 +806,39 @@ export function buildSheet(
           prev: rows[i - 1]?.computed ?? {},
           history,
           tiers,
+          columns: known,
+          zeroBlanks: usesCalculated(column.formula, columns),
         });
         if (result.ok) {
-          row.computed[column.key] = Math.round(result.value * 1000) / 1000;
+          const next = Math.round(result.value * 1000) / 1000;
+          if (row.computed[column.key] !== next) changed = true;
+          row.computed[column.key] = next;
           delete row.errors[column.key];
-        } else if (row.computed[column.key] == null) {
+        } else if (!result.pending && row.computed[column.key] == null) {
           row.errors[column.key] = result.error;
         }
       }
+    }
+    if (!changed) break;
+  }
+  for (const row of rows) {
+    const index = rows.indexOf(row);
+    for (const column of calc) {
+      if (row.computed[column.key] != null || row.errors[column.key]) continue;
+      const [year, month] = row.date.split("-").map(Number);
+      const result = evaluateFormula(column.formula, {
+        year: year!,
+        month: month!,
+        days: daysInMonth(year!, month!),
+        periodDays: daysKey != null && row.computed[daysKey] != null ? row.computed[daysKey]! : null,
+        current: row.computed,
+        prev: rows[index - 1]?.computed ?? {},
+        history: [],
+        tiers,
+        columns: known,
+        zeroBlanks: usesCalculated(column.formula, columns),
+      });
+      if (!result.ok) row.errors[column.key] = result.error;
     }
   }
   return rows;

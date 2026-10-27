@@ -63,7 +63,6 @@ function tiersFromText(raw: string) {
 
 function cellText(row: SheetRow, column: UtilColumn) {
   if (column.kind === "date" || column.rollup === "readDate") return prettyDate(row.date);
-  if (row.errors[column.key]) return "—";
   const value = row.computed[column.key];
   if (value == null || Number.isNaN(value)) return "—";
   if (column.kind === "money" || column.rollup === "bill" || column.rollup === "charges" || column.unit === "$") return money(Math.round(value * 100));
@@ -676,7 +675,7 @@ function ColumnDialog({
         </Field>
       ) : null}
       {kind === "calculated" ? (
-        <p className="text-xs text-muted">Use {"{field}"}, {"{prev.field}"}, days, avg_daily, yoy, avg_same_month, max_same_month, avg, and tier_charge. A bad formula shows an em dash.</p>
+        <p className="text-xs text-muted">Use {"{field}"} or the column’s name, {"{prev.field}"}, days, avg_daily, yoy, avg_same_month, max_same_month, avg, and tier_charge. A calculated column can use another calculated column. A blank number beside one counts as zero.</p>
       ) : null}
       {kind !== "date" ? (
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={fromChildren} onChange={(e) => setFromChildren(e.target.checked)} /> Sum children</label>

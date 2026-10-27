@@ -341,7 +341,7 @@ describe("page work stays cheap as the book grows", () => {
     assert.equal(resting, 0);
     const usage = own.find((column) => column.rollup === "usage");
     assert.ok(usage);
-    assert.equal(cellMount(usage, { metered, openingUsage: false, editing: true }), "input");
+    assert.equal(cellMount(usage, { metered, openingUsage: false, editing: true }), "static");
     const days = own.find((column) => column.rollup === "days");
     assert.ok(days);
     assert.equal(cellMount(days, { metered, openingUsage: false, editing: true }), "static");

@@ -105,6 +105,78 @@ describe("utility sheet", () => {
     assert.equal(last.computed.plan_amount, 25);
     assert.notEqual(last.computed.plan_amount, 54);
   });
+
+  it("fills a calculated column from another calculated column, even when listed first", () => {
+    const base: UtilColumn = {
+      id: "n",
+      utilityId: "m",
+      key: "n",
+      label: "N",
+      kind: "number",
+      unit: "",
+      formula: "",
+      rollup: "",
+      fromChildren: false,
+    };
+    const chain: UtilColumn[] = [1, 2, 3, 4, 5, 6].map((step) => ({
+      id: `c${step}`,
+      utilityId: "m",
+      key: `c${step}`,
+      label: `Step ${step}`,
+      kind: "calculated",
+      unit: "",
+      formula: step === 1 ? "{n} + 1" : `{c${step - 1}} + 1`,
+      rollup: "",
+      fromChildren: false,
+    }));
+    const rows = buildSheet("m", [...chain].reverse().concat(base), [
+      read({ id: "a", utilityId: "m", date: "2026-02-01", cells: { n: 1 } }),
+    ]);
+    assert.equal(rows[0]?.computed.c6, 7);
+    assert.equal(rows[0]?.errors.c6, undefined);
+  });
+
+  it("uses a column name and treats a blank number beside a calculated field as zero", () => {
+    const columns = starterColumns("m", "electric");
+    const rows = buildSheet("m", columns, [
+      read({ id: "a", utilityId: "m", date: "2026-01-06", meter: 1000, opening: true }),
+      read({ id: "b", utilityId: "m", date: "2026-02-05", meter: 1170, amountCents: 10800 }),
+    ], [], SAMPLE_POWER_TIERS);
+    const last = rows[1]!;
+    assert.equal(last.computed.usage_kwh, 170);
+    assert.equal(last.computed.grid_kwh, 170);
+    const named = buildSheet("m", [
+      { id: "u", utilityId: "m", key: "usage_kwh", label: "Usage kWh", kind: "number", unit: "kWh", formula: "", rollup: "", fromChildren: false },
+      { id: "d", utilityId: "m", key: "double", label: "Double", kind: "calculated", unit: "", formula: "{Usage kWh} * 2", rollup: "", fromChildren: false },
+    ], [read({ id: "a", utilityId: "m", date: "2026-02-01", cells: { usage_kwh: 10 } })]);
+    assert.equal(named[0]?.computed.double, 20);
+  });
+
+  it("rolls a child calculated column up to the parent", () => {
+    const parent: UtilColumn = {
+      id: "gal",
+      utilityId: "house",
+      key: "usage_gal",
+      label: "Usage gallons",
+      kind: "number",
+      unit: "gal",
+      formula: "",
+      rollup: "",
+      fromChildren: true,
+    };
+    const rows = buildSheet(
+      "house",
+      [parent],
+      [read({ id: "h", utilityId: "house", date: "2026-02-05" })],
+      [
+        read({ id: "w0", utilityId: "w", date: "2026-01-06", meter: 100, opening: true }),
+        read({ id: "w1", utilityId: "w", date: "2026-02-05", meter: 110 }),
+      ],
+      [],
+      starterColumns("w", "water"),
+    );
+    assert.equal(rows[0]?.computed.usage_gal, 7480);
+  });
 });
 
 describe("calder utility history", () => {
