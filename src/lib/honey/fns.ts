@@ -70,16 +70,6 @@ export const askAdvisor = createServerFn({ method: "POST" })
       brief,
     ].join("\n");
 
-    if (ws.profile.aiProvider === "ollama") {
-      return {
-        mode: "ollama" as const,
-        url: ws.profile.ollamaUrl,
-        model: ws.profile.ollamaModel,
-        system,
-        question: data.question,
-      };
-    }
-
     const history = ws.messages.slice(-8).map((m) => ({
       role: m.role === "assistant" ? "assistant" : "user",
       content: m.content,
@@ -89,6 +79,44 @@ export const askAdvisor = createServerFn({ method: "POST" })
       ...history,
       { role: "user", content: data.question },
     ];
+
+    if (ws.profile.aiProvider === "ollama") {
+      const base = ws.profile.ollamaUrl.trim().replace(/\/$/, "");
+      let parsed: URL;
+      try {
+        parsed = new URL(base);
+      } catch {
+        throw new Error("The Ollama address is not a URL.");
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("The Ollama address has to start with http:// or https://.");
+      }
+      const endpoint = base.endsWith("/api/chat") ? base : `${base}/api/chat`;
+      let res: Response;
+      try {
+        res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(120_000),
+          body: JSON.stringify({ model: ws.profile.ollamaModel || "llama3.1", stream: false, messages }),
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : "";
+        if (/certificate|UNABLE_TO_VERIFY/i.test(`${message} ${cause}`)) {
+          throw new Error("HoneyJar reached Ollama but does not trust its certificate. Use a public certificate, or trust the issuer the same way as OpenID Connect.");
+        }
+        throw new Error(`HoneyJar could not reach Ollama at ${parsed.origin}. The server makes this call, not your browser. ${message}`.slice(0, 400));
+      }
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`Ollama didn’t answer (${res.status}). ${detail.slice(0, 180)}`);
+      }
+      const body = (await res.json()) as { message?: { content?: string } };
+      const text = body.message?.content?.trim() || "No answer came back.";
+      await rememberAdvisor(ws.ownerId, data.question, text);
+      return { mode: "answer" as const, text };
+    }
 
     let url = "https://api.x.ai/v1/chat/completions";
     let key = process.env.XAI_API_KEY ?? "";
@@ -117,14 +145,19 @@ export const askAdvisor = createServerFn({ method: "POST" })
     }
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = body.choices?.[0]?.message?.content?.trim() || "No answer came back.";
-    const sql = await getSql();
-    const { randomBytes } = await import("node:crypto");
-    const a = randomBytes(8).toString("hex");
-    const b = randomBytes(8).toString("hex");
-    await sql`insert into ai_messages (id, user_id, role, content) values (${a}, ${ws.ownerId}, 'user', ${data.question})`;
-    await sql`insert into ai_messages (id, user_id, role, content) values (${b}, ${ws.ownerId}, 'assistant', ${text})`;
+    await rememberAdvisor(ws.ownerId, data.question, text);
     return { mode: "answer" as const, text };
   });
+
+async function rememberAdvisor(ownerId: string, question: string, text: string) {
+  const { getSql } = await import("@/lib/db");
+  const { randomBytes } = await import("node:crypto");
+  const sql = await getSql();
+  const a = randomBytes(8).toString("hex");
+  const b = randomBytes(8).toString("hex");
+  await sql`insert into ai_messages (id, user_id, role, content) values (${a}, ${ownerId}, 'user', ${question})`;
+  await sql`insert into ai_messages (id, user_id, role, content) values (${b}, ${ownerId}, 'assistant', ${text})`;
+}
 
 export const exportHousehold = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

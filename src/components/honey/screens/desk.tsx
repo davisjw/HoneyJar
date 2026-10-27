@@ -851,7 +851,7 @@ function AccountEditor({ account, onClose }: { account: Partial<Account>; onClos
 }
 
 export function AdvisorPage() {
-  const { data, run, ownerId, reload } = useBook();
+  const { data, ownerId, reload } = useBook();
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -863,24 +863,7 @@ export function AdvisorPage() {
     const q = question.trim();
     try {
       const res = await askAdvisor({ data: { question: q, ownerId } });
-      if (res.mode === "ollama") {
-        const response = await fetch(`${res.url.replace(/\/$/, "")}/api/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: res.model,
-            stream: false,
-            messages: [
-              { role: "system", content: res.system },
-              { role: "user", content: res.question },
-            ],
-          }),
-        });
-        if (!response.ok) throw new Error("Ollama didn’t answer. Is it running, and is OLLAMA_ORIGINS open to this site?");
-        const body = (await response.json()) as { message?: { content?: string } };
-        const text = body.message?.content ?? "No answer.";
-        await run({ type: "advisor.log", question: q, answer: text });
-      }
+      if (!res.text) throw new Error("No answer came back.");
       setQuestion("");
       await reload();
     } catch (err) {
@@ -893,7 +876,7 @@ export function AdvisorPage() {
     <div>
       <PageIntro
         title="Advisor"
-        lede={`Asking as ${data.profile.aiProvider === "grok" ? "Grok" : data.profile.aiProvider === "openai" ? "OpenAI" : "your local Ollama"}. Questions use a summary of this household, not a dump of every row. Switch models in Customize.`}
+        lede={`Asking as ${data.profile.aiProvider === "grok" ? "Grok" : data.profile.aiProvider === "openai" ? "OpenAI" : "Ollama"}. Questions use a summary of this household, not a dump of every row. Switch models in Customize.`}
       />
       <Card>
         <div className="max-h-[28rem] space-y-3 overflow-y-auto">
@@ -1034,7 +1017,7 @@ export function SettingsPage() {
               <select className={fieldClass} value={p.aiProvider} onChange={(e) => run({ type: "profile.update", patch: { aiProvider: e.target.value as typeof p.aiProvider } })}>
                 <option value="grok">Grok</option>
                 <option value="openai">OpenAI</option>
-                <option value="ollama">Ollama on this computer</option>
+                <option value="ollama">Ollama</option>
               </select>
             </Field>
             <Field label="OpenAI model"><input className={fieldClass} defaultValue={p.openaiModel} onBlur={(e) => run({ type: "profile.update", patch: { openaiModel: e.target.value } })} /></Field>
@@ -1048,7 +1031,7 @@ export function SettingsPage() {
             <Button tone="quiet" onClick={() => openai && run({ type: "profile.update", patch: { openaiKey: openai } }).then(() => setOpenai(""))}>Save key</Button>
             {p.openaiKeySet ? <Button tone="danger" onClick={() => run({ type: "profile.update", patch: { openaiKey: "" } })}>Clear key</Button> : null}
           </div>
-          <p className="mt-2 text-xs text-muted">Grok uses the app’s own key and only runs when you press Ask. The OpenAI key stays on the server. Ollama is called from your browser, so it can reach localhost.</p>
+          <p className="mt-2 text-xs text-muted">Grok uses the app’s own key and only runs when you press Ask. The OpenAI key stays on the server. HoneyJar’s server calls the Ollama address. A page that opens in your browser can still be unreachable from that server. Use a host the HoneyJar machine can open, not 127.0.0.1, unless Ollama is on that same machine.</p>
         </Card>
       ) : null}
       {isOwner ? (
