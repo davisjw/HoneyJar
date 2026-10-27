@@ -7,6 +7,7 @@ import { money, prettyDate } from "@/lib/honey/calc";
 import type { UtilityColumn, UtilityMeter, UtilityReading, Workspace } from "@/lib/honey/types";
 import {
   UTILITY_TEMPLATES,
+  duplicateColumnName,
   buildSheet,
   carriedValue,
   chargeCompare,
@@ -704,10 +705,12 @@ function ColumnDialog({
   const [fromChildren, setFromChildren] = useState(column?.fromChildren ?? false);
   const [carryForward, setCarryForward] = useState(column?.carryForward ?? false);
   const [afterId, setAfterId] = useState("");
+  const [error, setError] = useState("");
   const canCarry = (kind === "number" || kind === "money") && !fromChildren;
   return (
     <Modal open title={column ? "Edit column" : "Add column"} onClose={onClose}>
       <Field label="Label"><input className={fieldClass} value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
+      {column ? <p className="text-xs text-muted">A name already used by another column is rejected. Calculated formulas that mention this column change to the new name.</p> : null}
       {!column ? (
         <Field label="Place after">
           <select className={fieldClass} value={afterId} onChange={(e) => setAfterId(e.target.value)}>
@@ -756,15 +759,23 @@ function ColumnDialog({
         </label>
       ) : null}
       {canCarry ? <p className="text-xs text-muted">A new read starts with this column’s value from the previous read. You can change it before saving.</p> : null}
-      {structural ? <p className="text-xs text-muted">The source stays {column?.rollup}. The key stays put so formulas that mention it keep working.</p> : null}
+      {structural ? <p className="text-xs text-muted">The source stays {column?.rollup}. The stored key stays put.</p> : null}
+      {error ? <p className="text-sm text-clay">{error}</p> : null}
       <Button onClick={async () => {
-        if (!label.trim()) return;
+        const name = label.trim();
+        if (!name) return;
+        const taken = duplicateColumnName(columns, name, column?.id);
+        if (taken) {
+          setError(`${taken.label} is already a column on this meter.`);
+          return;
+        }
+        setError("");
         await run({
           type: "column.save",
           column: {
             id: column?.id,
             meterId,
-            label: label.trim(),
+            label: name,
             kind,
             unit: kind === "date" ? "" : unit.trim(),
             formula: kind === "calculated" ? formula.trim() : "",

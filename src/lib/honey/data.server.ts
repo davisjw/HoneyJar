@@ -3,7 +3,7 @@ import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, importMatches, matchCategory, otherTransferAccount, packTags, parseTags, portfolioPerformance, shiftDays, stepDue, todayISO, transferMatches } from "./calc";
 import { averagesFromDaily, monthBounds } from "./weather";
 import { readReceipt, removeReceipt, removeUserFiles, writeReceipt } from "./files.server";
-import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA } from "./utility";
+import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA, duplicateColumnName, rewriteColumnName } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedBlank, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import { recordAudit } from "./care.server";
 import { personEmail } from "./person";
@@ -1532,11 +1532,13 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       if (!label) throw new Error("A label is required.");
       const kind = c.kind === "money" || c.kind === "calculated" || c.kind === "date" ? c.kind : "number";
       const id = str(c.id, 80) || nid();
-      const current = await sql<{ id: string; key: string; rollup: string }>`select id, key, rollup from utility_columns where id = ${id} and user_id = ${owner}`;
-      let key = current[0]?.key || label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "field";
-      if (!current.length) {
-        const existing = await sql<{ key: string }>`select key from utility_columns where user_id = ${owner} and meter_id = ${meterId}`;
-        const used = new Set(existing.map((row) => row.key));
+      const siblings = await sql<{ id: string; key: string; label: string; formula: string; kind: string; rollup: string }>`select id, key, label, formula, kind, rollup from utility_columns where user_id = ${owner} and meter_id = ${meterId}`;
+      const current = siblings.find((row) => row.id === id);
+      const taken = duplicateColumnName(siblings, label, current?.id);
+      if (taken) throw new Error(`${taken.label} is already a column on this meter.`);
+      let key = current?.key || label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "field";
+      if (!current) {
+        const used = new Set(siblings.map((row) => row.key));
         if (used.has(key)) {
           const base = key.slice(0, 36);
           let n = 2;
@@ -1545,10 +1547,10 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         }
       }
       if (kind === "date") {
-        const taken = await sql<{ id: string }>`select id from utility_columns where user_id = ${owner} and meter_id = ${meterId} and (rollup = 'readDate' or key = 'read_on') and id <> ${id}`;
-        if (taken.length) throw new Error("This meter already has a read date.");
+        const dateTaken = await sql<{ id: string }>`select id from utility_columns where user_id = ${owner} and meter_id = ${meterId} and (rollup = 'readDate' or key = 'read_on') and id <> ${id}`;
+        if (dateTaken.length) throw new Error("This meter already has a read date.");
       }
-      const rollup = kind === "date" ? "readDate" : ["meter", "usage", "bill", "days", "readDate", "charges"].includes(String(c.rollup)) ? String(c.rollup) : (current[0]?.rollup ?? "");
+      const rollup = kind === "date" ? "readDate" : ["meter", "usage", "bill", "days", "readDate", "charges"].includes(String(c.rollup)) ? String(c.rollup) : (current?.rollup ?? "");
       const fields = {
         label,
         kind,
@@ -1558,7 +1560,18 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         from_children: kind === "date" ? false : Boolean(c.fromChildren),
         carry_forward: (kind === "number" || kind === "money") && !c.fromChildren && Boolean(c.carryForward),
       };
-      if (current.length) {
+      if (current && current.label !== label) {
+        const own = rewriteColumnName(fields.formula, siblings, current.id, label);
+        if (own !== fields.formula) fields.formula = own.slice(0, 200);
+        for (const sibling of siblings) {
+          if (sibling.id === current.id || sibling.kind !== "calculated" || !sibling.formula) continue;
+          const nextFormula = rewriteColumnName(sibling.formula, siblings, current.id, label);
+          if (nextFormula !== sibling.formula) {
+            await sql`update utility_columns set formula = ${nextFormula} where id = ${sibling.id} and user_id = ${owner}`;
+          }
+        }
+      }
+      if (current) {
         await sql`
           update utility_columns set label = ${fields.label}, kind = ${fields.kind}, unit = ${fields.unit}, formula = ${fields.formula}, rollup = ${fields.rollup}, from_children = ${fields.from_children}, carry_forward = ${fields.carry_forward}
           where id = ${id} and user_id = ${owner}

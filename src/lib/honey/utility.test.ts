@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   SAMPLE_POWER_TIERS,
+  duplicateColumnName,
+  rewriteColumnName,
   buildSheet,
   calderUtilityHistory,
   daysBetweenReads,
@@ -25,6 +27,35 @@ import {
 function read(patch: Partial<ReadLike> & Pick<ReadLike, "id" | "utilityId" | "date">): ReadLike {
   return { meter: null, amountCents: 0, opening: false, cells: {}, ...patch };
 }
+
+describe("column names", () => {
+  const columns = [
+    { id: "bill", key: "bill_amount_2", label: "Bill Amount" },
+    { id: "charge", key: "bill_amount", label: "Month Cust Charge" },
+    { id: "riders", key: "riders", label: "Riders" },
+  ];
+
+  it("rejects a name another column already uses", () => {
+    assert.equal(duplicateColumnName(columns, "bill amount", "charge")?.id, "bill");
+    assert.equal(duplicateColumnName(columns, "Riders")?.id, "riders");
+    assert.equal(duplicateColumnName(columns, "Month Cust Charge", "charge"), undefined);
+  });
+
+  it("rewrites calculated refs to the new name and leaves other columns alone", () => {
+    assert.equal(
+      rewriteColumnName("{month_cust_charge} + {riders}", columns, "charge", "Customer Charge"),
+      "{customer_charge} + {riders}",
+    );
+    assert.equal(
+      rewriteColumnName("{prev.month_cust_charge} - {prev.riders}", columns, "charge", "Customer Charge"),
+      "{prev.customer_charge} - {prev.riders}",
+    );
+    assert.equal(
+      rewriteColumnName("{bill_amount} / {therms}", columns, "charge", "Customer Charge"),
+      "{bill_amount} / {therms}",
+    );
+  });
+});
 
 describe("utility tiers", () => {
   it("prices 170 kWh in the first block at 12.4 cents", () => {

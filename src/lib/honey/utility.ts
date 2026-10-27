@@ -674,6 +674,44 @@ function childRolled(
   return any ? sum : null;
 }
 
+/** Formula names ignore case, spaces, and punctuation. "Month Cust Charge" and month_cust_charge are the same name. */
+export function formulaIdentity(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/** The {name} written into a formula for a column label. */
+export function formulaToken(label: string): string {
+  return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "field";
+}
+
+/** The column a formula {name} points at. The first matching key or label wins. */
+export function columnByFormulaName<T extends { key: string; label: string }>(columns: T[], raw: string): T | undefined {
+  const want = formulaIdentity(raw);
+  if (!want) return undefined;
+  return columns.find((column) => formulaIdentity(column.key) === want || formulaIdentity(column.label) === want);
+}
+
+/** Another column already uses this name, either as its label or as its key. */
+export function duplicateColumnName<T extends { id: string; key: string; label: string }>(columns: T[], label: string, exceptId?: string): T | undefined {
+  const want = formulaIdentity(label);
+  if (!want) return undefined;
+  return columns.find((column) => column.id !== exceptId && (formulaIdentity(column.label) === want || formulaIdentity(column.key) === want));
+}
+
+/** Point formula refs that mean this column at its new name. Other columns are left alone. */
+export function rewriteColumnName(formula: string, columns: { id: string; key: string; label: string }[], columnId: string, nextLabel: string): string {
+  const next = formulaToken(nextLabel);
+  return formula.replace(/\{([^{}]+)\}/g, (full, inner: string) => {
+    const raw = inner.trim();
+    const prev = /^prev\./i.test(raw);
+    const name = (prev ? raw.slice(raw.indexOf(".") + 1) : raw).trim();
+    if (!name || name.includes(".")) return full;
+    const hit = columnByFormulaName(columns, name);
+    if (hit?.id !== columnId) return full;
+    return `{${prev ? "prev." : ""}${next}}`;
+  });
+}
+
 function formulaDeps(formula: string): string[] {
   return [...formula.matchAll(/\{([^}]+)\}/g)]
     .map((match) => match[1]!.trim())
