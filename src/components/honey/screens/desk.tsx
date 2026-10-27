@@ -755,7 +755,7 @@ export function AccountsPage() {
           <h2 className="font-display text-xl">Connect a bank</h2>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-muted">
             <li>Choose the bank and type the balances on the screen right now. This does not sign in.</li>
-            <li>In the bank’s site or app, export transactions as a CSV.</li>
+            <li>In the bank’s site or app, export transactions as a CSV, OFX, or QFX file.</li>
             <li>Import that file on Transactions. Rules categorize the rows they recognize.</li>
           </ol>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -781,7 +781,7 @@ export function AccountsPage() {
           >
             Save connection
           </Button>
-          <a className="ml-3 inline-flex min-h-11 items-center text-sm text-honey-deep" href="/transactions?import=1">Import a CSV</a>
+          <a className="ml-3 inline-flex min-h-11 items-center text-sm text-honey-deep" href="/transactions?import=1">Import a CSV or OFX</a>
         </Card>
       ) : null}
       {editing ? <AccountEditor account={editing} onClose={() => setEditing(null)} /> : null}

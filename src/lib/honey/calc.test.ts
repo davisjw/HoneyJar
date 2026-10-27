@@ -22,6 +22,8 @@ import {
   scheduleD,
   importMatches,
   merchantClose,
+  parseOfx,
+  parseStatement,
 } from "./calc.ts";
 import type { Account, Asset, Category, Profile, Txn } from "./types.ts";
 
@@ -331,5 +333,39 @@ describe("import matches", () => {
     assert.equal(merchantClose("VISA BLUE BOTTLE", "Blue Bottle"), true);
     assert.equal(merchantClose("MC BLU BTTL", "Blue Bottle Coffee"), true);
     assert.equal(merchantClose("MC BLU BTTL", "Chevron"), false);
+  });
+});
+
+describe("parseOfx", () => {
+  const ofx = `OFXHEADER:100
+DATA:OFXSGML
+<OFX>
+<STMTTRN>
+<TRNTYPE>DEBIT
+<DTPOSTED>20261001120000.000[-5:EST]
+<TRNAMT>-12.40
+<FITID>abc
+<NAME>Blue Bottle
+<MEMO>coffee
+</STMTTRN>
+<STMTTRN>
+<TRNTYPE>CREDIT
+<DTPOSTED>20261002
+<TRNAMT>1500.00
+<FITID>def
+<NAME>Payroll
+</STMTTRN>
+</OFX>`;
+
+  it("reads posted date, signed amount, merchant, and memo", () => {
+    const rows = parseOfx(ofx);
+    assert.equal(rows.length, 2);
+    assert.deepEqual(rows[0], { postedOn: "2026-10-01", amountCents: -1240, merchant: "Blue Bottle", memo: "coffee" });
+    assert.deepEqual(rows[1], { postedOn: "2026-10-02", amountCents: 150000, merchant: "Payroll", memo: "" });
+  });
+
+  it("treats an OFX paste as a statement and a CSV as a CSV", () => {
+    assert.equal(parseStatement(ofx).length, 2);
+    assert.equal(parseStatement("date,amount,merchant\n2026-10-01,-12.40,Blue Bottle").length, 1);
   });
 });

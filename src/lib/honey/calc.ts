@@ -1428,6 +1428,45 @@ export function parseCsv(text: string): { postedOn: string; amountCents: number;
   return rows;
 }
 
+function ofxDate(raw: string): string | null {
+  const digits = raw.trim().slice(0, 8);
+  if (!/^\d{8}$/.test(digits)) return null;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+}
+
+function ofxValue(block: string, tag: string): string {
+  const match = new RegExp(`<${tag}>([^<\\r\\n]*)`, "i").exec(block);
+  return (match?.[1] ?? "").trim();
+}
+
+/** Bank and credit-card statement transactions from an OFX or QFX file. */
+export function parseOfx(text: string): { postedOn: string; amountCents: number; merchant: string; memo: string }[] {
+  const rows = [];
+  for (const match of text.matchAll(/<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi)) {
+    const block = match[1] ?? "";
+    const postedOn = ofxDate(ofxValue(block, "DTPOSTED"));
+    const amountRaw = ofxValue(block, "TRNAMT");
+    if (!postedOn || !amountRaw) continue;
+    const name = ofxValue(block, "NAME") || ofxValue(block, "PAYEE");
+    const memoText = ofxValue(block, "MEMO");
+    const check = ofxValue(block, "CHECKNUM");
+    rows.push({
+      postedOn,
+      amountCents: dollarsToCents(amountRaw),
+      merchant: name || memoText || "Imported",
+      memo: name ? memoText : check ? `Check ${check}` : "",
+    });
+  }
+  return rows;
+}
+
+/** A pasted bank file is OFX when it says so. Everything else stays a CSV. */
+export function parseStatement(text: string): { postedOn: string; amountCents: number; merchant: string; memo: string }[] {
+  const head = text.slice(0, 800).toUpperCase();
+  if (head.includes("<OFX") || head.includes("OFXHEADER")) return parseOfx(text);
+  return parseCsv(text);
+}
+
 function normalizeDate(raw: string): string | null {
   const s = raw.trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);

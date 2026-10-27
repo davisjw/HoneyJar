@@ -9,7 +9,7 @@ import {
   matchCategory,
   money,
   monthLabel,
-  parseCsv,
+  parseStatement,
   parseTags,
   periodOf,
   planModel,
@@ -227,7 +227,7 @@ export function TransactionsPage() {
         action={
           canEdit ? (
             <div className="flex gap-2">
-              <Button tone="quiet" onClick={() => setImportOpen(true)}>Import CSV</Button>
+              <Button tone="quiet" onClick={() => setImportOpen(true)}>Import</Button>
               <Button onClick={startNew}>Add</Button>
             </div>
           ) : null
@@ -366,7 +366,7 @@ export function TransactionsPage() {
           }}
         />
       ) : null}
-      <Modal open={importOpen} title="Import a bank CSV" onClose={() => setImportOpen(false)}>
+      <Modal open={importOpen} title="Import a bank file" onClose={() => setImportOpen(false)}>
         <Field label="Account">
           <select className={fieldClass} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             <option value="">Choose</option>
@@ -375,12 +375,12 @@ export function TransactionsPage() {
             ))}
           </select>
         </Field>
-        <Field label="CSV">
+        <Field label="CSV, OFX, or QFX">
           <textarea className={`${fieldClass} min-h-32 py-2`} value={csv} onChange={(e) => setCsv(e.target.value)} placeholder={"date,amount,merchant,memo\n2026-10-01,-12.40,Blue Bottle,coffee"} />
         </Field>
         <input
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.ofx,.qfx,text/csv,application/x-ofx,application/vnd.intu.qfx"
           onChange={async (e) => {
             const file = e.target.files?.[0];
             if (file) setCsv(await file.text());
@@ -388,7 +388,7 @@ export function TransactionsPage() {
         />
         <Button
           onClick={() => {
-            const parsed = parseCsv(csv);
+            const parsed = parseStatement(csv);
             if (!accountId || !parsed.length) return;
             setDrafts(
               parsed.map((row, index) => ({
@@ -410,7 +410,7 @@ export function TransactionsPage() {
             setImportOpen(false);
           }}
         >
-          Review {parseCsv(csv).length || ""}
+          Review {parseStatement(csv).length || ""}
         </Button>
       </Modal>
     </div>
