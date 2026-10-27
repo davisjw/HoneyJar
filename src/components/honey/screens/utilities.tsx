@@ -183,7 +183,7 @@ export function UtilitiesPage() {
               onDate={(id, readOn) => run({ type: "reading.date", id, readOn })}
             />
           ) : null}
-          {!importing && tab === "columns" ? <div className="min-h-0 flex-1 overflow-auto"><ColumnsTab meter={meter} columns={columns} canEdit={canEdit} run={run} /></div> : null}
+          {!importing && tab === "columns" ? <div className="min-h-0 flex-1 overflow-auto"><ColumnsTab meter={meter} columns={columns} readings={data.readings.filter((reading) => reading.meterId === meter.id)} rows={rows} canEdit={canEdit} run={run} /></div> : null}
         </>
       ) : (
         <Card><p className="text-muted">No meters in this jar yet.</p></Card>
@@ -464,6 +464,7 @@ function DateCell({ value, onCommit, onDone }: { value: string; onCommit: (value
 function Cell({ value, onCommit, onDone }: { value: number | undefined; onCommit: (value: number | null) => void; onDone: () => void }) {
   const skip = useRef(false);
   const picked = useRef(false);
+  const fresh = useRef(true);
   const shown = value == null ? null : Math.round(value * 1000) / 1000;
   function commit(raw: string) {
     if (skip.current) {
@@ -489,15 +490,35 @@ function Cell({ value, onCommit, onDone }: { value: number | undefined; onCommit
       className="w-28 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
       defaultValue={shown == null ? "" : String(shown)}
       onFocus={(e) => e.currentTarget.select()}
-      onMouseUp={(e) => e.currentTarget.select()}
+      onPaste={(e) => {
+        if (!fresh.current) return;
+        fresh.current = false;
+        e.preventDefault();
+        e.currentTarget.value = e.clipboardData.getData("text");
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
           e.currentTarget.blur();
-        } else if (e.key === "Escape") {
+          return;
+        }
+        if (e.key === "Escape") {
           skip.current = true;
           e.preventDefault();
           e.currentTarget.blur();
+          return;
+        }
+        if (e.metaKey || e.ctrlKey || e.altKey || !fresh.current) return;
+        if (e.key === "Backspace" || e.key === "Delete") {
+          fresh.current = false;
+          e.preventDefault();
+          e.currentTarget.value = "";
+          return;
+        }
+        if (e.key.length === 1) {
+          fresh.current = false;
+          e.preventDefault();
+          e.currentTarget.value = e.key;
         }
       }}
       onBlur={(e) => commit(e.currentTarget.value)}
@@ -508,11 +529,15 @@ function Cell({ value, onCommit, onDone }: { value: number | undefined; onCommit
 function ColumnsTab({
   meter,
   columns,
+  readings,
+  rows,
   canEdit,
   run,
 }: {
   meter: UtilityMeter;
   columns: UtilityColumn[];
+  readings: UtilityReading[];
+  rows: SheetRow[];
   canEdit: boolean;
   run: ReturnType<typeof useBook>["run"];
 }) {
@@ -530,6 +555,34 @@ function ColumnsTab({
     ids[swap] = moved;
     void run({ type: "column.order", meterId: meter.id, ids });
   };
+  const exportFields = () => {
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const payload = {
+      meter: { name: meter.name, unit: meter.unit },
+      columns: columns.map((column) => ({
+        key: column.key,
+        label: column.label,
+        kind: column.kind,
+        unit: column.unit,
+        rollup: column.rollup,
+        formula: column.formula,
+      })),
+      readings: readings.map((reading) => ({
+        readOn: reading.readOn,
+        meter: reading.meter,
+        amountCents: reading.amountCents,
+        cells: reading.cells,
+        computed: byId.get(reading.id)?.computed ?? {},
+      })),
+    };
+    const file = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${meter.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "meter"}-fields.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   return (
     <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <Card>
@@ -538,7 +591,10 @@ function ColumnsTab({
             <p className="font-medium">Columns</p>
             <p className="text-xs text-muted">Drag a row to reorder it, or use Up and Down. Select a column to rename it, change its kind, or edit the formula. Calculated cells are not stored.</p>
           </div>
-          {canEdit ? <Button tone="quiet" onClick={() => setEditing("new")}>Add column</Button> : null}
+          <div className="flex gap-2">
+            <Button tone="quiet" onClick={exportFields}>Export fields</Button>
+            {canEdit ? <Button tone="quiet" onClick={() => setEditing("new")}>Add column</Button> : null}
+          </div>
         </div>
         <ul className="space-y-2">
           {columns.map((c, i) => (
