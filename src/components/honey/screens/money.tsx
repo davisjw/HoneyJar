@@ -47,7 +47,7 @@ function engineColumn(c: UtilityColumn): UtilColumn {
 }
 
 function engineRead(r: UtilityReading): ReadLike {
-  return { id: r.id, utilityId: r.meterId, date: r.readOn, meter: r.meter, amountCents: r.amountCents, opening: r.opening, cells: r.cells };
+  return { id: r.id, utilityId: r.meterId, date: r.readOn, meter: r.meter, amountCents: r.amountCents, opening: r.opening, resetEnd: r.resetEnd, resetStart: r.resetStart, cells: r.cells };
 }
 
 function rowFor(meters: UtilityMeter[], columns: UtilityColumn[], readings: UtilityReading[], reading: UtilityReading) {

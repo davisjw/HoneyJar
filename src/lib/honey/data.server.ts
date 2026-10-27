@@ -495,6 +495,8 @@ function mapUtilReading(r: Record<string, unknown>) {
     meter: meter != null && Number.isFinite(meter) ? meter : null,
     amountCents: num(r.amount_cents),
     opening: Boolean(r.opening),
+    resetEnd: r.reset_end == null || r.reset_end === "" || !Number.isFinite(Number(r.reset_end)) ? null : Number(r.reset_end),
+    resetStart: r.reset_start == null || r.reset_start === "" || !Number.isFinite(Number(r.reset_start)) ? null : Number(r.reset_start),
     cells: parseCells(r.cells_json),
   };
 }
@@ -1660,17 +1662,22 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       if (meterValue != null && !Number.isFinite(meterValue)) throw new Error("The meter read should be a number.");
       const amount = Math.max(0, num(r.amountCents));
       const opening = Boolean(r.opening);
+      const resetEnd = r.resetEnd == null || r.resetEnd === ("" as unknown) ? null : Number(r.resetEnd);
+      const resetStart = r.resetStart == null || r.resetStart === ("" as unknown) ? null : Number(r.resetStart);
+      if (resetEnd != null && !Number.isFinite(resetEnd)) throw new Error("The final dial should be a number.");
+      if (resetStart != null && !Number.isFinite(resetStart)) throw new Error("The starting dial should be a number.");
+      if ((resetEnd == null) !== (resetStart == null)) throw new Error("Enter both dials for a reset, or leave both blank.");
       const cells = JSON.stringify(parseCells(r.cells ?? {}));
       const existing = await sql`select id from utility_readings where id = ${id} and user_id = ${owner}`;
       if (existing.length) {
         await sql`
-          update utility_readings set read_on = ${readOn}, meter_value = ${meterValue}, amount_cents = ${opening ? 0 : amount}, opening = ${opening}, cells_json = ${cells}
+          update utility_readings set read_on = ${readOn}, meter_value = ${meterValue}, amount_cents = ${opening ? 0 : amount}, opening = ${opening}, reset_end = ${resetEnd}, reset_start = ${resetStart}, cells_json = ${cells}
           where id = ${id} and user_id = ${owner}
         `;
       } else {
         await sql`
-          insert into utility_readings (id, user_id, meter_id, read_on, meter_value, amount_cents, opening, cells_json)
-          values (${id}, ${owner}, ${meterId}, ${readOn}, ${meterValue}, ${opening ? 0 : amount}, ${opening}, ${cells})
+          insert into utility_readings (id, user_id, meter_id, read_on, meter_value, amount_cents, opening, reset_end, reset_start, cells_json)
+          values (${id}, ${owner}, ${meterId}, ${readOn}, ${meterValue}, ${opening ? 0 : amount}, ${opening}, ${resetEnd}, ${resetStart}, ${cells})
         `;
       }
       return {};

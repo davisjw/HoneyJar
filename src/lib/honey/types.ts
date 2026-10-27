@@ -471,6 +471,8 @@ export type UtilityReading = {
   meter: number | null;
   amountCents: number;
   opening: boolean;
+  resetEnd: number | null;
+  resetStart: number | null;
   cells: Record<string, number>;
 };
 

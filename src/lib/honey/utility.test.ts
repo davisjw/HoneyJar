@@ -18,6 +18,7 @@ import {
   carriedValue,
   readCsvTable,
   starterColumns,
+  meterUsage,
   tierChargeCents,
   utilityReadDate,
   type ReadLike,
@@ -190,6 +191,21 @@ describe("utility sheet", () => {
       read({ id: "b", utilityId: "m", date: "2026-02-05", meter: 20, amountCents: 9999, cells: { bill_amount: 12.5 } }),
     ]);
     assert.equal(rows[1]?.computed.bill_amount, 12.5);
+  });
+
+  it("adds the old dial and the new dial on one bill, then the next month uses the new dial", () => {
+    assert.equal(meterUsage(1000, { meter: 40, resetEnd: 1500, resetStart: 0 }), 540);
+    assert.equal(meterUsage(9800, { meter: 120, resetEnd: 9999, resetStart: 0 }), 319);
+    assert.equal(meterUsage(10, { meter: 25 }), 15);
+    assert.equal(meterUsage(10, { meter: 25, opening: true }), null);
+    const columns = starterColumns("m", "gas");
+    const rows = buildSheet("m", columns, [
+      read({ id: "a", utilityId: "m", date: "2026-01-06", meter: 1000 }),
+      read({ id: "b", utilityId: "m", date: "2026-02-05", meter: 40, resetEnd: 1500, resetStart: 0 }),
+      read({ id: "c", utilityId: "m", date: "2026-03-06", meter: 90 }),
+    ]);
+    assert.equal(rows[1]?.computed.usage_ccf, 540);
+    assert.equal(rows[2]?.computed.usage_ccf, 50);
   });
 
   it("keeps a typed charge when the bill total is a different column", () => {

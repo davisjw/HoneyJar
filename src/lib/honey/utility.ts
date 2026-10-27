@@ -99,6 +99,8 @@ export type ReadLike = {
   meter: number | null;
   amountCents: number;
   opening: boolean;
+  resetEnd?: number | null;
+  resetStart?: number | null;
   cells?: Record<string, number>;
 };
 
@@ -630,6 +632,22 @@ export function daysBetweenReads(prev: string | null | undefined, next: string):
   return Math.round((b - a) / 86400000);
 }
 
+/** Usage between two dials. A reset or replacement adds the old dial's leftover to the new dial's use. */
+export function meterUsage(
+  prev: number | null | undefined,
+  reading: { meter: number | null; opening?: boolean; resetEnd?: number | null; resetStart?: number | null } | null | undefined,
+): number | null {
+  if (!reading || reading.opening) return null;
+  const meter = reading.meter;
+  if (meter == null || prev == null || !Number.isFinite(meter) || !Number.isFinite(prev)) return null;
+  const end = reading.resetEnd;
+  const start = reading.resetStart;
+  if (typeof end === "number" && typeof start === "number" && Number.isFinite(end) && Number.isFinite(start)) {
+    return (end - prev) + (meter - start);
+  }
+  return meter - prev;
+}
+
 function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
@@ -650,7 +668,7 @@ function childRolled(
     if (idx < 0) continue;
     const cur = rows[idx]!;
     const prev = rows[idx - 1];
-    const usage = prev && cur.meter != null && prev.meter != null && !cur.opening ? cur.meter - prev.meter : null;
+    const usage = prev && !cur.opening ? meterUsage(prev.meter, cur) : null;
     const sheetRow = sheets.get(id)?.find((row) => row.id === cur.id);
     const same = cols.find((c) => c.key === column.key);
     let value: number | null = null;
@@ -817,7 +835,8 @@ export function buildSheet(
       if (column.rollup === "meter" && reading.meter != null) entered[column.key] = reading.meter;
       if (column.rollup === "days") entered[column.key] = days ?? 30;
       if (column.rollup === "usage" && prev?.meter != null && reading.meter != null && !reading.opening) {
-        entered[column.key] = reading.meter - prev.meter;
+        const usage = meterUsage(prev.meter, reading);
+        if (usage != null) entered[column.key] = Math.round(usage * 1000) / 1000;
       }
     }
     return { id: reading.id, date: reading.date, entered, computed: { ...entered }, errors: {} };
@@ -839,6 +858,14 @@ export function buildSheet(
         const prevRow = rows[i - 1];
         if (column.rollup === "days" && !prevRow) continue;
         if (column.rollup === "usage" && (sorted[i]?.opening || !prevRow)) continue;
+        const resetUsage = column.rollup === "usage" ? meterUsage(sorted[i - 1]?.meter, sorted[i]) : null;
+        if (column.rollup === "usage" && sorted[i]?.resetEnd != null && sorted[i]?.resetStart != null && resetUsage != null) {
+          const next = Math.round(resetUsage * 1000) / 1000;
+          if (row.computed[column.key] !== next) changed = true;
+          row.computed[column.key] = next;
+          delete row.errors[column.key];
+          continue;
+        }
         const result = evaluateFormula(column.formula, {
           year: year!,
           month: month!,

@@ -20,6 +20,7 @@ import {
   parseUtilityNumber,
   templateUnit,
   hasMeter,
+  meterUsage,
   tierChargeCents,
   type ReadLike,
   type SheetRow,
@@ -49,7 +50,7 @@ function engineColumn(c: UtilityColumn): UtilColumn {
 }
 
 function engineRead(r: UtilityReading): ReadLike {
-  return { id: r.id, utilityId: r.meterId, date: r.readOn, meter: r.meter, amountCents: r.amountCents, opening: r.opening, cells: r.cells };
+  return { id: r.id, utilityId: r.meterId, date: r.readOn, meter: r.meter, amountCents: r.amountCents, opening: r.opening, resetEnd: r.resetEnd, resetStart: r.resetStart, cells: r.cells };
 }
 
 function tiersFromText(raw: string) {
@@ -121,7 +122,7 @@ export function UtilitiesPage() {
             const series = data.readings.filter((r) => r.meterId === m.id && r.meter != null).slice().sort((a, b) => a.readOn.localeCompare(b.readOn));
             const last = series[series.length - 1];
             const prev = series[series.length - 2];
-            const used = last && prev && last.meter != null && prev.meter != null && !last.opening ? last.meter - prev.meter : null;
+            const used = last && prev ? meterUsage(prev.meter, last) : null;
             return (
               <button key={m.id} type="button" className="rounded-2xl border border-line bg-card p-4 text-left" onClick={() => { setPicked(m.id); setTab("graphs"); }}>
                 <p className="text-sm text-muted">{m.name}</p>
@@ -412,12 +413,18 @@ function Workbook({
                         {text}
                       </button>
                     ) : (
-                      <span className={c.kind === "calculated" || (metered && c.rollup === "days") ? "text-muted" : ""} title={row.errors[c.key] || (c.kind === "calculated" ? c.formula : "")}>{text}</span>
+                      <span className={c.kind === "calculated" || (metered && c.rollup === "days") ? "text-muted" : ""} title={row.errors[c.key] || (c.kind === "calculated" ? c.formula : "")}>
+                        {text}
+                        {c.rollup === "usage" && reading?.resetEnd != null && reading.resetStart != null ? (
+                          <span className="mt-0.5 block text-[11px] text-muted">from {reading.resetEnd} to a dial starting at {reading.resetStart}</span>
+                        ) : null}
+                      </span>
                     )}
                   </td>
                   );
                 })}
                 <td className="border-b border-line px-2 py-1 text-xs text-muted">
+                  {metered && canEdit && reading && !reading.opening ? <MeterReset reading={reading} /> : null}
                   {pay && bill ? (
                     <a className="text-honey hover:underline" href={`/bills?bill=${bill.id}`}>
                       Paid {money(pay.amountCents)} on {prettyDate(pay.paidOn)}
@@ -844,6 +851,77 @@ function MeterDialog({ meter, parents, onClose }: { meter?: UtilityMeter; parent
   );
 }
 
+function MeterReset({ reading }: { reading: UtilityReading }) {
+  const { run } = useBook();
+  const [open, setOpen] = useState(false);
+  const [end, setEnd] = useState(reading.resetEnd == null ? "" : String(reading.resetEnd));
+  const [start, setStart] = useState(reading.resetStart == null ? "" : String(reading.resetStart));
+  const [error, setError] = useState("");
+  return (
+    <>
+      <button type="button" className="mb-1 block text-honey hover:underline" onClick={() => { setEnd(reading.resetEnd == null ? "" : String(reading.resetEnd)); setStart(reading.resetStart == null ? "" : String(reading.resetStart)); setError(""); setOpen(true); }}>
+        {reading.resetEnd != null ? "Edit reset" : "Meter reset"}
+      </button>
+      {open ? (
+        <Modal open title="Meter reset" onClose={() => setOpen(false)}>
+          <p className="text-xs text-muted">The meter number on this row stays the dial on the bill. Enter the old dial’s last number and the number the new dial started at. A rollover usually starts at 0.</p>
+          <Field label="Final dial before the reset"><input className={fieldClass} value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+          <Field label="Starting dial after the reset"><input className={fieldClass} value={start} onChange={(e) => setStart(e.target.value)} /></Field>
+          {error ? <p className="text-sm text-clay">{error}</p> : null}
+          <div className="flex gap-2">
+            <Button onClick={async () => {
+              const finalText = end.trim();
+              const startText = start.trim();
+              if ((finalText === "") !== (startText === "")) {
+                setError("Enter both dials, or leave both blank.");
+                return;
+              }
+              const resetEnd = finalText === "" ? null : Number(finalText);
+              const resetStart = startText === "" ? null : Number(startText);
+              if ((resetEnd != null && !Number.isFinite(resetEnd)) || (resetStart != null && !Number.isFinite(resetStart))) {
+                setError("Enter numbers only.");
+                return;
+              }
+              await run({
+                type: "reading.save",
+                reading: {
+                  id: reading.id,
+                  meterId: reading.meterId,
+                  readOn: reading.readOn,
+                  meter: reading.meter,
+                  amountCents: reading.amountCents,
+                  opening: reading.opening,
+                  cells: reading.cells,
+                  resetEnd,
+                  resetStart,
+                },
+              });
+              setOpen(false);
+            }}>Save</Button>
+            <Button tone="quiet" onClick={async () => {
+              await run({
+                type: "reading.save",
+                reading: {
+                  id: reading.id,
+                  meterId: reading.meterId,
+                  readOn: reading.readOn,
+                  meter: reading.meter,
+                  amountCents: reading.amountCents,
+                  opening: reading.opening,
+                  cells: reading.cells,
+                  resetEnd: null,
+                  resetStart: null,
+                },
+              });
+              setOpen(false);
+            }}>Clear</Button>
+          </div>
+        </Modal>
+      ) : null}
+    </>
+  );
+}
+
 function formatCarry(column: UtilityColumn, value: number) {
   if (column.kind === "money" || column.rollup === "bill" || column.rollup === "charges") return (Math.round(value * 100) / 100).toFixed(2);
   return String(Math.round(value * 1000) / 1000);
@@ -853,6 +931,9 @@ function ReadDialog({ meter, columns, readings, onClose }: { meter: UtilityMeter
   const { data, run } = useBook();
   const [readOn, setReadOn] = useState(data?.today ?? "");
   const [opening, setOpening] = useState(false);
+  const [reset, setReset] = useState(false);
+  const [resetEnd, setResetEnd] = useState("");
+  const [resetStart, setResetStart] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
@@ -893,6 +974,16 @@ function ReadDialog({ meter, columns, readings, onClose }: { meter: UtilityMeter
         </Field>
       ))}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={opening} onChange={(e) => setOpening(e.target.checked)} /> Opening read, no usage</label>
+      {!opening ? (
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={reset} onChange={(e) => setReset(e.target.checked)} /> Meter reset or replaced this period</label>
+      ) : null}
+      {reset && !opening ? (
+        <>
+          <Field label="Final dial before the reset"><input className={fieldClass} value={resetEnd} onChange={(e) => setResetEnd(e.target.value)} /></Field>
+          <Field label="Starting dial after the reset"><input className={fieldClass} value={resetStart} onChange={(e) => setResetStart(e.target.value)} /></Field>
+          <p className="text-xs text-muted">The meter number above is the dial on this bill. Usage adds what was left on the old dial to what the new dial used. A rollover usually starts at 0.</p>
+        </>
+      ) : null}
       <p className="text-xs text-muted">Bill month is {readOn.slice(0, 7) || "—"}. The month before is {readOn ? previousMonth(readOn) : "—"}.</p>
       {copied && prior ? <p className="text-xs text-muted">Columns set to last month start from the {prettyDate(prior.readOn)} read. Change any of them before saving.</p> : null}
       {error ? <p className="text-sm text-clay">{error}</p> : null}
@@ -905,6 +996,20 @@ function ReadDialog({ meter, columns, readings, onClose }: { meter: UtilityMeter
         ];
         let meterValue: number | null = null;
         let amountCents = 0;
+        let savedEnd: number | null = null;
+        let savedStart: number | null = null;
+        if (reset && !opening) {
+          if (!resetEnd.trim() || !resetStart.trim()) {
+            setError("Enter both dials for the reset.");
+            return;
+          }
+          savedEnd = Number(resetEnd);
+          savedStart = Number(resetStart);
+          if (!Number.isFinite(savedEnd) || !Number.isFinite(savedStart)) {
+            setError("Enter numbers only.");
+            return;
+          }
+        }
         for (const field of taken) {
           const text = field.text.trim();
           if (!text) continue;
@@ -919,7 +1024,7 @@ function ReadDialog({ meter, columns, readings, onClose }: { meter: UtilityMeter
         }
         await run({
           type: "reading.save",
-          reading: { meterId: meter.id, readOn, meter: meterValue, amountCents, opening, cells },
+          reading: { meterId: meter.id, readOn, meter: meterValue, amountCents, opening, resetEnd: savedEnd, resetStart: savedStart, cells },
         });
         onClose();
       }}>Save read</Button>
