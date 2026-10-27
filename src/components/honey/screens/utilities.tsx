@@ -143,12 +143,13 @@ export function UtilitiesPage() {
           {tab === "graphs" ? (
             <div className="min-h-0 flex-1 overflow-auto">
               <Graphs
+                key={meter.id}
                 meter={meter}
                 columns={columns.map(engineColumn)}
                 rows={rows}
                 payments={data.payments}
                 climate={data.weather}
-                postal={data.profile.postal}
+                postal={meter.postal}
                 today={data.today}
                 run={run}
               />
@@ -221,7 +222,7 @@ function Graphs({
   );
   const chart = points.map((point, index) => {
     const month = `${year}-${String(index + 1).padStart(2, "0")}`;
-    return { ...point, temp: climate.find((row) => row.month === month)?.avgF ?? null };
+    return { ...point, temp: climate.find((row) => row.postal === zip && row.month === month)?.avgF ?? null };
   });
   const hasTemp = chart.some((point) => point.temp != null);
   const zip = postal.replace(/\D/g, "").slice(0, 5);
@@ -244,8 +245,8 @@ function Graphs({
     asked.current = token;
     setTried(true);
     setPending(true);
-    void run({ type: "weather.ensure", months: missing }).finally(() => setPending(false));
-  }, [climate, run, today, year, zip, zipOk]);
+    void run({ type: "weather.ensure", meterId: meter.id, months: missing }).finally(() => setPending(false));
+  }, [climate, meter.id, run, today, year, zip, zipOk]);
   const gaps = points.filter((point) => point.lineGap).map((point) => point.label);
   const usageKey = columns.find((column) => column.rollup === "usage")?.key;
   const latest = [...rows].reverse().find((row) => usageKey && row.computed[usageKey] != null);
@@ -262,7 +263,7 @@ function Graphs({
           </select>
         </div>
         {tier != null && used != null ? <p className="mb-2 text-sm">Latest tier energy on {Math.round(used)} {meter.unit}: {money(tier)}</p> : null}
-        {!zipOk ? <p className="mb-2 text-sm text-muted">Add a US ZIP under Customize to plot each month’s average temperature.</p> : null}
+        {!zipOk ? <p className="mb-2 text-sm text-muted">Edit this meter and add its US ZIP to plot each month’s average temperature.</p> : null}
         {zipOk && pending ? <p className="mb-2 text-sm text-muted">Looking up average temperatures…</p> : null}
         {zipOk && tried && !pending && !hasTemp ? <p className="mb-2 text-sm text-muted">No temperature is stored for these months yet.</p> : null}
         <div className="h-64">
@@ -664,14 +665,30 @@ function MeterDialog({ meter, parents, onClose }: { meter?: UtilityMeter; parent
   const [provider, setProvider] = useState(meter?.provider ?? "");
   const [unit, setUnit] = useState(meter?.unit ?? "kWh");
   const [parentId, setParentId] = useState(meter?.parentId ?? "");
+  const [postal, setPostal] = useState(meter?.postal ?? "");
   const [template, setTemplate] = useState("electric");
   return (
     <Modal open title={meter ? "Edit meter" : "New meter"} onClose={onClose}>
       <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
       <ContactField label="Provider" kind="utility" value={provider} onChange={setProvider} />
       <Field label="Unit"><input className={fieldClass} value={unit} onChange={(e) => setUnit(e.target.value)} /></Field>
+      <Field label="ZIP">
+        <input className={fieldClass} inputMode="numeric" maxLength={10} value={postal} onChange={(e) => setPostal(e.target.value)} placeholder="94612" />
+      </Field>
+      <p className="text-xs text-muted">US ZIP for this meter’s location. The year graph uses it for average temperature. Another meter can use a different ZIP.</p>
       <Field label="Parent">
-        <select className={fieldClass} value={parentId} onChange={(e) => setParentId(e.target.value)}>
+        <select
+          className={fieldClass}
+          value={parentId}
+          onChange={(e) => {
+            const next = e.target.value;
+            setParentId(next);
+            if (!meter && !postal.trim()) {
+              const parent = parents.find((item) => item.id === next);
+              if (parent?.postal) setPostal(parent.postal);
+            }
+          }}
+        >
           <option value="">None</option>
           {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
@@ -686,7 +703,7 @@ function MeterDialog({ meter, parents, onClose }: { meter?: UtilityMeter; parent
       <div className="flex gap-2">
         <Button onClick={async () => {
           if (!name.trim()) return;
-          await run({ type: "meter.save", meter: { id: meter?.id, name, provider, unit, parentId: parentId || null }, template: meter ? undefined : template });
+          await run({ type: "meter.save", meter: { id: meter?.id, name, provider, unit, postal, parentId: parentId || null }, template: meter ? undefined : template });
           onClose();
         }}>Save</Button>
         {meter ? <Button tone="danger" onClick={async () => { await run({ type: "meter.delete", id: meter.id }); onClose(); }}>Delete</Button> : null}

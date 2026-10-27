@@ -486,6 +486,7 @@ async function seedSampleMeters(sql: Sql, userId: string, id: (s: string) => str
       provider: book.provider,
       parent_id: book.parentKey ? ids.get(book.parentKey) ?? null : null,
       tiers_json: JSON.stringify(book.tiers),
+      postal: "94612",
     });
     let sort = 0;
     for (const column of starterColumns(meterId, book.template, book.unit)) {

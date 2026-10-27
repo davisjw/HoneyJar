@@ -122,7 +122,6 @@ function profile(patch: Partial<Profile> = {}): Profile {
     seeded: false,
     initialized: true,
     monthStartDay: 1,
-    postal: "",
     ...patch,
   };
 }

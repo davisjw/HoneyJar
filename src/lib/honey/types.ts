@@ -28,7 +28,6 @@ export type Profile = {
   seeded: boolean;
   initialized: boolean;
   monthStartDay: number;
-  postal: string;
 };
 
 export type ProfilePatch = Partial<{
@@ -54,7 +53,6 @@ export type ProfilePatch = Partial<{
   vaultSalt: string;
   vaultVerifier: string;
   monthStartDay: number;
-  postal: string;
 }>;
 
 export type AccessRow = {
@@ -449,6 +447,7 @@ export type UtilityMeter = {
   provider: string;
   parentId: string | null;
   tiers: RateTier[];
+  postal: string;
 };
 
 export type UtilityColumn = {
@@ -534,7 +533,7 @@ export type Workspace = {
   meters: UtilityMeter[];
   columns: UtilityColumn[];
   readings: UtilityReading[];
-  weather: { month: string; avgF: number }[];
+  weather: { postal: string; month: string; avgF: number }[];
   assets: Asset[];
   valuations: Valuation[];
   snapshots: Snapshot[];
@@ -614,7 +613,7 @@ export type Action = (
   | { type: "column.delete"; id: string; ownerId?: string }
   | { type: "column.move"; id: string; direction: "up" | "down"; ownerId?: string }
   | { type: "column.order"; meterId: string; ids: string[]; ownerId?: string }
-  | { type: "weather.ensure"; months: string[]; ownerId?: string }
+  | { type: "weather.ensure"; meterId: string; months: string[]; ownerId?: string }
   | { type: "reading.save"; reading: Partial<UtilityReading> & { meterId: string; readOn: string }; ownerId?: string }
   | { type: "reading.cells"; id: string; cells: Record<string, number>; ownerId?: string }
   | { type: "reading.date"; id: string; readOn: string; ownerId?: string }

@@ -171,7 +171,6 @@ function mapProfile(row: Record<string, unknown>): Profile {
     seeded: Boolean(row.seeded),
     initialized: Boolean(row.initialized),
     monthStartDay: Math.min(28, Math.max(1, num(row.month_start_day, 1))),
-    postal: String(row.postal ?? "").replace(/\D/g, "").slice(0, 5),
   };
 }
 
@@ -252,10 +251,7 @@ export async function readWorkspace(
       sql<Record<string, unknown>>`select * from utility_readings where user_id = ${owner} order by read_on`,
     ]);
   const contactRows = await sql<Record<string, unknown>>`select * from contacts where user_id = ${owner} order by name`;
-  const postal = String(profileRows[0].postal ?? "").replace(/\D/g, "").slice(0, 5);
-  const weatherRows = postal
-    ? await sql<{ month: string; avg_f: number }>`select month, avg_f from weather_months where user_id = ${owner} and postal = ${postal} order by month`
-    : [];
+  const weatherRows = await sql<{ postal: string; month: string; avg_f: number }>`select postal, month, avg_f from weather_months where user_id = ${owner} order by month`;
 
   const mapAccess = (row: Record<string, unknown>): AccessRow => ({
     id: num(row.id),
@@ -301,7 +297,7 @@ export async function readWorkspace(
     meters: primary?.meters ?? [],
     columns: primary?.columns ?? [],
     readings: primary?.readings ?? [],
-    weather: weatherRows.map((row) => ({ month: String(row.month), avgF: num(row.avg_f) })),
+    weather: weatherRows.map((row) => ({ postal: String(row.postal ?? ""), month: String(row.month), avgF: num(row.avg_f) })),
     assets: assets.map(mapAsset),
     valuations: valuations.map(mapValuation),
     snapshots: snapshots.map(mapSnapshot),
@@ -469,6 +465,7 @@ function mapMeter(r: Record<string, unknown>) {
     provider: String(r.provider ?? ""),
     parentId: r.parent_id ? String(r.parent_id) : null,
     tiers: parseTiers(parseBag(r.tiers_json)),
+    postal: String(r.postal ?? "").replace(/\D/g, "").slice(0, 5),
   };
 }
 function mapUtilColumn(r: Record<string, unknown>): UtilityColumn {
@@ -1003,8 +1000,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
           ollama_model = ${str(p.ollamaModel ?? row.ollama_model, 80) || "llama3.1"},
           vault_salt = ${p.vaultSalt === undefined ? String(row.vault_salt ?? "") : str(p.vaultSalt, 200)},
           vault_verifier = ${p.vaultVerifier === undefined ? String(row.vault_verifier ?? "") : str(p.vaultVerifier, 500)},
-          month_start_day = ${Math.min(28, Math.max(1, p.monthStartDay === undefined ? num(row.month_start_day, 1) : num(p.monthStartDay, 1)))},
-          postal = ${p.postal === undefined ? String(row.postal ?? "") : str(p.postal, 12).replace(/\D/g, "").slice(0, 5)}
+          month_start_day = ${Math.min(28, Math.max(1, p.monthStartDay === undefined ? num(row.month_start_day, 1) : num(p.monthStartDay, 1)))}
         where user_id = ${owner}
       `;
       return {};
@@ -1471,16 +1467,17 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       }
       const unit = str(m.unit, 20) || "kWh";
       const provider = str(m.provider, 80) || name;
+      const postal = str(m.postal, 12).replace(/\D/g, "").slice(0, 5);
       if (existing.length) {
         await sql`
-          update utility_meters set name = ${name}, unit = ${unit}, provider = ${provider}, parent_id = ${parentId}
+          update utility_meters set name = ${name}, unit = ${unit}, provider = ${provider}, parent_id = ${parentId}, postal = ${postal}
           where id = ${id} and user_id = ${owner}
         `;
         return {};
       }
       await sql`
-        insert into utility_meters (id, user_id, ledger_id, name, unit, provider, parent_id, tiers_json)
-        values (${id}, ${owner}, ${jar}, ${name}, ${unit}, ${provider}, ${parentId}, ${JSON.stringify(parseTiers(m.tiers ?? []))})
+        insert into utility_meters (id, user_id, ledger_id, name, unit, provider, parent_id, tiers_json, postal)
+        values (${id}, ${owner}, ${jar}, ${name}, ${unit}, ${provider}, ${parentId}, ${JSON.stringify(parseTiers(m.tiers ?? []))}, ${postal})
       `;
       const slug = str(action.template, 20) || "blank";
       const cols = starterColumns(id, slug, unit || templateUnit(slug));
@@ -1600,7 +1597,9 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       return {};
     }
     case "weather.ensure": {
-      const postal = String((await sql<{ postal: string }>`select postal from profiles where user_id = ${owner}`)[0]?.postal ?? "").replace(/\D/g, "").slice(0, 5);
+      const meterId = str(action.meterId, 80);
+      const meter = await sql<{ postal: string }>`select postal from utility_meters where id = ${meterId} and user_id = ${owner}`;
+      const postal = String(meter[0]?.postal ?? "").replace(/\D/g, "").slice(0, 5);
       if (!/^\d{5}$/.test(postal)) return {};
       const today = todayISO();
       const cap = today.slice(0, 7);
