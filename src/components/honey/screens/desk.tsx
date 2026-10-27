@@ -24,7 +24,7 @@ import {
 import type { Account, Category, Profile, ProfilePatch, Reminder, Watch } from "@/lib/honey/types";
 import { createVault, decryptText, encryptText, unlockVault } from "@/lib/honey/vault";
 import { NAV_IDS } from "../shell";
-import { ContactField } from "../contact-field";
+import { BankSelect } from "../contact-field";
 import { useBook } from "../book";
 import { Button, Card, Field, Modal, PageIntro, downloadText, fieldClass } from "../kit";
 
@@ -728,7 +728,7 @@ export function AccountsPage() {
     <div>
       <PageIntro
         title="Accounts"
-        lede="HoneyJar never logs into a bank. Name the institution, type the balances you see today, then import the CSV your bank already lets you download."
+        lede="HoneyJar never logs into a bank. Choose the bank, type the balances you see today, then import the CSV your bank already lets you download."
         action={canEdit ? <Button onClick={() => setEditing({ kind: "checking", balanceCents: 0, connected: false })}>Add account</Button> : null}
       />
       <div className="grid gap-3 md:grid-cols-2">
@@ -754,12 +754,12 @@ export function AccountsPage() {
         <Card className="mt-4">
           <h2 className="font-display text-xl">Connect a bank</h2>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-muted">
-            <li>Type the institution and the balances on the screen right now. This does not sign in.</li>
+            <li>Choose the bank and type the balances on the screen right now. This does not sign in.</li>
             <li>In the bank’s site or app, export transactions as a CSV.</li>
             <li>Import that file on Transactions. Rules categorize the rows they recognize.</li>
           </ol>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <Field label="Institution"><input className={fieldClass} value={bank} onChange={(e) => setBank(e.target.value)} placeholder="First Harbor" /></Field>
+            <BankSelect label="Institution" value={bank} onChange={setBank} />
             <Field label="Checking balance"><input className={fieldClass} value={checking} onChange={(e) => setChecking(e.target.value)} /></Field>
             <Field label="Card balance owed"><input className={fieldClass} value={cardBal} onChange={(e) => setCardBal(e.target.value)} /></Field>
             <Field label="Card limit"><input className={fieldClass} value={cardLimit} onChange={(e) => setCardLimit(e.target.value)} /></Field>
@@ -801,7 +801,7 @@ function AccountEditor({ account, onClose }: { account: Partial<Account>; onClos
   return (
     <Modal open title="Account" onClose={onClose}>
       <Field label="Name"><input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <ContactField label="Institution" kind="bank" value={institution} onChange={setInstitution} />
+      <BankSelect label="Institution" value={institution} onChange={setInstitution} />
       <Field label="Kind">
         <select className={fieldClass} value={kind} onChange={(e) => setKind(e.target.value)}>
           {["checking", "savings", "cash", "credit", "loan", "mortgage", "investment"].map((k) => <option key={k}>{k}</option>)}

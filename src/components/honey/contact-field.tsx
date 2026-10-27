@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import type { Contact } from "@/lib/honey/types";
 import { useBook } from "./book";
 import { Button, Field, fieldClass } from "./kit";
@@ -81,6 +81,71 @@ export function ContactField({
       {canEdit && value.trim() ? (
         <div>
           <Button tone="quiet" onClick={lookup}>Look up public details</Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function BankSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (name: string) => void;
+}) {
+  const { data, run, canEdit } = useBook();
+  const banks = (data?.contacts ?? []).filter((contact) => contact.kind === "bank");
+  const match = banks.find((bank) => sameName(bank.name, value));
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  return (
+    <div className="space-y-2">
+      <Field label={label}>
+        <select
+          className={fieldClass}
+          value={adding ? "__new__" : value}
+          onChange={(e) => {
+            if (e.target.value === "__new__") {
+              setAdding(true);
+              return;
+            }
+            setAdding(false);
+            onChange(e.target.value);
+          }}
+        >
+          <option value="">Choose a bank</option>
+          {value && !match ? <option value={value}>{value}</option> : null}
+          {banks.map((bank) => (
+            <option key={bank.id} value={bank.name}>{bank.name}</option>
+          ))}
+          {canEdit ? <option value="__new__">New bank…</option> : null}
+        </select>
+      </Field>
+      {match ? <ContactLine contact={match} canonical={false} onUse={() => onChange(match.name)} /> : null}
+      {adding ? (
+        <div className="flex gap-2">
+          <input className={fieldClass} value={draft} placeholder="Bank name" onChange={(e) => setDraft(e.target.value)} />
+          <Button
+            onClick={async () => {
+              const name = draft.trim();
+              if (!name) return;
+              const existing = banks.find((bank) => sameName(bank.name, name));
+              if (existing) {
+                onChange(existing.name);
+              } else {
+                await run({ type: "contact.save", contact: { name, kind: "bank" } });
+                onChange(name);
+              }
+              setDraft("");
+              setAdding(false);
+            }}
+          >
+            Add
+          </Button>
         </div>
       ) : null}
     </div>
