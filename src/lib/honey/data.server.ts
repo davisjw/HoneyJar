@@ -1681,6 +1681,77 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       await sql`delete from utility_readings where id = ${id} and user_id = ${owner}`;
       return {};
     }
+    case "reading.import": {
+      const meterId = str(action.meterId, 80);
+      const meter = await sql`select id from utility_meters where id = ${meterId} and user_id = ${owner}`;
+      if (!meter.length) throw new Error("That meter is gone.");
+      if (action.rows.length > 500) throw new Error("Import at most 500 rows at a time.");
+      const cols = await sql<{ key: string; kind: string; rollup: string; from_children: boolean }>`
+        select key, kind, rollup, from_children from utility_columns where user_id = ${owner} and meter_id = ${meterId}
+      `;
+      const allowed = new Set(
+        cols
+          .filter((column) => (column.kind === "number" || column.kind === "money") && column.rollup !== "readDate" && column.rollup !== "days" && !column.from_children)
+          .map((column) => column.key),
+      );
+      const meterKey = cols.find((column) => column.rollup === "meter")?.key;
+      const billKey = cols.find((column) => column.rollup === "bill")?.key;
+      const existing = await sql<{ id: string; read_on: string }>`select id, read_on from utility_readings where user_id = ${owner} and meter_id = ${meterId}`;
+      const byMonth = new Map<string, string[]>();
+      for (const row of existing) {
+        const month = String(row.read_on).slice(0, 7);
+        const list = byMonth.get(month) ?? [];
+        list.push(String(row.id));
+        byMonth.set(month, list);
+      }
+      const savedIds: string[] = [];
+      const claimed = new Set<string>();
+      for (const row of action.rows) {
+        const readOn = dateOr(row.readOn, "");
+        if (!readOn) continue;
+        const month = readOn.slice(0, 7);
+        if (claimed.has(month)) continue;
+        claimed.add(month);
+        const cells: Record<string, number> = {};
+        for (const [key, value] of Object.entries(row.cells ?? {})) {
+          const n = typeof value === "number" ? value : Number(value);
+          if (!allowed.has(key) || !Number.isFinite(n)) continue;
+          cells[key] = n;
+        }
+        const hits = byMonth.get(month) ?? [];
+        if (hits.length > 1) continue;
+        if (hits.length === 1) {
+          if (!Object.keys(cells).length) continue;
+          const id = hits[0]!;
+          const current = await sql<{ cells_json: string; meter_value: number | null; amount_cents: number }>`
+            select cells_json, meter_value, amount_cents from utility_readings where id = ${id} and user_id = ${owner}
+          `;
+          if (!current[0]) continue;
+          const merged = { ...parseCells(current[0].cells_json), ...cells };
+          const meterValue = meterKey && merged[meterKey] != null ? merged[meterKey]! : current[0].meter_value;
+          const amount = billKey && merged[billKey] != null ? Math.round(merged[billKey]! * 100) : num(current[0].amount_cents);
+          await sql`
+            update utility_readings set cells_json = ${JSON.stringify(merged)}, meter_value = ${meterValue}, amount_cents = ${amount}
+            where id = ${id} and user_id = ${owner}
+          `;
+          savedIds.push(id);
+        } else if (row.create) {
+          const id = nid();
+          const meterValue = meterKey && cells[meterKey] != null ? cells[meterKey]! : null;
+          const amount = billKey && cells[billKey] != null ? Math.max(0, Math.round(cells[billKey]! * 100)) : 0;
+          await sql`
+            insert into utility_readings (id, user_id, meter_id, read_on, meter_value, amount_cents, opening, cells_json)
+            values (${id}, ${owner}, ${meterId}, ${readOn}, ${meterValue}, ${amount}, false, ${JSON.stringify(cells)})
+          `;
+          byMonth.set(month, [id]);
+          savedIds.push(id);
+        }
+      }
+      if (!savedIds.length) return {};
+      const saved = await sql<Record<string, unknown>>`select * from utility_readings where user_id = ${owner} and meter_id = ${meterId}`;
+      const want = new Set(savedIds);
+      return { patch: { readings: saved.filter((row) => want.has(String(row.id))).map(mapUtilReading) } };
+    }
     case "asset.save": {
       const a = action.asset;
       const id = str(a.id, 80) || nid();

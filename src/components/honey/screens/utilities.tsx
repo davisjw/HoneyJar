@@ -23,6 +23,7 @@ import {
 import { ContactField } from "../contact-field";
 import { useBook } from "../book";
 import { Button, Card, Field, Modal, PageIntro, fieldClass, pinCell } from "../kit";
+import { UtilityImport } from "./utility-import";
 
 function param(search: string, key: string) {
   return new URLSearchParams(search.replace(/^\?/, "")).get(key) ?? "";
@@ -74,6 +75,7 @@ export function UtilitiesPage() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<UtilityMeter | null>(null);
   const [reading, setReading] = useState(false);
+  const [importing, setImporting] = useState(false);
   if (!data) return null;
   const roots = data.meters.filter((m) => !m.parentId);
   const meter = data.meters.find((m) => m.id === (picked || roots[0]?.id)) ?? roots[0] ?? null;
@@ -139,8 +141,17 @@ export function UtilitiesPage() {
             ))}
             {canEdit ? <Button tone="quiet" onClick={() => setEditing(meter)}>Edit meter</Button> : null}
             {canEdit ? <Button tone="quiet" onClick={() => setReading(true)}>Add read</Button> : null}
+            {canEdit ? <Button tone="quiet" onClick={() => setImporting(true)}>Import CSV</Button> : null}
           </div>
-          {tab === "graphs" ? (
+          {importing ? (
+            <UtilityImport
+              key={meter.id}
+              meter={meter}
+              columns={columns}
+              readings={data.readings.filter((reading) => reading.meterId === meter.id)}
+              onClose={() => setImporting(false)}
+            />
+          ) : tab === "graphs" ? (
             <div className="min-h-0 flex-1 overflow-auto">
               <Graphs
                 key={meter.id}
@@ -155,7 +166,7 @@ export function UtilitiesPage() {
               />
             </div>
           ) : null}
-          {tab === "workbook" ? (
+          {!importing && tab === "workbook" ? (
             <Workbook
               meter={meter}
               columns={columns}
@@ -169,7 +180,7 @@ export function UtilitiesPage() {
               onDate={(id, readOn) => run({ type: "reading.date", id, readOn })}
             />
           ) : null}
-          {tab === "columns" ? <div className="min-h-0 flex-1 overflow-auto"><ColumnsTab meter={meter} columns={columns} canEdit={canEdit} run={run} /></div> : null}
+          {!importing && tab === "columns" ? <div className="min-h-0 flex-1 overflow-auto"><ColumnsTab meter={meter} columns={columns} canEdit={canEdit} run={run} /></div> : null}
         </>
       ) : (
         <Card><p className="text-muted">No meters in this jar yet.</p></Card>

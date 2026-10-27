@@ -618,6 +618,7 @@ export type Action = (
   | { type: "reading.cells"; id: string; cells: Record<string, number>; ownerId?: string }
   | { type: "reading.date"; id: string; readOn: string; ownerId?: string }
   | { type: "reading.delete"; id: string; ownerId?: string }
+  | { type: "reading.import"; meterId: string; rows: { readOn: string; create: boolean; cells: Record<string, number> }[]; ownerId?: string }
   | { type: "asset.save"; asset: Partial<Asset> & { name: string; kind: string; valueCents: number }; ownerId?: string }
   | { type: "asset.delete"; id: string; ownerId?: string }
   | { type: "valuation.add"; assetId: string; asOf: string; valueCents: number; source: string; ownerId?: string }

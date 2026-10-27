@@ -6,10 +6,16 @@ import {
   calderUtilityHistory,
   daysBetweenReads,
   evaluateFormula,
+  guessUtilityMap,
   historySeries,
   historyYear,
+  importTargets,
+  parseUtilityNumber,
+  planUtilityCsv,
+  readCsvTable,
   starterColumns,
   tierChargeCents,
+  utilityReadDate,
   type ReadLike,
   type UtilColumn,
 } from "./utility.ts";
@@ -178,5 +184,63 @@ describe("calder utility history", () => {
     assert.equal(points[9]?.paid, null);
     assert.ok((points[9]?.thisYear ?? 0) > 0);
     assert.ok((points[0]?.lastYear ?? 0) > 0);
+  });
+});
+
+describe("utility csv import", () => {
+  it("keeps a full day and uses the first day when the file has only a month", () => {
+    assert.deepEqual(utilityReadDate("2024-03-18"), { month: "2024-03", readOn: "2024-03-18" });
+    assert.deepEqual(utilityReadDate("2024-03"), { month: "2024-03", readOn: "2024-03-01" });
+    assert.deepEqual(utilityReadDate("3/2024"), { month: "2024-03", readOn: "2024-03-01" });
+    assert.deepEqual(utilityReadDate("Mar 2024"), { month: "2024-03", readOn: "2024-03-01" });
+    assert.equal(utilityReadDate("2024"), null);
+    assert.equal(utilityReadDate("2024-02-31"), null);
+  });
+
+  it("reads dollars and ignores a blank cell", () => {
+    assert.deepEqual(parseUtilityNumber("$1,234.50"), { value: 1234.5 });
+    assert.deepEqual(parseUtilityNumber(""), { blank: true });
+    assert.deepEqual(parseUtilityNumber("n/a"), { error: true });
+  });
+
+  it("does not offer calculated columns", () => {
+    const keys = importTargets(starterColumns("m", "electric", "kWh")).map((column) => column.key);
+    assert.ok(keys.includes("meter_read"));
+    assert.equal(keys.includes("usage_kwh"), false);
+    assert.equal(keys.includes("read_on"), false);
+    assert.equal(keys.includes("read_days"), false);
+  });
+
+  it("matches a month, shows only real differences, and does not invent a second read", () => {
+    const table = readCsvTable("Month,Meter read,Bill amount\n2024-03,120,40\n2024-03-18,130,41\n2024-04,140,\n");
+    const plan = planUtilityCsv(
+      table.rows,
+      0,
+      [{ index: 1, key: "meter_read" }, { index: 2, key: "bill_amount" }],
+      [{ id: "r1", readOn: "2024-03-15", cells: { meter_read: 100, bill_amount: 40 } }],
+    );
+    assert.equal(plan[0]?.readingId, "r1");
+    assert.deepEqual(plan[0]?.diffs, [{ key: "meter_read", before: 100, after: 120 }]);
+    assert.equal(plan[1]?.month, "2024-03");
+    assert.equal(plan[1]?.readingId, "r1");
+    assert.equal(plan[2]?.readingId, null);
+    assert.equal(plan[2]?.readOn, "2024-04-01");
+    assert.deepEqual(plan[2]?.values, { meter_read: 140 });
+    const doubled = planUtilityCsv(
+      [["2024-05"]],
+      0,
+      [],
+      [
+        { id: "a", readOn: "2024-05-01", cells: {} },
+        { id: "b", readOn: "2024-05-20", cells: {} },
+      ],
+    );
+    assert.match(doubled[0]?.blocked ?? "", /more than one/);
+  });
+
+  it("guesses the date column and a matching label", () => {
+    const guess = guessUtilityMap(["Bill date", "Meter read", "Notes"], [{ key: "meter_read", label: "Meter read" }]);
+    assert.equal(guess.dateIndex, 0);
+    assert.deepEqual(guess.mapping, { 1: "meter_read" });
   });
 });

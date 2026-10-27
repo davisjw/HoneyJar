@@ -1219,3 +1219,193 @@ export function calderUtilityHistory(today: string): CalderUtility[] {
   ];
 }
 
+const UTILITY_MONTHS: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4,
+  may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+};
+
+/** Columns a CSV may fill. Calculated, day-count, child-sum, and the read date stay out. */
+export function importTargets<T extends { kind: string; rollup: string; fromChildren?: boolean }>(columns: T[]): T[] {
+  return columns.filter((column) =>
+    (column.kind === "number" || column.kind === "money") &&
+    column.rollup !== "readDate" &&
+    column.rollup !== "days" &&
+    !column.fromChildren,
+  );
+}
+
+/** A utility CSV date. Month and year are required. A missing day becomes the first of the month. */
+export function utilityReadDate(raw: string): { month: string; readOn: string } | null {
+  const text = raw.trim().replace(/,/g, " ").replace(/\s+/g, " ");
+  if (!text) return null;
+  const iso = /^(\d{4})[-/](\d{1,2})(?:[-/](\d{1,2}))?$/.exec(text);
+  if (iso) return packUtilityDate(iso[1]!, iso[2]!, iso[3]);
+  const us = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(text);
+  if (us) {
+    const first = Number(us[1]);
+    const second = Number(us[2]);
+    if (first > 12 && second <= 12) return packUtilityDate(us[3]!, us[2]!, us[1]);
+    return packUtilityDate(us[3]!, us[1]!, us[2]);
+  }
+  const monthYear = /^(\d{1,2})[-/](\d{4})$/.exec(text);
+  if (monthYear) return packUtilityDate(monthYear[2]!, monthYear[1]!);
+  const named = /^([a-z]+)\s+(\d{4})$/i.exec(text);
+  if (named) {
+    const month = UTILITY_MONTHS[named[1]!.toLowerCase()];
+    if (month) return packUtilityDate(named[2]!, String(month));
+  }
+  const namedDay = /^([a-z]+)\s+(\d{1,2})\s+(\d{4})$/i.exec(text);
+  if (namedDay) {
+    const month = UTILITY_MONTHS[namedDay[1]!.toLowerCase()];
+    if (month) return packUtilityDate(namedDay[3]!, String(month), namedDay[2]);
+  }
+  const dayNamed = /^(\d{1,2})\s+([a-z]+)\s+(\d{4})$/i.exec(text);
+  if (dayNamed) {
+    const month = UTILITY_MONTHS[dayNamed[2]!.toLowerCase()];
+    if (month) return packUtilityDate(dayNamed[3]!, String(month), dayNamed[1]);
+  }
+  return null;
+}
+
+function packUtilityDate(yearRaw: string, monthRaw: string, dayRaw?: string): { month: string; readOn: string } | null {
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isInteger(year) || year < 1000 || year > 9999) return null;
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const day = dayRaw == null || dayRaw === "" ? 1 : Number(dayRaw);
+  if (!Number.isInteger(day) || day < 1 || day > last) return null;
+  const monthText = String(month).padStart(2, "0");
+  const dayText = String(day).padStart(2, "0");
+  return { month: `${year}-${monthText}`, readOn: `${year}-${monthText}-${dayText}` };
+}
+
+/** Blank means the cell is ignored. An error means the cell was present but not a number. */
+export function parseUtilityNumber(raw: string): { blank: true } | { value: number } | { error: true } {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "-" || trimmed === "—" || trimmed === "–") return { blank: true };
+  const negative = /^\(.*\)$/.test(trimmed);
+  const n = Number(trimmed.replace(/[$,\s]/g, "").replace(/[()]/g, ""));
+  if (!Number.isFinite(n)) return { error: true };
+  return { value: negative ? -Math.abs(n) : n };
+}
+
+export function readCsvTable(text: string): { headers: string[]; rows: string[][] } {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
+  if (!lines.length) return { headers: [], rows: [] };
+  const headers = splitCsvLine(lines[0]!).map((cell, index) => cell || `Column ${index + 1}`);
+  const rows = lines.slice(1).map(splitCsvLine).filter((row) => row.some((cell) => cell.trim()));
+  return { headers, rows };
+}
+
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (quoted) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i += 1;
+        } else quoted = false;
+      } else cur += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") {
+      out.push(cur.trim());
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+function columnName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/** Suggest a date column and value columns from the header labels. */
+export function guessUtilityMap(
+  headers: string[],
+  columns: { key: string; label: string }[],
+): { dateIndex: number | null; mapping: Record<number, string> } {
+  let dateIndex: number | null = null;
+  headers.forEach((header, index) => {
+    if (dateIndex != null) return;
+    const name = columnName(header);
+    if (name === "date" || name === "read date" || name === "read on" || name === "bill date" || name === "month" || name.endsWith(" date")) dateIndex = index;
+  });
+  const mapping: Record<number, string> = {};
+  const used = new Set<string>();
+  headers.forEach((header, index) => {
+    if (index === dateIndex) return;
+    const name = columnName(header);
+    const hit = columns.find((column) => !used.has(column.key) && (columnName(column.label) === name || columnName(column.key) === name));
+    if (!hit) return;
+    used.add(hit.key);
+    mapping[index] = hit.key;
+  });
+  return { dateIndex, mapping };
+}
+
+export type UtilityCsvDiff = { key: string; before: number | null; after: number };
+
+export type UtilityCsvRow = {
+  line: number;
+  month: string;
+  readOn: string;
+  readingId: string | null;
+  blocked: string;
+  problems: string[];
+  values: Record<string, number>;
+  diffs: UtilityCsvDiff[];
+};
+
+/** Match CSV rows to reads by calendar month. A later row for a month already in the file is left for the user to pick. */
+export function planUtilityCsv(
+  tableRows: string[][],
+  dateIndex: number,
+  mapping: { index: number; key: string }[],
+  readings: { id: string; readOn: string; cells: Record<string, number> }[],
+): UtilityCsvRow[] {
+  const byMonth = new Map<string, { id: string; cells: Record<string, number> }[]>();
+  for (const reading of readings) {
+    const month = reading.readOn.slice(0, 7);
+    const list = byMonth.get(month) ?? [];
+    list.push({ id: reading.id, cells: reading.cells });
+    byMonth.set(month, list);
+  }
+  return tableRows.map((cells, index) => {
+    const line = index + 2;
+    const parsed = utilityReadDate(cells[dateIndex] ?? "");
+    if (!parsed) {
+      return { line, month: "", readOn: "", readingId: null, blocked: "This row needs a month and a year.", problems: [], values: {}, diffs: [] };
+    }
+    const problems: string[] = [];
+    const values: Record<string, number> = {};
+    for (const column of mapping) {
+      const parsedNumber = parseUtilityNumber(cells[column.index] ?? "");
+      if ("error" in parsedNumber) problems.push(column.key);
+      else if ("value" in parsedNumber) values[column.key] = parsedNumber.value;
+    }
+    if (problems.length) {
+      return { line, month: parsed.month, readOn: parsed.readOn, readingId: null, blocked: "A mapped cell is not a number.", problems, values: {}, diffs: [] };
+    }
+    const hits = byMonth.get(parsed.month) ?? [];
+    if (hits.length > 1) {
+      return { line, month: parsed.month, readOn: parsed.readOn, readingId: null, blocked: "This month already has more than one read, so it was left alone.", problems: [], values, diffs: [] };
+    }
+    const hit = hits[0];
+    const diffs: UtilityCsvDiff[] = [];
+    if (hit) {
+      for (const [key, after] of Object.entries(values)) {
+        const before = hit.cells[key] ?? null;
+        if (before == null || Math.abs(before - after) >= 0.0005) diffs.push({ key, before, after });
+      }
+    }
+    return { line, month: parsed.month, readOn: parsed.readOn, readingId: hit?.id ?? null, blocked: "", problems: [], values, diffs };
+  });
+}
+
