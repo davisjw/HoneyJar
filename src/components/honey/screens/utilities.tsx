@@ -363,15 +363,10 @@ function Workbook({
                   return (
                   <td key={c.id} className={`border-b border-line px-2 py-1 ${pinCell(index === 0, false, row.id === focus)}`}>
                     {mount === "date" ? (
-                      <input
-                        type="date"
-                        autoFocus
-                        className="w-36 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
+                      <DateCell
                         value={row.date}
-                        onChange={(e) => {
-                          if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value) && e.target.value !== row.date) onDate(row.id, e.target.value);
-                        }}
-                        onBlur={() => setEditing(null)}
+                        onDone={() => setEditing(null)}
+                        onCommit={(readOn) => onDate(row.id, readOn)}
                       />
                     ) : mount === "input" ? (
                       <Cell
@@ -414,6 +409,32 @@ function Workbook({
       </div>
       {meter.tiers.length ? <p className="shrink-0 px-4 py-3 text-xs text-muted">Rate tiers fill the lowest ceiling first. {meter.tiers.map((t) => `${t.upTo == null ? "rest" : `first ${t.upTo}`} @ ${(t.rateCents / 100).toFixed(3)}`).join(", ")}.</p> : null}
     </Card>
+  );
+}
+
+function DateCell({ value, onCommit, onDone }: { value: string; onCommit: (value: string) => void; onDone: () => void }) {
+  const skip = useRef(false);
+  return (
+    <input
+      type="date"
+      autoFocus
+      defaultValue={value}
+      className="w-36 rounded border border-transparent bg-transparent px-1 py-1 hover:border-line focus:border-honey focus:outline-none"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          skip.current = true;
+          e.currentTarget.blur();
+        } else if (e.key === "Enter") {
+          e.currentTarget.blur();
+        }
+      }}
+      onBlur={(e) => {
+        const next = e.currentTarget.value;
+        const year = Number(next.slice(0, 4));
+        if (!skip.current && /^\d{4}-\d{2}-\d{2}$/.test(next) && year >= 1000 && next !== value) onCommit(next);
+        onDone();
+      }}
+    />
   );
 }
 
