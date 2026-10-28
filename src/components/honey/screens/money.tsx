@@ -142,7 +142,7 @@ export function TransactionsPage() {
   const navigate = useNavigate();
   const search = useRouterState({ select: (s) => s.location.searchStr });
   const [q, setQ] = useState(param(search, "q"));
-  const category = param(search, "category");
+  const categoryParam = param(search, "category");
   const focus = param(search, "txn");
   const personFilter = param(search, "person");
   const tagFilter = param(search, "tag");
@@ -151,6 +151,8 @@ export function TransactionsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [csv, setCsv] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
+  const [categoryId, setCategoryId] = useState(categoryParam);
   const [who, setWho] = useState(personFilter);
   const [shown, setShown] = useState(200);
   const [tag, setTag] = useState(tagFilter);
@@ -161,7 +163,8 @@ export function TransactionsPage() {
   useEffect(() => {
     setWho(personFilter);
     setTag(tagFilter);
-  }, [personFilter, tagFilter]);
+    setCategoryId(categoryParam);
+  }, [personFilter, tagFilter, categoryParam]);
   useEffect(() => {
     if (param(search, "import") === "1") setImportOpen(true);
   }, [search]);
@@ -184,7 +187,9 @@ export function TransactionsPage() {
   if (!data) return null;
   const month = periodOf(data.today, data.profile.monthStartDay);
   const rows = data.transactions.filter((t) => {
-    if (category && t.categoryId !== category) return false;
+    if (categoryId === "none" && t.categoryId) return false;
+    if (categoryId && categoryId !== "none" && t.categoryId !== categoryId) return false;
+    if (accountFilter && t.accountId !== accountFilter) return false;
     if (who === "household" && t.personId) return false;
     if (who && who !== "household" && t.personId !== who) return false;
     if (tag && !t.tags.some((x) => x.toLowerCase() === tag.toLowerCase())) return false;
@@ -197,7 +202,7 @@ export function TransactionsPage() {
   const cur = data.profile.currency;
   const loadedFrom = txnSince && txnSince < historyStart(data.today) ? txnSince : historyStart(data.today);
   const beforeLoaded = Boolean(from && data.txnHasMore && from < loadedFrom);
-  const filtered = Boolean(q || who || tag || from || to || category);
+  const filtered = Boolean(q || who || tag || from || to || categoryId || accountFilter);
 
   function clearFilters() {
     setQ("");
@@ -205,6 +210,8 @@ export function TransactionsPage() {
     setTag("");
     setFrom("");
     setTo("");
+    setAccountFilter("");
+    setCategoryId("");
     void navigate({ to: "/transactions", search: {}, replace: true });
   }
 
@@ -258,6 +265,19 @@ export function TransactionsPage() {
       ) : null}
       <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
         <input className={`${fieldClass} max-w-xs`} placeholder="Search merchant" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className={`${fieldClass} max-w-xs`} value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}>
+          <option value="">Any account</option>
+          {data.accounts.filter((a) => !a.archived || a.id === accountFilter).map((a) => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+        <select className={`${fieldClass} max-w-xs`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+          <option value="">Any category</option>
+          <option value="none">Uncategorized</option>
+          {data.categories.filter((c) => !c.archived || c.id === categoryId).map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
         <select className={`${fieldClass} max-w-xs`} value={who} onChange={(e) => setWho(e.target.value)}>
           <option value="">Everyone</option>
           <option value="household">Household (shared)</option>
