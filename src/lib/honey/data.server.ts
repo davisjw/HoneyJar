@@ -1086,11 +1086,13 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       } else {
         await sql`insert into rules (id, user_id, pattern, category_id, priority, ledger_id) values (${id}, ${owner}, ${pattern}, ${action.rule.categoryId}, ${num(action.rule.priority)}, ${await openJar()})`;
       }
-      return {};
+      const rows = await sql`select id, pattern, category_id, priority from rules where id = ${id} and user_id = ${owner}`;
+      return { patch: { rules: rows.map(mapRule) } };
     }
     case "rule.delete": {
-      await sql`delete from rules where id = ${action.id} and user_id = ${owner}`;
-      return {};
+      const id = str(action.id, 80);
+      await sql`delete from rules where id = ${id} and user_id = ${owner}`;
+      return { patch: { deletedRuleIds: [id] } };
     }
     case "person.save": {
       const p = action.person;

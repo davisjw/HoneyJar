@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import { applyAction, getWorkspace, noteSignIn } from "@/lib/honey/fns";
 import { addMonths, annotateJar } from "@/lib/honey/calc";
-import type { Account, Action, ActionResult, LedgerBook, Txn, Workspace } from "@/lib/honey/types";
+import type { Account, Action, ActionResult, LedgerBook, Rule, Txn, Workspace } from "@/lib/honey/types";
 
 type BookValue = {
   data?: Workspace;
@@ -60,9 +60,24 @@ function replaceAccounts(list: Account[], next: Account[] | undefined): Account[
   return list.map((account) => map.get(account.id) ?? account);
 }
 
+function mergeRules(rules: Rule[], incoming?: Rule[], deleted?: string[]): Rule[] {
+  if (!incoming?.length && !deleted?.length) return rules;
+  const removed = new Set(deleted ?? []);
+  let next = removed.size ? rules.filter((rule) => !removed.has(rule.id)) : rules.slice();
+  for (const rule of incoming ?? []) {
+    const index = next.findIndex((item) => item.id === rule.id);
+    if (index >= 0) next[index] = rule;
+    else next = [...next, rule];
+  }
+  return next;
+}
+
 function applyPatch(ws: Workspace, patch: NonNullable<ActionResult["patch"]>, focusId?: string): Workspace {
   const removed = new Set(patch.deletedTransactionIds ?? []);
+  const personalId = ws.ledgers.find((book) => book.kind === "personal" && !book.archived)?.id ?? ws.ledgers.find((book) => book.kind === "personal")?.id;
+  const ruleTarget = focusId || personalId;
   const ledgers = ws.ledgers.map((book) => {
+    const rules = book.id === ruleTarget ? mergeRules(book.rules, patch.rules, patch.deletedRuleIds) : book.rules;
     const accounts = replaceAccounts(book.accounts, patch.accounts);
     const readings = mergeById(
       book.readings,
@@ -77,16 +92,17 @@ function applyPatch(ws: Workspace, patch: NonNullable<ActionResult["patch"]>, fo
       touched = true;
       transactions = owns ? upsertTxn(transactions, txn) : transactions.filter((item) => item.id !== txn.id);
     }
-    if (!touched) return book;
-    // A jar that was not sent (summary, or a different jar is open) already has
-    // its year totals. Rebuilding them from an empty register would zero the year.
+    if (!touched && rules === book.rules) return book;
+    if (!touched) return { ...book, rules };
     const loaded = book.transactions.length > 0 || book.id === focusId;
-    if (!loaded) return { ...book, accounts, readings };
-    return annotateJar({ ...book, accounts, readings, transactions }, ws.today, ws.profile.monthStartDay);
+    if (!loaded) return { ...book, accounts, readings, rules };
+    return annotateJar({ ...book, accounts, readings, transactions, rules }, ws.today, ws.profile.monthStartDay);
   });
+  const primary = ledgers.find((book) => book.kind === "personal" && !book.archived) ?? ledgers.find((book) => book.kind === "personal");
   return {
     ...ws,
     ledgers,
+    rules: primary?.rules ?? ws.rules,
     accounts: replaceAccounts(ws.accounts, patch.accounts),
     readings: mergeById(ws.readings, patch.readings),
   };

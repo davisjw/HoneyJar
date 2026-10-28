@@ -584,6 +584,8 @@ export type ActionResult = {
     deletedTransactionIds?: string[];
     accounts?: Account[];
     readings?: UtilityReading[];
+    rules?: Rule[];
+    deletedRuleIds?: string[];
   };
 };
 
