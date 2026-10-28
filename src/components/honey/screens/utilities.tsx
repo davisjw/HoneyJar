@@ -236,6 +236,8 @@ function Graphs({
   const key = series.some((item) => item.key === picked) ? picked : preferred;
   const chosen = series.find((item) => item.key === key);
   const year = Number(rows[rows.length - 1]?.date.slice(0, 4)) || new Date().getFullYear();
+  const zip = postal.replace(/\D/g, "").slice(0, 5);
+  const zipOk = /^\d{5}$/.test(zip);
   const points = historyYear(
     rows,
     columns,
@@ -248,8 +250,6 @@ function Graphs({
     return { ...point, temp: climate.find((row) => row.postal === zip && row.month === month)?.avgF ?? null };
   });
   const hasTemp = chart.some((point) => point.temp != null);
-  const zip = postal.replace(/\D/g, "").slice(0, 5);
-  const zipOk = /^\d{5}$/.test(zip);
   useEffect(() => {
     if (!zipOk) return;
     const cap = today.slice(0, 7);
