@@ -105,6 +105,7 @@ describe("utility sheet", () => {
     assert.equal(starterColumns("m", "water").find((c) => c.key === "usage_ccf")?.formula, "{meter_read} - {prev.meter_read}");
     assert.equal(starterColumns("m", "cellular").some((c) => c.rollup === "usage"), false);
     assert.equal(starterColumns("m", "cellular").find((c) => c.rollup === "readDate")?.label, "Bill date");
+    assert.equal(starterColumns("m", "streaming").find((c) => c.rollup === "readDate")?.label, "Bill date");
     assert.equal(last.computed.grid_kwh, 150);
     assert.equal(last.computed.energy_tier_charge, 21.08);
     assert.equal(last.computed.bill_sum, 108);

@@ -219,6 +219,7 @@ const STARTERS: Starter[] = [
     slug: "streaming",
     unit: "none",
     columns: [
+      { key: "read_on", label: "Bill date", kind: "date", rollup: "readDate" },
       { key: "subscription", label: "Subscription", kind: "money" },
       { key: "add_ons", label: "Add-ons", kind: "money" },
       { key: "taxes_fees", label: "Taxes & fees", kind: "money" },
