@@ -7,6 +7,7 @@ import type {
   FilingStatus,
   Goal,
   LedgerBook,
+  Payment,
   PlanMonth,
   Profile,
   Reminder,
@@ -232,6 +233,174 @@ export function stepDue(iso: string, cadence: string): string {
   if (cadence === "quarterly") return addMonths(iso, 3);
   if (cadence === "yearly") return addMonths(iso, 12);
   return addMonths(iso, 1);
+}
+
+function stepDueBack(iso: string, cadence: string): string {
+  if (cadence === "weekly") return addDays(iso, -7);
+  if (cadence === "biweekly") return addDays(iso, -14);
+  if (cadence === "quarterly") return addMonths(iso, -3);
+  if (cadence === "yearly") return addMonths(iso, -12);
+  return addMonths(iso, -1);
+}
+
+/** Due dates of a bill that fall inside a period, walked from its next due date. */
+export function duesInRange(nextDue: string, cadence: string, from: string, to: string): string[] {
+  if (!nextDue || !from || !to || from > to) return [];
+  let d = nextDue;
+  let guard = 0;
+  while (d > to && guard < 500) {
+    const prev = stepDueBack(d, cadence);
+    if (prev >= d) return [];
+    d = prev;
+    guard += 1;
+  }
+  while (d < from && guard < 800) {
+    const next = stepDue(d, cadence);
+    if (next <= d) return [];
+    d = next;
+    guard += 1;
+  }
+  const out: string[] = [];
+  while (d >= from && d <= to && guard < 900) {
+    out.push(d);
+    const next = stepDue(d, cadence);
+    if (next <= d) break;
+    d = next;
+    guard += 1;
+  }
+  return out;
+}
+
+export type BillMonthRow = {
+  key: string;
+  billId: string;
+  kind: "payment" | "due";
+  date: string;
+  amountCents: number;
+  paymentId: string | null;
+  transactionId: string | null;
+  readingId: string | null;
+};
+
+/** Payments in the period, plus a due date that has no payment yet. */
+export function billMonthRows(
+  bills: Bill[],
+  payments: Payment[],
+  period: string,
+  startDay: number,
+): BillMonthRow[] {
+  const from = periodStart(period, startDay);
+  const to = periodEnd(period, startDay);
+  const rows: BillMonthRow[] = [];
+  for (const bill of bills) {
+    const pays = payments
+      .filter((payment) => payment.billId === bill.id && inRange(payment.paidOn, from, to))
+      .sort((a, b) => a.paidOn.localeCompare(b.paidOn));
+    for (const payment of pays) {
+      rows.push({
+        key: payment.id,
+        billId: bill.id,
+        kind: "payment",
+        date: payment.paidOn,
+        amountCents: payment.amountCents,
+        paymentId: payment.id,
+        transactionId: payment.transactionId,
+        readingId: payment.readingId,
+      });
+    }
+    if (bill.status === "paused") continue;
+    const dues = duesInRange(bill.nextDue, bill.cadence, from, to);
+    for (let i = pays.length; i < dues.length; i += 1) {
+      rows.push({
+        key: `${bill.id}:${dues[i]}`,
+        billId: bill.id,
+        kind: "due",
+        date: dues[i]!,
+        amountCents: bill.amountCents,
+        paymentId: null,
+        transactionId: null,
+        readingId: null,
+      });
+    }
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date) || a.billId.localeCompare(b.billId));
+}
+
+/** Average of that calendar month in the previous two years. One year is enough. */
+export function sameMonthCents(history: { month: string; cents: number }[], period: string): number | null {
+  const year = Number(period.slice(0, 4));
+  const month = period.slice(5, 7);
+  if (!year || month.length !== 2) return null;
+  const hits = history.filter((row) => {
+    const y = Number(row.month.slice(0, 4));
+    return row.month.slice(5, 7) === month && y < year && y >= year - 2;
+  });
+  if (!hits.length) return null;
+  return Math.round(hits.reduce((sum, row) => sum + row.cents, 0) / hits.length);
+}
+
+export function billAmountHistory(
+  billId: string,
+  meterId: string | null,
+  payments: { billId: string; paidOn: string; amountCents: number }[],
+  readings: { meterId: string; readOn: string; amountCents: number; opening: boolean }[],
+): { month: string; cents: number }[] {
+  const byMonth = new Map<string, number>();
+  for (const payment of payments) {
+    if (payment.billId !== billId || payment.amountCents <= 0) continue;
+    byMonth.set(payment.paidOn.slice(0, 7), payment.amountCents);
+  }
+  if (meterId) {
+    for (const reading of readings) {
+      if (reading.meterId !== meterId || reading.opening || reading.amountCents <= 0) continue;
+      const month = reading.readOn.slice(0, 7);
+      if (!byMonth.has(month)) byMonth.set(month, reading.amountCents);
+    }
+  }
+  return [...byMonth].map(([month, cents]) => ({ month, cents }));
+}
+
+export function projectedBillCents(
+  billId: string,
+  meterId: string | null,
+  payments: { billId: string; paidOn: string; amountCents: number }[],
+  readings: { meterId: string; readOn: string; amountCents: number; opening: boolean }[],
+  period: string,
+): number | null {
+  return sameMonthCents(billAmountHistory(billId, meterId, payments, readings), period);
+}
+
+function looseName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function daysApart(a: string, b: string): number {
+  const left = Date.parse(`${a.slice(0, 10)}T00:00:00Z`);
+  const right = Date.parse(`${b.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return 9999;
+  return Math.round((left - right) / 86400000);
+}
+
+/** A transaction matches a bill when the payee, the amount, and a date within 31 days of the due date agree. */
+export function billTxnMatches(
+  bill: { name: string; payee: string; direction: string },
+  txns: Txn[],
+  amountCents: number,
+  dueOn: string,
+  usedIds: Set<string>,
+): Txn[] {
+  const needles = [looseName(bill.payee), looseName(bill.name)].filter((name) => name.length >= 3);
+  const signed = bill.direction === "in" ? amountCents : -Math.abs(amountCents);
+  if (!needles.length || !amountCents || !dueOn) return [];
+  return txns
+    .filter((txn) => {
+      if (usedIds.has(txn.id) || txn.amountCents !== signed) return false;
+      if (Math.abs(daysApart(txn.postedOn, dueOn)) > 31) return false;
+      const merchant = looseName(txn.merchant);
+      const hay = looseName(`${txn.merchant} ${txn.memo}`);
+      return needles.some((name) => hay.includes(name) || (merchant.length >= 3 && name.includes(merchant)));
+    })
+    .sort((a, b) => Math.abs(daysApart(a.postedOn, dueOn)) - Math.abs(daysApart(b.postedOn, dueOn)) || b.postedOn.localeCompare(a.postedOn));
 }
 
 export function occurrences(nextDue: string, cadence: string, from: string, until: string): string[] {
@@ -637,31 +806,7 @@ export function planModel(
   }
   const assignedTotal = rows.reduce((s, r) => s + r.assigned, 0);
   const leftInPlan = rows.reduce((s, r) => s + r.available, 0);
-  const rtaCache = new Map<string, number>();
-  const rta = (m: string): number => {
-    const hit = rtaCache.get(m);
-    if (hit !== undefined) return hit;
-    const f = periodStart(m, startDay);
-    const t = periodEnd(m, startDay);
-    let inc = 0;
-    for (const txn of txns) {
-      if (!inRange(txn.postedOn, f, t) || txn.amountCents <= 0) continue;
-      const cat = categories.find((c) => c.id === txn.categoryId);
-      if (cat && cat.flow !== "in") continue;
-      inc += txn.amountCents;
-    }
-    const hasPlan = plan.some((p) => p.month === m);
-    const assigned =
-      inc > 0 || hasPlan || m === month ? expense.reduce((s, c) => s + assignedOf(c, m), 0) : 0;
-    const prev = shiftPeriod(m, -1);
-    const prevEnd = periodEnd(prev, startDay);
-    const floor = addMonths(periodStart(month, startDay), -24);
-    const carry = earliestTxn && prevEnd >= earliestTxn && prevEnd >= floor ? rta(prev) : 0;
-    const value = inc + carry - assigned;
-    rtaCache.set(m, value);
-    return value;
-  };
-  return { rows, income, assignedTotal, leftToAssign: rta(month), leftInPlan };
+  return { rows, income, assignedTotal, leftToAssign: income - assignedTotal, leftInPlan };
 }
 
 export type CashPoint = {

@@ -19,6 +19,10 @@ import {
   periodOf,
   personFlow,
   planModel,
+  billMonthRows,
+  billTxnMatches,
+  duesInRange,
+  projectedBillCents,
   scheduleD,
   importMatches,
   merchantClose,
@@ -28,7 +32,7 @@ import {
   transferMatches,
   transferOtherMask,
 } from "./calc.ts";
-import type { Account, Asset, Category, Profile, Txn } from "./types.ts";
+import type { Account, Asset, Bill, Category, Payment, Profile, Txn } from "./types.ts";
 
 function category(patch: Partial<Category> & Pick<Category, "id" | "flow">): Category {
   return {
@@ -187,20 +191,95 @@ describe("a jar's profit", () => {
 });
 
 describe("left to assign", () => {
-  it("stops walking income after two years", () => {
+  it("is this month's income minus what is assigned", () => {
+    const rent = category({ id: "rent", flow: "out", monthlyCents: 100_000 });
     const oldOnly = planModel([income], [txn({ id: "old", amountCents: 50_000, postedOn: "2024-01-15", categoryId: "in" })], [], "2026-10", 1);
     assert.equal(oldOnly.leftToAssign, 0);
-    const kept = planModel(
-      [income],
+    const month = planModel(
+      [income, rent],
       [
-        txn({ id: "old", amountCents: 50_000, postedOn: "2024-01-15", categoryId: "in" }),
-        txn({ id: "new", amountCents: 12_000, postedOn: "2025-06-15", categoryId: "in" }),
+        txn({ id: "old", amountCents: 500_000, postedOn: "2025-06-15", categoryId: "in" }),
+        txn({ id: "pay", amountCents: 300_000, postedOn: "2026-10-02", categoryId: "in" }),
       ],
       [],
       "2026-10",
       1,
     );
-    assert.equal(kept.leftToAssign, 12_000);
+    assert.equal(month.income, 300_000);
+    assert.equal(month.leftToAssign, 200_000);
+  });
+});
+
+function sampleBill(patch: Partial<Bill> & Pick<Bill, "id" | "nextDue">): Bill {
+  return {
+    name: "Power",
+    payee: "Harbor Electric",
+    kind: "utility",
+    direction: "out",
+    categoryId: "power",
+    accountId: null,
+    debtAccountId: null,
+    amountCents: 10_000,
+    principalCents: null,
+    cadence: "monthly",
+    autopay: false,
+    status: "active",
+    variable: true,
+    notes: "",
+    url: "",
+    personId: null,
+    meterId: "meter",
+    flatPay: false,
+    ...patch,
+  };
+}
+
+function samplePayment(patch: Partial<Payment> & Pick<Payment, "id" | "billId" | "paidOn" | "amountCents">): Payment {
+  return {
+    accountId: "checking",
+    transactionId: null,
+    readingId: null,
+    status: "paid",
+    ...patch,
+  };
+}
+
+describe("bill months", () => {
+  it("shows a payment and a due that has none", () => {
+    const power = sampleBill({ id: "power", nextDue: "2026-11-06" });
+    const rows = billMonthRows(
+      [power],
+      [samplePayment({ id: "p1", billId: "power", paidOn: "2026-10-04", amountCents: 8_000, transactionId: "t1" })],
+      "2026-10",
+      1,
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.kind, "payment");
+    const open = billMonthRows([power], [], "2026-10", 1);
+    assert.equal(open.length, 1);
+    assert.equal(open[0]?.kind, "due");
+    assert.equal(open[0]?.date, "2026-10-06");
+    assert.deepEqual(duesInRange("2026-11-06", "monthly", "2026-10-01", "2026-10-31"), ["2026-10-06"]);
+  });
+
+  it("matches a transaction by payee, amount, and a date near the due date", () => {
+    const hit = txn({ id: "hit", amountCents: -8_000, postedOn: "2026-10-08", merchant: "Harbor Electric", memo: "" });
+    const far = txn({ id: "far", amountCents: -8_000, postedOn: "2026-08-01", merchant: "Harbor Electric", memo: "" });
+    const other = txn({ id: "other", amountCents: -8_000, postedOn: "2026-10-08", merchant: "Water", memo: "" });
+    const matches = billTxnMatches(sampleBill({ id: "power", nextDue: "2026-10-06" }), [far, other, hit], 8_000, "2026-10-06", new Set());
+    assert.deepEqual(matches.map((row) => row.id), ["hit"]);
+  });
+
+  it("averages that same month from the previous two years", () => {
+    const projected = projectedBillCents(
+      "power",
+      "meter",
+      [samplePayment({ id: "p", billId: "power", paidOn: "2025-10-04", amountCents: 9_000 })],
+      [{ meterId: "meter", readOn: "2024-10-05", amountCents: 7_000, opening: false }],
+      "2026-10",
+    );
+    assert.equal(projected, 8_000);
+    assert.equal(projectedBillCents("power", "meter", [], [], "2026-10"), null);
   });
 });
 

@@ -1426,10 +1426,8 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const rows = await sql<Record<string, unknown>>`select * from bills where id = ${action.id} and user_id = ${owner}`;
       const bill = rows[0] ? mapBill(rows[0]) : null;
       if (!bill) throw new Error("That bill is gone.");
-      if (!bill.accountId) throw new Error("Choose an account to pay from.");
-      const amount = Math.max(0, action.amountCents == null ? bill.amountCents : num(action.amountCents));
-      const signed = bill.direction === "in" ? amount : -amount;
-      const paidOn = dateOr(action.paidOn, todayISO());
+      const paidOnInput = dateOr(action.paidOn, todayISO());
+      const dueOn = dateOr(action.dueOn, bill.nextDue);
       let readingId: string | null = null;
       if (action.readingId) {
         if (!bill.meterId) throw new Error("Link a meter on this bill before attaching a read.");
@@ -1438,22 +1436,44 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
         readingId = str(action.readingId, 80);
       }
       const jar = String(rows[0].ledger_id ?? "") || (await openJar());
-      const txnId = nid();
-      await adjust(sql, owner, bill.accountId, signed);
-      await sql`
-        insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id, ledger_id)
-        values (${txnId}, ${owner}, ${bill.accountId}, ${bill.categoryId}, ${paidOn}, ${signed}, ${bill.payee || bill.name}, ${"Recorded from " + bill.name}, false, '', '', true, 'bill', ${bill.personId}, ${jar})
-      `;
-      if (bill.direction !== "in" && bill.debtAccountId && bill.principalCents) {
-        const principal = Math.min(bill.principalCents, amount);
-        await sql`update accounts set balance_cents = greatest(0, balance_cents - ${principal}) where id = ${bill.debtAccountId} and user_id = ${owner}`;
+      const linkId = str(action.transactionId, 80);
+      let txnId = "";
+      let amount = Math.max(0, action.amountCents == null ? bill.amountCents : num(action.amountCents));
+      let paidOn = paidOnInput;
+      let accountId = bill.accountId;
+      if (linkId) {
+        const txn = await sql<{ id: string; account_id: string; posted_on: string; amount_cents: number }>`
+          select id, account_id, posted_on, amount_cents from transactions where id = ${linkId} and user_id = ${owner}
+        `;
+        if (!txn[0]) throw new Error("That transaction is not in this household.");
+        const used = await sql`select id from bill_payments where user_id = ${owner} and transaction_id = ${linkId}`;
+        if (used.length) throw new Error("That transaction is already linked to a bill.");
+        txnId = txn[0].id;
+        amount = Math.abs(num(txn[0].amount_cents));
+        paidOn = String(txn[0].posted_on).slice(0, 10);
+        accountId = String(txn[0].account_id);
+      } else {
+        if (!bill.accountId) throw new Error("Choose an account to pay from.");
+        const signed = bill.direction === "in" ? amount : -amount;
+        txnId = nid();
+        await adjust(sql, owner, bill.accountId, signed);
+        await sql`
+          insert into transactions (id, user_id, account_id, category_id, posted_on, amount_cents, merchant, memo, pending, tax_schedule, tax_line, reviewed, source, person_id, ledger_id)
+          values (${txnId}, ${owner}, ${bill.accountId}, ${bill.categoryId}, ${paidOn}, ${signed}, ${bill.payee || bill.name}, ${"Recorded from " + bill.name}, false, '', '', true, 'bill', ${bill.personId}, ${jar})
+        `;
+        if (bill.direction !== "in" && bill.debtAccountId && bill.principalCents) {
+          const principal = Math.min(bill.principalCents, amount);
+          await sql`update accounts set balance_cents = greatest(0, balance_cents - ${principal}) where id = ${bill.debtAccountId} and user_id = ${owner}`;
+        }
       }
       await sql`
         insert into bill_payments (id, user_id, bill_id, paid_on, amount_cents, account_id, transaction_id, status, reading_id)
-        values (${nid()}, ${owner}, ${bill.id}, ${paidOn}, ${amount}, ${bill.accountId}, ${txnId}, 'paid', ${readingId})
+        values (${nid()}, ${owner}, ${bill.id}, ${paidOn}, ${amount}, ${accountId}, ${txnId}, 'paid', ${readingId})
       `;
-      const next = stepDue(bill.nextDue < paidOn ? paidOn : bill.nextDue, bill.cadence);
-      await sql`update bills set next_due = ${next} where id = ${bill.id} and user_id = ${owner}`;
+      if (dueOn >= bill.nextDue) {
+        const next = stepDue(bill.nextDue < paidOn ? paidOn : bill.nextDue, bill.cadence);
+        await sql`update bills set next_due = ${next} where id = ${bill.id} and user_id = ${owner}`;
+      }
       return {};
     }
     case "meter.save": {

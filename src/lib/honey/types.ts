@@ -610,7 +610,7 @@ export type Action = (
   | { type: "txn.recategorize"; ownerId?: string }
   | { type: "bill.save"; bill: Partial<Bill> & { name: string; amountCents: number; nextDue: string }; ownerId?: string }
   | { type: "bill.delete"; id: string; ownerId?: string }
-  | { type: "bill.pay"; id: string; amountCents?: number; paidOn?: string; readingId?: string | null; ownerId?: string }
+  | { type: "bill.pay"; id: string; amountCents?: number; paidOn?: string; readingId?: string | null; transactionId?: string | null; dueOn?: string; ownerId?: string }
   | { type: "meter.save"; meter: Partial<UtilityMeter> & { name: string }; template?: string; ownerId?: string }
   | { type: "meter.delete"; id: string; ownerId?: string }
   | { type: "meter.tiers"; id: string; tiers: RateTier[]; ownerId?: string }

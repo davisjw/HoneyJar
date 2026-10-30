@@ -6,6 +6,8 @@ import {
   CHART_COLORS,
   centsToInput,
   dollarsToCents,
+  billMonthRows,
+  billTxnMatches,
   matchCategory,
   money,
   monthLabel,
@@ -16,6 +18,7 @@ import {
   planModel,
   prettyDate,
   projectCash,
+  projectedBillCents,
   shiftPeriod,
   historyStart,
   transferOtherMask,
@@ -644,59 +647,89 @@ export function BillsPage() {
   const focus = param(search, "bill");
   const [editing, setEditing] = useState<Partial<Bill> | null>(null);
   const [pay, setPay] = useState<Bill | null>(null);
+  const [payDue, setPayDue] = useState("");
   const [receiptBill, setReceiptBill] = useState("");
   const [amount, setAmount] = useState("");
   const [paidOn, setPaidOn] = useState("");
   const [payReading, setPayReading] = useState("");
+  const [linkTxn, setLinkTxn] = useState("");
+  const [cursor, setCursor] = useState<string | null>(null);
   if (!data) return null;
+  const month = cursor ?? periodOf(data.today, data.profile.monthStartDay);
+  const monthRows = billMonthRows(data.bills, data.payments, month, data.profile.monthStartDay);
+  const usedTxnIds = new Set(data.payments.map((payment) => payment.transactionId).filter((id): id is string => Boolean(id)));
+  const matches = pay ? billTxnMatches(pay, data.transactions, dollarsToCents(amount), payDue || pay.nextDue, usedTxnIds) : [];
+  const chosen = matches.find((txn) => txn.id === linkTxn);
+  function openPay(bill: Bill, due: string) {
+    const suggested = bill.meterId ? suggestReadingId(data!.readings.map(engineRead), bill.meterId, due) : null;
+    const reading = suggested ? data!.readings.find((r) => r.id === suggested) : undefined;
+    const projected = projectedBillCents(bill.id, bill.meterId, data!.payments, data!.readings, due.slice(0, 7));
+    setPay(bill);
+    setPayDue(due);
+    setPaidOn(due);
+    setPayReading(suggested ?? "");
+    setLinkTxn("");
+    setAmount(centsToInput(reading && reading.amountCents > 0 ? reading.amountCents : projected ?? bill.amountCents));
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PageIntro
         title="Bills"
-        lede="Subscriptions, utilities, and the rest. Recording a payment writes the transaction and moves the next due date."
-        action={canEdit ? <Button onClick={() => setEditing({ direction: "out", kind: "bill", cadence: "monthly", nextDue: data.today, amountCents: 0, status: "active" })}>Add</Button> : null}
+        lede="Subscriptions, utilities, and the rest. A month shows what was paid and what was due with no payment. Recording a payment can use a matching transaction, or write a new one."
+        action={
+          <div className="flex gap-2">
+            <Button tone="quiet" onClick={() => setCursor(shiftPeriod(month, -1))}>Prev</Button>
+            <Button tone="quiet" onClick={() => setCursor(shiftPeriod(month, 1))}>Next</Button>
+            {canEdit ? <Button onClick={() => setEditing({ direction: "out", kind: "bill", cadence: "monthly", nextDue: data.today, amountCents: 0, status: "active" })}>Add</Button> : null}
+          </div>
+        }
       />
+      <p className="mb-3 text-sm text-muted">{monthLabel(month)}</p>
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
         <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-left text-sm">
             <thead className="text-muted">
               <tr>
                 <th className={`px-4 py-3 font-medium ${pinCell(true, true)}`}>Name</th>
-                <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Due</th>
+                <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Date</th>
                 <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Kind</th>
                 <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Cadence</th>
                 <th className={`px-4 py-3 text-right font-medium ${pinCell(false, true)}`}>Amount</th>
+                <th className={`px-4 py-3 text-right font-medium ${pinCell(false, true)}`}>Projected</th>
                 <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}></th>
               </tr>
             </thead>
             <tbody>
-              {data.bills.map((b) => (
-                <tr key={b.id} className={b.id === focus ? "bg-honey-soft" : ""}>
+              {monthRows.map((row) => {
+                const b = data.bills.find((bill) => bill.id === row.billId);
+                if (!b) return null;
+                const projected = projectedBillCents(b.id, b.meterId, data.payments, data.readings, month);
+                return (
+                <tr key={row.key} className={b.id === focus ? "bg-honey-soft" : ""}>
                   <td className={`border-b border-line px-4 py-3 ${pinCell(true, false, b.id === focus)}`}>
                     <p className="font-medium">{b.name}</p>
                     <p className="text-xs text-muted">
                       {b.status === "paused" ? "Paused" : b.autopay ? "Autopay" : "Manual"}
                       {b.flatPay ? " · budget billing" : ""}
+                      {row.kind === "due" ? " · Unpaid" : row.transactionId ? " · Transaction linked" : " · No transaction linked"}
                       {b.personId ? ` · ${data.people.find((p) => p.id === b.personId)?.name ?? ""}` : ""}
                       {data.meters.find((m) => m.id === b.meterId) ? <> · <a className="text-honey hover:underline" href={`/utilities?meter=${b.meterId}`}>{data.meters.find((m) => m.id === b.meterId)?.name}</a></> : null}
                     </p>
-                    <PayCompare meters={data.meters} columns={data.columns} readings={data.readings} payments={data.payments} bill={b} />
+                    {row.readingId ? (
+                      <p className="mt-1 text-xs text-muted">
+                        <a className="text-honey hover:underline" href={`/utilities?meter=${b.meterId}&reading=${row.readingId}`}>Workbook row linked</a>
+                      </p>
+                    ) : b.meterId && row.kind === "due" ? <PayCompare meters={data.meters} columns={data.columns} readings={data.readings} payments={data.payments} bill={b} /> : null}
                   </td>
-                  <td className="border-b border-line px-4 py-3">{prettyDate(b.nextDue)}</td>
+                  <td className="border-b border-line px-4 py-3">{row.kind === "payment" ? `Paid ${prettyDate(row.date)}` : `Due ${prettyDate(row.date)}`}</td>
                   <td className="border-b border-line px-4 py-3 capitalize">{b.kind}</td>
                   <td className="border-b border-line px-4 py-3">{b.cadence}</td>
-                  <td className="border-b border-line px-4 py-3 text-right num">{b.direction === "in" ? "+" : ""}{money(b.amountCents, data.profile.currency)}</td>
+                  <td className="border-b border-line px-4 py-3 text-right num">{b.direction === "in" ? "+" : ""}{money(row.amountCents, data.profile.currency)}</td>
+                  <td className="border-b border-line px-4 py-3 text-right num">{projected == null ? "—" : money(projected, data.profile.currency)}</td>
                   <td className="border-b border-line px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      {canEdit && b.status === "active" ? (
-                        <Button onClick={() => {
-                          const suggested = b.meterId ? suggestReadingId(data.readings.map(engineRead), b.meterId, data.today) : null;
-                          const reading = suggested ? data.readings.find((r) => r.id === suggested) : undefined;
-                          setPay(b);
-                          setPaidOn(data.today);
-                          setPayReading(suggested ?? "");
-                          setAmount(centsToInput(reading && reading.amountCents > 0 ? reading.amountCents : b.amountCents));
-                        }}>
+                      {canEdit && b.status === "active" && row.kind === "due" ? (
+                        <Button onClick={() => openPay(b, row.date)}>
                           {b.direction === "in" ? "Record deposit" : "Record payment"}
                         </Button>
                       ) : null}
@@ -708,10 +741,11 @@ export function BillsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
-          {data.bills.length === 0 ? <Empty>No bills yet.</Empty> : null}
+          {monthRows.length === 0 ? <Empty>Nothing paid or due in {monthLabel(month)}.</Empty> : null}
         </div>
       </Card>
       {editing ? <BillEditor key={editing.id ?? "new"} bill={editing} onClose={() => setEditing(null)} /> : null}
@@ -747,12 +781,36 @@ export function BillsPage() {
         ) : null}
         {payReading ? <PayLine meters={data.meters} columns={data.columns} readings={data.readings} readingId={payReading} /> : null}
         <Field label="Amount">
-          <input className={fieldClass} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input className={fieldClass} value={amount} onChange={(e) => { setAmount(e.target.value); setLinkTxn(""); }} />
+        </Field>
+        <Field label="Transaction">
+          <select className={fieldClass} value={chosen ? linkTxn : ""} onChange={(e) => {
+            const id = e.target.value;
+            setLinkTxn(id);
+            const txn = matches.find((item) => item.id === id);
+            if (!txn) return;
+            setPaidOn(txn.postedOn);
+            setAmount(centsToInput(Math.abs(txn.amountCents)));
+          }}>
+            <option value="">Create a new transaction</option>
+            {matches.map((txn) => (
+              <option key={txn.id} value={txn.id}>{prettyDate(txn.postedOn)} · {txn.merchant} · {money(txn.amountCents)}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-muted">{matches.length ? "Same payee, same amount, and within 31 days of this due date." : "No transaction matches this payee, amount, and a date within 31 days of the due date. Recording will create one."}</p>
         </Field>
         <Button
           onClick={async () => {
             if (!pay) return;
-            await run({ type: "bill.pay", id: pay.id, amountCents: dollarsToCents(amount), paidOn: paidOn || data.today, readingId: payReading || null });
+            await run({
+              type: "bill.pay",
+              id: pay.id,
+              amountCents: dollarsToCents(amount),
+              paidOn: paidOn || data.today,
+              readingId: payReading || null,
+              transactionId: chosen?.id ?? null,
+              dueOn: payDue || pay.nextDue,
+            });
             setPay(null);
           }}
         >
@@ -911,7 +969,7 @@ export function PlanPage() {
     <div className="flex min-h-0 flex-1 flex-col">
       <PageIntro
         title="Spending plan"
-        lede="Assign the month, then what’s left in each envelope is what you can still spend. Rollover carries the leftover — or the overage — forward."
+        lede="Assign the month, then what’s left in each envelope is what you can still spend. Left to assign is this month’s income minus what you assigned. Rollover carries an envelope’s leftover, or its overage, into the next month."
         action={
           <div className="flex gap-2">
             <Button tone="quiet" onClick={() => setCursor(shiftPeriod(month, -1))}>Prev</Button>
@@ -932,6 +990,7 @@ export function PlanPage() {
               <th className={`px-4 py-3 font-medium ${pinCell(true, true)}`}>Category</th>
               <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Rolled in</th>
               <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Assigned</th>
+              <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Projected</th>
               <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Spent</th>
               <th className={`px-4 py-3 font-medium ${pinCell(false, true)}`}>Available</th>
             </tr>
@@ -958,6 +1017,20 @@ export function PlanPage() {
                   ) : (
                     money(row.assigned, cur)
                   )}
+                </td>
+                <td className="border-b border-line px-4 py-3 num">
+                  {(() => {
+                    const bills = data.bills.filter((bill) => bill.categoryId === row.category.id && bill.status !== "paused" && bill.direction !== "in");
+                    let sum = 0;
+                    let any = false;
+                    for (const bill of bills) {
+                      const projected = projectedBillCents(bill.id, bill.meterId, data.payments, data.readings, month);
+                      if (projected == null) continue;
+                      sum += projected;
+                      any = true;
+                    }
+                    return any ? money(sum, cur) : "—";
+                  })()}
                 </td>
                 <td className="border-b border-line px-4 py-3 num">{money(row.spent, cur)}</td>
                 <td className={`border-b border-line px-4 py-3 num ${row.available < 0 ? "text-clay" : "text-sage"}`}>{money(row.available, cur)}</td>

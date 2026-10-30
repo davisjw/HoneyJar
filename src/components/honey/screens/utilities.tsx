@@ -117,17 +117,17 @@ export function UtilitiesPage() {
         action={canEdit ? <Button onClick={() => setAdding(true)}>Add meter</Button> : null}
       />
       {weather.length ? (
-        <div className="mb-4 grid shrink-0 gap-3 md:grid-cols-3">
+        <div className="mb-4 flex shrink-0 gap-2">
           {weather.map((m) => {
             const series = data.readings.filter((r) => r.meterId === m.id && r.meter != null).slice().sort((a, b) => a.readOn.localeCompare(b.readOn));
             const last = series[series.length - 1];
             const prev = series[series.length - 2];
             const used = last && prev ? meterUsage(prev.meter, last) : null;
             return (
-              <button key={m.id} type="button" className="rounded-2xl border border-line bg-card p-4 text-left" onClick={() => { setPicked(m.id); setTab("graphs"); }}>
-                <p className="text-sm text-muted">{m.name}</p>
-                <p className="font-display text-2xl">{used == null ? "—" : `${Math.round(used)} ${m.unit}`}</p>
-                <p className="text-xs text-muted">{last ? prettyDate(last.readOn) : ""}</p>
+              <button key={m.id} type="button" className="min-w-0 flex-1 rounded-2xl border border-line bg-card px-2 py-3 text-left" onClick={() => { setPicked(m.id); setTab("graphs"); }}>
+                <p className="truncate text-xs text-muted">{m.name}</p>
+                <p className="truncate font-display text-base sm:text-2xl">{used == null ? "—" : `${Math.round(used)} ${m.unit}`}</p>
+                <p className="truncate text-xs text-muted">{last ? prettyDate(last.readOn) : ""}</p>
               </button>
             );
           })}
@@ -141,9 +141,11 @@ export function UtilitiesPage() {
                 <option key={m.id} value={m.id}>{m.parentId ? `↳ ${m.name}` : m.name}</option>
               ))}
             </select>
-            {["graphs", "workbook", "columns"].map((name) => (
-              <Button key={name} tone={tab === name ? "primary" : "quiet"} onClick={() => setTab(name as typeof tab)}>{name[0]!.toUpperCase() + name.slice(1)}</Button>
-            ))}
+            <select className={fieldClass + " max-w-[11rem]"} value={tab} onChange={(e) => setTab(e.target.value as typeof tab)}>
+              <option value="workbook">Workbook</option>
+              <option value="graphs">Graphs</option>
+              <option value="columns">Columns</option>
+            </select>
             {canEdit ? <Button tone="quiet" onClick={() => setEditing(meter)}>Edit meter</Button> : null}
             {canEdit ? <Button tone="quiet" onClick={() => setReading(true)}>Add read</Button> : null}
             {canEdit ? <Button tone="quiet" onClick={() => setImporting(true)}>Import CSV</Button> : null}
