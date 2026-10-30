@@ -102,7 +102,7 @@ export function Welcome() {
             </button>
             <p className="text-xs text-muted">The first sign-in loads a sample household you can edit or clear.</p>
           </form>
-          <button type="button" className="text-sm text-honey-deep underline" onClick={() => setMode(mode === "up" ? "in" : "up")}>
+          <button type="button" className="block text-sm text-honey-deep underline" onClick={() => setMode(mode === "up" ? "in" : "up")}>
             {mode === "up" ? "Already have an account" : "Need an account"}
           </button>
           {resetToken ? (
@@ -131,7 +131,7 @@ export function Welcome() {
           ) : null}
           {notice ? <p className="text-sm text-muted">{notice}</p> : null}
           {resetToken ? null : (
-            <button type="button" className="text-sm text-honey-deep underline" onClick={() => setCantSignIn((v) => !v)}>
+            <button type="button" className="mt-1 block border-t border-line pt-3 text-sm text-muted underline" onClick={() => setCantSignIn((v) => !v)}>
               {cantSignIn ? "Hide sign-in help" : "Can’t sign in?"}
             </button>
           )}
