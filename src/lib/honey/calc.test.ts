@@ -256,18 +256,28 @@ describe("bill months", () => {
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.kind, "payment");
     const open = billMonthRows([power], [], "2026-10", 1);
-    assert.equal(open.length, 1);
-    assert.equal(open[0]?.kind, "due");
-    assert.equal(open[0]?.date, "2026-10-06");
+    assert.equal(open.length, 0);
+    const upcoming = billMonthRows([power], [], "2026-11", 1);
+    assert.equal(upcoming[0]?.kind, "due");
+    assert.equal(upcoming[0]?.date, "2026-11-06");
+    const before = billMonthRows(
+      [power],
+      [samplePayment({ id: "p1", billId: "power", paidOn: "2026-10-04", amountCents: 8_000 })],
+      "2026-09",
+      1,
+    );
+    assert.equal(before.length, 0);
     assert.deepEqual(duesInRange("2026-11-06", "monthly", "2026-10-01", "2026-10-31"), ["2026-10-06"]);
   });
 
   it("matches a transaction by payee, amount, and a date near the due date", () => {
     const hit = txn({ id: "hit", amountCents: -8_000, postedOn: "2026-10-08", merchant: "Harbor Electric", memo: "" });
+    const close = txn({ id: "close", amountCents: -8_004, postedOn: "2026-10-07", merchant: "Harbor Electric", memo: "" });
     const far = txn({ id: "far", amountCents: -8_000, postedOn: "2026-08-01", merchant: "Harbor Electric", memo: "" });
     const other = txn({ id: "other", amountCents: -8_000, postedOn: "2026-10-08", merchant: "Water", memo: "" });
-    const matches = billTxnMatches(sampleBill({ id: "power", nextDue: "2026-10-06" }), [far, other, hit], 8_000, "2026-10-06", new Set());
-    assert.deepEqual(matches.map((row) => row.id), ["hit"]);
+    const wrong = txn({ id: "wrong", amountCents: -5_000, postedOn: "2026-10-08", merchant: "Harbor Electric", memo: "" });
+    const matches = billTxnMatches(sampleBill({ id: "power", nextDue: "2026-10-06" }), [far, other, wrong, close, hit], 8_000, "2026-10-06", new Set());
+    assert.deepEqual(matches.map((row) => row.id), ["hit", "close"]);
   });
 
   it("averages that same month from the previous two years", () => {

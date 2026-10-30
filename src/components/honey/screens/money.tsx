@@ -797,7 +797,7 @@ export function BillsPage() {
               <option key={txn.id} value={txn.id}>{prettyDate(txn.postedOn)} · {txn.merchant} · {money(txn.amountCents)}</option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-muted">{matches.length ? "Same payee, same amount, and within 31 days of this due date." : "No transaction matches this payee, amount, and a date within 31 days of the due date. Recording will create one."}</p>
+          <p className="mt-1 text-xs text-muted">{matches.length ? "Same payee, an amount within $1 or 2%, and within 31 days of this due date." : "No transaction is close to this payee, amount, and due date. Recording will create one."}</p>
         </Field>
         <Button
           onClick={async () => {
@@ -1029,7 +1029,17 @@ export function PlanPage() {
                       sum += projected;
                       any = true;
                     }
-                    return any ? money(sum, cur) : "—";
+                    if (!any) return "—";
+                    return (
+                      <>
+                        {money(sum, cur)}
+                        {canEdit && sum !== row.assigned ? (
+                          <button type="button" className="mt-1 block text-xs text-honey-deep" onClick={() => run({ type: "plan.set", categoryId: row.category.id, month, assignedCents: sum })}>
+                            Use projected
+                          </button>
+                        ) : null}
+                      </>
+                    );
                   })()}
                 </td>
                 <td className="border-b border-line px-4 py-3 num">{money(row.spent, cur)}</td>

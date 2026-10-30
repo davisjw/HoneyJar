@@ -309,7 +309,11 @@ export function billMonthRows(
       });
     }
     if (bill.status === "paused") continue;
-    const dues = duesInRange(bill.nextDue, bill.cadence, from, to);
+    const firstPaid = payments.reduce((min, payment) => {
+      if (payment.billId !== bill.id) return min;
+      return !min || payment.paidOn < min ? payment.paidOn : min;
+    }, "");
+    const dues = duesInRange(bill.nextDue, bill.cadence, from, to).filter((due) => (firstPaid ? due >= firstPaid : due >= bill.nextDue));
     for (let i = pays.length; i < dues.length; i += 1) {
       rows.push({
         key: `${bill.id}:${dues[i]}`,
@@ -381,7 +385,7 @@ function daysApart(a: string, b: string): number {
   return Math.round((left - right) / 86400000);
 }
 
-/** A transaction matches a bill when the payee, the amount, and a date within 31 days of the due date agree. */
+/** A transaction matches a bill when the payee agrees, the date is within 31 days of the due date, and the amount is within $1 or 2%. */
 export function billTxnMatches(
   bill: { name: string; payee: string; direction: string },
   txns: Txn[],
@@ -392,15 +396,18 @@ export function billTxnMatches(
   const needles = [looseName(bill.payee), looseName(bill.name)].filter((name) => name.length >= 3);
   const signed = bill.direction === "in" ? amountCents : -Math.abs(amountCents);
   if (!needles.length || !amountCents || !dueOn) return [];
+  const room = Math.max(100, Math.round(Math.abs(signed) * 0.02));
   return txns
     .filter((txn) => {
-      if (usedIds.has(txn.id) || txn.amountCents !== signed) return false;
+      if (usedIds.has(txn.id)) return false;
+      if (Math.sign(txn.amountCents) !== Math.sign(signed)) return false;
+      if (Math.abs(Math.abs(txn.amountCents) - Math.abs(signed)) > room) return false;
       if (Math.abs(daysApart(txn.postedOn, dueOn)) > 31) return false;
       const merchant = looseName(txn.merchant);
       const hay = looseName(`${txn.merchant} ${txn.memo}`);
       return needles.some((name) => hay.includes(name) || (merchant.length >= 3 && name.includes(merchant)));
     })
-    .sort((a, b) => Math.abs(daysApart(a.postedOn, dueOn)) - Math.abs(daysApart(b.postedOn, dueOn)) || b.postedOn.localeCompare(a.postedOn));
+    .sort((a, b) => Math.abs(a.amountCents - signed) - Math.abs(b.amountCents - signed) || Math.abs(daysApart(a.postedOn, dueOn)) - Math.abs(daysApart(b.postedOn, dueOn)));
 }
 
 export function occurrences(nextDue: string, cadence: string, from: string, until: string): string[] {
