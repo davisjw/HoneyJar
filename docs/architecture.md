@@ -86,7 +86,7 @@ flowchart LR
   subgraph outside [Outside]
     Grok[Grok or OpenAI]
     Ollama[Ollama server]
-    Csv[Bank CSV]
+    Csv["Bank CSV, OFX, or QFX"]
   end
 
   Screens --> Book
@@ -203,7 +203,7 @@ flowchart TD
 
 `adjust` refuses an account id that is not this household’s. Editing a transaction first undoes the old delta, then applies the new one, including a move between accounts. Deleting a transaction only undoes the delta and deletes the row.
 
-CSV import and `POST /api/v1/transactions` call the same `txn.save` / import path, so a file and a script move balances the same way a typed row does. Import stamps `source = import`. The API stamps `source = api`.
+CSV, OFX, and QFX import and `POST /api/v1/transactions` call the same `txn.save` / import path, so a file and a script move balances the same way a typed row does. Import stamps `source = import`. The API stamps `source = api`.
 
 Paying a bill writes a `bill_payments` row and a transaction, then moves the account. If the bill names a debt account, the principal portion reduces that debt too.
 
@@ -362,7 +362,7 @@ The Calder sample is `seedHousehold` in `src/lib/honey/seed.ts`. It is idempoten
 
 ### Accounts and the bank
 
-There is no Plaid connection and no stored bank password. An account row has a name, an institution, a kind, a mask, and a balance the household typed. `connected` means “we treat this as linked for display,” not “we have a feed.” CSV import parses a loose date / amount / description file and inserts transactions with `source = import`. The public API can also post a transaction with `source = api`.
+There is no Plaid connection and no stored bank password. An account row has a name, an institution, a kind, a mask, and a balance the household typed. `connected` means “we treat this as linked for display,” not “we have a feed.” CSV, OFX, and QFX import inserts transactions with `source = import`. A CSV is a loose date, amount, and description. An OFX or QFX file is read as a statement when the text contains `<OFX` or `OFXHEADER`; anything else stays a CSV. The public API can also post a transaction with `source = api`.
 
 ### Net worth and Zillow
 

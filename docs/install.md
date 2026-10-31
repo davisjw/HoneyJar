@@ -363,7 +363,7 @@ These are optional.
 | --- | --- |
 | `XAI_API_KEY` | Lets the Advisor call Grok from the server. The browser never sees this key. |
 | OpenAI key in Customize | Stored on the household profile. The browser is told only that a key is set. |
-| Ollama URL in Customize | The browser sends the brief to that URL. The server does not call Ollama. |
+| Ollama URL in Customize | The HoneyJar server posts the brief and your question to that URL. The address has to be one the server can open; 127.0.0.1 works only when Ollama runs on the same machine. The browser does not call Ollama. |
 
 The advisor receives balances, this month's spending, bills, and goals. Do not turn it on if you do not want those numbers sent to that provider.
 

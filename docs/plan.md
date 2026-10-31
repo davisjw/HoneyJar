@@ -46,7 +46,7 @@ Invoices, mileage, and a property jar (leases, rent, deposits) are in. Each is i
 
 ## Decisions that should stick
 
-- **No silent bank login.** If a connection is added later, it has to be an explicit connector the household turns on, and the app should still work from a CSV.
+- **No silent bank login.** If a connection is added later, it has to be an explicit connector the household turns on, and the app should still work from a CSV, OFX, or QFX file.
 - **Money is integer cents.** Dates are `YYYY-MM-DD`. A negative transaction amount is money out. A positive amount is money in.
 - **One owner’s rows stay that owner’s.** Sharing is a grant in `book_access`, not a copied household.
 - **The advisor does not invent figures.** If the brief does not contain a number, the answer should say so.
@@ -56,7 +56,7 @@ Invoices, mileage, and a property jar (leases, rent, deposits) are in. Each is i
 
 The first slice is in. Portfolio holds lots, typed prices, and dated cash flows. Modified Dietz is the time-weighted figure. IRR is the money-weighted figure, treating today’s market value as a sale. A dividend can post cash and a Schedule B line. The retirement card is a straight-line sketch, not a plan. Net worth does not pick up lot value until you copy it onto an account.
 
-A live quote feed and a daily valuation series are opt-in and off by default (see Amendments, Oct 31, 2026). Prices on this slice stay typed, so Dietz stays an inception estimate until that series is on.
+A live quote feed and a daily valuation series are approved as opt-in, default-off connectors but are not built (see Amendments, Oct 31, 2026). Prices stay typed, so Dietz stays an inception estimate.
 
 A property jar keeps a lease: tenant, rent, due day, and a deposit that is a liability. Each month opens a rent invoice. A portfolio sale records basis, proceeds, and a short- or long-term gain for Schedule D. The worksheet taxes long-term gain at 15% and limits the ordinary loss to $3,000. Summary is one page, not a jar. This month sits beside the year, one card per open jar. Net worth stays the household figure.
 
