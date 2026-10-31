@@ -4,6 +4,7 @@ import { parseCsv, parseOfx, parseStatement } from "../calc.ts";
 import { assertStatementParserContract } from "./contract.ts";
 import { csvStatementParser } from "./csv.ts";
 import { ofxStatementParser } from "./ofx.ts";
+import { qifStatementParser } from "./qif.ts";
 import { detectStatementParser, parseRegisteredStatement, statementParsers } from "./registry.ts";
 
 const ofx = `OFXHEADER:100
@@ -21,32 +22,39 @@ DATA:OFXSGML
 const csv = "date,amount,merchant\n2026-10-01,-12.40,Blue Bottle";
 
 describe("statement parser registry", () => {
-  it("lists OFX/QFX and CSV, with CSV last as the fallback", () => {
+  it("lists QIF, OFX/QFX, and CSV, with CSV last as the fallback", () => {
     assert.deepEqual(
       statementParsers().map((parser) => parser.id),
-      ["ofx", "csv"],
+      ["qif", "ofx", "csv"],
     );
-    assert.equal(statementParsers()[0], ofxStatementParser);
+    assert.equal(statementParsers()[0], qifStatementParser);
     assert.equal(statementParsers().at(-1), csvStatementParser);
+    assert.equal(qifStatementParser.externalSource, "");
+    assert.deepEqual(qifStatementParser.extensions, [".qif"]);
     assert.equal(ofxStatementParser.externalSource, "ofx");
     assert.deepEqual(ofxStatementParser.extensions, [".ofx", ".qfx"]);
     assert.equal(csvStatementParser.externalSource, "");
     assert.equal(csvStatementParser.detect("date,amount\n2026-10-01,-1"), false);
   });
 
-  it("detects OFX and QFX headers and leaves CSV and QIF for the fallback", () => {
+  it("detects QIF and OFX headers and leaves CSV for the fallback", () => {
     assert.equal(detectStatementParser(ofx), ofxStatementParser);
     assert.equal(detectStatementParser("<ofx></ofx>")?.id, "ofx");
     assert.equal(detectStatementParser(csv), null);
-    assert.equal(detectStatementParser("!Type:Bank\nD10/31/2026\nT-12.40\nPBlue Bottle\n^\n"), null);
+    assert.equal(
+      detectStatementParser("!Type:Bank\nD10/31/2026\nT-12.40\nPBlue Bottle\n^\n")?.id,
+      "qif",
+    );
+    assert.equal(detectStatementParser("\uFEFF  !type:cash\n"), qifStatementParser);
   });
 
-  it("parseStatement dispatches OFX and falls back to CSV", () => {
+  it("parseStatement dispatches QIF and OFX and falls back to CSV", () => {
     assert.deepEqual(parseStatement(ofx), parseOfx(ofx));
     assert.deepEqual(parseStatement(csv), parseCsv(csv));
     assert.deepEqual(parseRegisteredStatement(csv), parseCsv(csv));
     const qif = "!Type:Bank\nD10/31/2026\nT-12.40\nPBlue Bottle\n^\n";
-    assert.deepEqual(parseStatement(qif), parseCsv(qif));
+    assert.equal(parseStatement(qif)[0]?.merchant, "Blue Bottle");
+    assert.notDeepEqual(parseStatement(qif), parseCsv(qif));
   });
 
   it("keeps a check number on the row without changing the memo rule", () => {
@@ -62,7 +70,10 @@ describe("statement parser registry", () => {
     assert.equal(rows[1]?.merchant, "Imported");
   });
 
-  it("passes the adapter contract for OFX and CSV", () => {
+  it("passes the adapter contract for QIF, OFX, and CSV", () => {
+    assertStatementParserContract(qifStatementParser, [
+      "!Type:Bank\nD10/31/2026\nT-12.40\nPBlue Bottle\n^\n",
+    ]);
     assertStatementParserContract(ofxStatementParser, [ofx]);
     assertStatementParserContract(csvStatementParser, [csv]);
   });

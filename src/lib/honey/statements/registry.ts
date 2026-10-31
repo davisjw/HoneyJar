@@ -1,14 +1,14 @@
 import { csvStatementParser } from "./csv.ts";
 import { ofxStatementParser } from "./ofx.ts";
+import { qifStatementParser } from "./qif.ts";
 import type { ImportRow, StatementParseOptions, StatementParser } from "./types.ts";
 
 /**
  * Adapters tried in order. The first `detect` hit wins. CSV is not in
  * this list: it is the fallback below, used when every detector declines.
- * A QIF adapter registers at the front of this list (a leading `!Type:`
- * is more specific than an OFX header).
+ * QIF is first because a leading `!Type:` is more specific than an OFX header.
  */
-const detected: StatementParser[] = [ofxStatementParser];
+const detected: StatementParser[] = [qifStatementParser, ofxStatementParser];
 
 export function statementParsers(): readonly StatementParser[] {
   return [...detected, csvStatementParser];
@@ -26,7 +26,10 @@ export function detectStatementParser(text: string): StatementParser | null {
  * Parse with the registry. This is what `parseStatement` calls, so adding
  * a format means registering an adapter and not editing that function.
  */
-export function parseRegisteredStatement(text: string, options?: StatementParseOptions): ImportRow[] {
+export function parseRegisteredStatement(
+  text: string,
+  options?: StatementParseOptions,
+): ImportRow[] {
   const parser = detectStatementParser(text);
   return (parser ?? csvStatementParser).parse(text, options);
 }
