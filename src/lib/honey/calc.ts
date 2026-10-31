@@ -1,3 +1,6 @@
+import { parseRegisteredStatement } from "./statements/registry.ts";
+import { ofxStatementParser } from "./statements/ofx.ts";
+import type { ImportRow } from "./statements/types.ts";
 import type {
   Account,
   Asset,
@@ -1580,43 +1583,18 @@ export function parseCsv(text: string): { postedOn: string; amountCents: number;
   return rows;
 }
 
-function ofxDate(raw: string): string | null {
-  const digits = raw.trim().slice(0, 8);
-  if (!/^\d{8}$/.test(digits)) return null;
-  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
-}
-
-function ofxValue(block: string, tag: string): string {
-  const match = new RegExp(`<${tag}>([^<\\r\\n]*)`, "i").exec(block);
-  return (match?.[1] ?? "").trim();
-}
-
 /** Bank and credit-card statement transactions from an OFX or QFX file. */
-export function parseOfx(text: string): { postedOn: string; amountCents: number; merchant: string; memo: string }[] {
-  const rows = [];
-  for (const match of text.matchAll(/<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi)) {
-    const block = match[1] ?? "";
-    const postedOn = ofxDate(ofxValue(block, "DTPOSTED"));
-    const amountRaw = ofxValue(block, "TRNAMT");
-    if (!postedOn || !amountRaw) continue;
-    const name = ofxValue(block, "NAME") || ofxValue(block, "PAYEE");
-    const memoText = ofxValue(block, "MEMO");
-    const check = ofxValue(block, "CHECKNUM");
-    rows.push({
-      postedOn,
-      amountCents: dollarsToCents(amountRaw),
-      merchant: name || memoText || "Imported",
-      memo: name ? memoText : check ? `Check ${check}` : "",
-    });
-  }
-  return rows;
+export function parseOfx(text: string): ImportRow[] {
+  return ofxStatementParser.parse(text);
 }
 
-/** A pasted bank file is OFX when it says so. Everything else stays a CSV. */
+/**
+ * A pasted bank file is OFX when an adapter says so. Everything else stays a CSV.
+ * Dispatch goes through the statement registry, so a new format is a new
+ * adapter rather than another branch in this function.
+ */
 export function parseStatement(text: string): { postedOn: string; amountCents: number; merchant: string; memo: string }[] {
-  const head = text.slice(0, 800).toUpperCase();
-  if (head.includes("<OFX") || head.includes("OFXHEADER")) return parseOfx(text);
-  return parseCsv(text);
+  return parseRegisteredStatement(text);
 }
 
 function normalizeDate(raw: string): string | null {
