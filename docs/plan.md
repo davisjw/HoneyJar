@@ -15,7 +15,7 @@ Personal, business, and property should stay separate ledgers that one household
 | Area | Status |
 | --- | --- |
 | Spending dashboard, with person and tag filters | Shipped |
-| Transactions, CSV import, rules, merchant dictionary | Shipped |
+| Transactions, CSV, OFX, and QFX import, rules, merchant dictionary | Shipped |
 | Bills, subscriptions, utilities, mark paid | Shipped |
 | Spending plan with rollover | Shipped |
 | Cash flow out to a year | Shipped |
@@ -25,7 +25,7 @@ Personal, business, and property should stay separate ledgers that one household
 | Watchlists, alerts, reminders | Shipped |
 | Custom reports, group by category, person, or tag | Shipped |
 | Taxes: 2026 federal estimate, Schedules A–F lines, quarterly safe harbor | Shipped as a planner, not a filed return |
-| Documents linked to a record | Metadata and an optional encrypted body. Not a file cabinet of uploads. |
+| Documents linked to a record | Metadata and an optional encrypted body. A receipt file can be attached to a transaction or a bill and is encrypted on disk. Not a general file cabinet. |
 | Credit scores per person | Entered by hand, one series per person |
 | People on transactions and bills | Shipped |
 | Tags | Shipped |
@@ -34,21 +34,19 @@ Personal, business, and property should stay separate ledgers that one household
 | Advisor: Grok, OpenAI, or Ollama | Shipped. The model sees a short brief, not every row. |
 | Vault | Client-side AES-256-GCM. The passphrase is not stored. |
 | Customize | Categories, rules, hidden nav, filing facts, advisor, vault, sample data |
-| Bank connect | Manual balances and a CSV. No aggregator. |
+| Bank connect | Manual balances and a CSV, OFX, or QFX file. No aggregator. |
 
 The sample household is the Calders in Oakland: Jordan, Avery, and Remy. It is deterministic so a new account has something to click. Customize can clear it.
 
 ## Explicitly not in version 2
 
-- Live bank, card, or brokerage sync.
-- A live quote feed. Portfolio prices are typed.
 - The Excel workbook file. It stays out of git. The in-app utility workbook is in, and each jar keeps its own meters.
 
 Invoices, mileage, and a property jar (leases, rent, deposits) are in. Each is its own ledger, not a label on the personal transactions.
 
 ## Decisions that should stick
 
-- **No silent bank login.** If a connection is added later, it has to be an explicit connector the household turns on, and the app should still work from a CSV.
+- **No silent bank login.** If a connection is added later, it has to be an explicit connector the household turns on, and the app should still work from a CSV, OFX, or QFX file.
 - **Money is integer cents.** Dates are `YYYY-MM-DD`. A negative transaction amount is money out. A positive amount is money in.
 - **One owner’s rows stay that owner’s.** Sharing is a grant in `book_access`, not a copied household.
 - **The advisor does not invent figures.** If the brief does not contain a number, the answer should say so.
@@ -58,7 +56,7 @@ Invoices, mileage, and a property jar (leases, rent, deposits) are in. Each is i
 
 The first slice is in. Portfolio holds lots, typed prices, and dated cash flows. Modified Dietz is the time-weighted figure. IRR is the money-weighted figure, treating today’s market value as a sale. A dividend can post cash and a Schedule B line. The retirement card is a straight-line sketch, not a plan. Net worth does not pick up lot value until you copy it onto an account.
 
-Still later, not this slice: a live quote feed, realized-gain lots for Schedule D, and a daily valuation series that would make Dietz more than an inception estimate.
+A live quote feed and a daily valuation series are approved as opt-in, default-off connectors but are not built (see Amendments, Oct 31, 2026). Prices stay typed, so Dietz stays an inception estimate.
 
 A property jar keeps a lease: tenant, rent, due day, and a deposit that is a liability. Each month opens a rent invoice. A portfolio sale records basis, proceeds, and a short- or long-term gain for Schedule D. The worksheet taxes long-term gain at 15% and limits the ordinary loss to $3,000. Summary is one page, not a jar. This month sits beside the year, one card per open jar. Net worth stays the household figure.
 
@@ -72,3 +70,19 @@ Each activity is its own ledger (`ledgers.kind` is `personal` or `business`). Th
 - Ids are up to 80 characters. A 40-character cap clipped credit-score and category ids.
 - Tags live as a JSON text array on `transactions.tags`. Older rows backfill to `[]`.
 - Production bundles must copy the PGLite data and wasm files next to the server function. `scripts/copy-pglite-assets.mjs` does that after `vite build`.
+
+## Amendments (Oct 31, 2026)
+
+Approved Oct 31, 2026. This records a plan change. The connectors below are not in the app.
+
+Two lines used to sit under "Explicitly not in version 2":
+
+- Live bank, card, or brokerage sync.
+- A live quote feed. Portfolio prices are typed.
+
+They are no longer exclusions. Each is an opt-in connector, off by default, under the decision "No silent bank login": an explicit connector the household turns on, and the app still works from a file.
+
+- SimpleFIN is the optional bank, card, or brokerage connector. A household that never turns it on keeps typed balances and a CSV, OFX, or QFX import.
+- The live quote feed is optional and off by default. Portfolio prices stay typed until a household turns the feed on. The daily valuation series that would make Dietz more than an inception estimate belongs to that same feed and stays off with it.
+
+The Excel workbook file stays out of version 2.
