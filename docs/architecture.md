@@ -85,7 +85,7 @@ flowchart LR
   end
   subgraph outside [Outside]
     Grok[Grok or OpenAI]
-    Ollama[Ollama in the browser]
+    Ollama[Ollama server]
     Csv[Bank CSV]
   end
 
@@ -98,9 +98,11 @@ flowchart LR
   Mcp --> Api
   Data --> Calc
   Data --> Sql
-  Fns --> Grok
-  Fns --> Ollama
+  Fns -->|server call| Grok
+  Fns -->|server call| Ollama
 ```
+
+Grok, OpenAI, and Ollama sit outside the app. `askAdvisor` calls all three from the server. The browser does not call Ollama.
 
 `calc.ts` is imported on both sides. The page uses it to draw a chart from the workspace it already has. The server uses it for alerts, the tax estimate, the plan, and the advisor brief. There is no second copy of the tax brackets.
 
@@ -279,17 +281,16 @@ flowchart TD
   Which{ai_provider}
   Grok[Server calls Grok with XAI_API_KEY]
   OpenAI[Server calls OpenAI with the key on the profile]
-  Local[Server returns the brief]
-  Browser[Browser posts brief and question to Ollama]
+  Ollama[Server calls the household Ollama URL]
   Log[ai_messages]
 
   Ask --> Brief --> Which
   Which -->|grok| Grok --> Log
   Which -->|openai| OpenAI --> Log
-  Which -->|ollama| Local --> Browser --> Log
+  Which -->|ollama| Ollama --> Log
 ```
 
-Ollama is the only path where the browser talks to the model. The server still writes the question and the answer after the browser reports them through `advisor.log`. Grok and OpenAI are written on the server before the answer returns.
+The server calls every provider. For Ollama, `askAdvisor` posts the brief and the question to the household’s Ollama URL. The browser does not call Ollama. If that host is unreachable, the error says the server makes the call, not the browser. The question and the answer are written to `ai_messages` on the server before the answer returns, for Ollama as well as for Grok and OpenAI. `advisor.log` can still insert a pair of messages, but the Advisor screen does not use it.
 
 ### Vault
 
@@ -410,7 +411,7 @@ MCP methods are `initialize`, `tools/list`, and `tools/call`. The tools are the 
 
 - **Grok** uses `XAI_API_KEY` on the server and `grok-4.5`.
 - **OpenAI** uses the key stored on the profile. The profile sent to the client only has `openaiKeySet`, not the key.
-- **Ollama** is not called from the server. The server returns the brief and the browser posts it to the household’s Ollama URL.
+- **Ollama** is called from the server. `askAdvisor` posts the brief and the question to the household’s Ollama URL. The browser does not call Ollama. The address has to be one the HoneyJar server can open. `127.0.0.1` works only when Ollama is on that same machine.
 
 The last few turns are stored in `ai_messages`.
 
