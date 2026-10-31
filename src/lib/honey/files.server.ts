@@ -52,15 +52,24 @@ function seal(key: Buffer, bytes: Buffer): { iv: Buffer; tag: Buffer; ct: Buffer
   return { iv, tag: cipher.getAuthTag(), ct };
 }
 
+/** HJF1 bytes for `bytes` under `secret`, or the current file secret when omitted. */
+export function encodeHjf1(bytes: Buffer, secret = secretForFiles()): Buffer {
+  const { kidByte, key } = deriveFileKey(secret);
+  const { iv, tag, ct } = seal(key, bytes);
+  return Buffer.concat([HJF1, Buffer.from([kidByte]), iv, tag, ct]);
+}
+
+export function currentReceiptKid(secret = secretForFiles()): number {
+  return deriveFileKey(secret).kidByte;
+}
+
 export async function writeReceipt(
   userId: string,
   id: string,
   bytes: Buffer,
   root = filesRoot(),
 ): Promise<void> {
-  const { kidByte, key } = deriveFileKey(secretForFiles());
-  const { iv, tag, ct } = seal(key, bytes);
-  const packed = Buffer.concat([HJF1, Buffer.from([kidByte]), iv, tag, ct]);
+  const packed = encodeHjf1(bytes);
   const dir = path.join(root, userId);
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, id), packed);
