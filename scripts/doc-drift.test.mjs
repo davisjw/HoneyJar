@@ -20,22 +20,33 @@ export function toolNamesFromSource(source) {
   return [...match[1].matchAll(/\{\s*name:\s*"([a-z0-9_]+)"/g)].map((item) => item[1]);
 }
 
+/** `request.method === "GET" && path === "/summary"` handlers. OPTIONS and `GET /` are not this shape. */
+export function handlerPairsFromSource(source) {
+  return [
+    ...source.matchAll(/request\.method === "(GET|POST|PUT|PATCH|DELETE)" && path === "(\/[^"]+)"/g),
+  ].map((item) => `${item[1]} ${item[2]}`);
+}
+
 /**
- * GET/POST paths in the JSON API table. Query strings are dropped.
+ * `METHOD /path` rows in the JSON API table. The method is kept. Query strings are dropped.
  * `GET /` in the prose is not a table row and is not part of `endpoints`.
  */
-export function endpointPathsFromDocs(markdown) {
+export function routeRowsFromDocs(markdown) {
   const mcp = markdown.search(/^## MCP\s*$/m);
   const body = mcp === -1 ? markdown : markdown.slice(0, mcp);
   const start = body.search(/^## JSON API\s*$/m);
   if (start === -1) throw new Error("docs/api.md is missing ## JSON API");
-  const paths = [];
+  const rows = [];
   for (const line of body.slice(start).split("\n")) {
     if (!line.startsWith("|")) continue;
-    const cell = line.match(/`(GET|POST)\s+(\/[^`?\s]+)/);
-    if (cell) paths.push(cell[2]);
+    const cell = line.match(/`(GET|POST|PUT|PATCH|DELETE)\s+(\/[^`?\s]+)/);
+    if (cell) rows.push(`${cell[1]} ${cell[2]}`);
   }
-  return [...new Set(paths)];
+  return [...new Set(rows)];
+}
+
+export function endpointPathsFromDocs(markdown) {
+  return [...new Set(routeRowsFromDocs(markdown).map((row) => row.slice(row.indexOf(" ") + 1)))];
 }
 
 /** First-column tool names in the MCP table. */
@@ -65,6 +76,7 @@ function missing(label, code, docs) {
 export function driftErrors(apiSource, docs) {
   return [
     ...missing("endpoint", endpointPathsFromSource(apiSource), endpointPathsFromDocs(docs)),
+    ...missing("route", handlerPairsFromSource(apiSource), routeRowsFromDocs(docs)),
     ...missing("MCP tool", toolNamesFromSource(apiSource), toolNamesFromDocs(docs)),
   ];
 }
@@ -82,6 +94,19 @@ test("an endpoint added in code without a docs row fails", () => {
   const source = `${apiSource}\nconst TOOLS = [{ name: "list_accounts", description: "x" }];`;
   const errors = driftErrors(source, docs);
   assert.ok(errors.some((line) => line.includes("/not-documented")));
+});
+
+test("an undocumented POST fails", () => {
+  const source = [
+    'endpoints: ["/summary"]',
+    'if (request.method === "GET" && path === "/summary") {}',
+    'if (request.method === "POST" && path === "/summary") {}',
+    'const TOOLS = [{ name: "list_accounts", description: "x" }];',
+  ].join("\n");
+  const docs = "## JSON API\n\n| `GET /summary` | Ok. |\n\n## MCP\n\n| `list_accounts` | x |\n";
+  const errors = driftErrors(source, docs);
+  assert.ok(errors.some((line) => line.includes("POST /summary")));
+  assert.equal(errors.some((line) => line.startsWith("endpoint ")), false);
 });
 
 test("an MCP tool added in code without a docs row fails", () => {
