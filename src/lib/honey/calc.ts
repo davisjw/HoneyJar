@@ -1,6 +1,7 @@
 import { parseRegisteredStatement } from "./statements/registry.ts";
 import { ofxStatementParser } from "./statements/ofx.ts";
-import type { ImportRow } from "./statements/types.ts";
+import { qifStatementParser } from "./statements/qif.ts";
+import type { ImportRow, StatementParseOptions } from "./statements/types.ts";
 import type {
   Account,
   Asset,
@@ -1586,6 +1587,11 @@ export function parseCsv(text: string): { postedOn: string; amountCents: number;
 /** Bank and credit-card statement transactions from an OFX or QFX file. */
 export function parseOfx(text: string): ImportRow[] {
   return ofxStatementParser.parse(text);
+}
+
+/** Bank, card, cash, and other-asset/liability rows from a QIF file. */
+export function parseQif(text: string, options?: StatementParseOptions): ImportRow[] {
+  return qifStatementParser.parse(text, options);
 }
 
 /**

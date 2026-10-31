@@ -28,6 +28,7 @@ import {
   merchantClose,
   otherTransferAccount,
   parseOfx,
+  parseQif,
   parseStatement,
   transferMatches,
   transferOtherMask,
@@ -525,6 +526,118 @@ DATA:OFXSGML
   it("treats an OFX paste as a statement and a CSV as a CSV", () => {
     assert.equal(parseStatement(ofx).length, 2);
     assert.equal(parseStatement("date,amount,merchant\n2026-10-01,-12.40,Blue Bottle").length, 1);
+  });
+});
+
+describe("parseQif", () => {
+  const today = "2026-10-31";
+
+  function bank(type: string, fields: string): string {
+    return `!Type:${type}\n${fields}\n^\n`;
+  }
+
+  it("parses each supported type to posted date, cents, merchant, and memo", () => {
+    const cases = [
+      { type: "Bank", fields: "D10/31/2026\nT-12.40\nPBlue Bottle\nMcoffee", postedOn: "2026-10-31", amountCents: -1240, merchant: "Blue Bottle", memo: "coffee" },
+      { type: "CCard", fields: "D1/2/26\nT25.00\nPStore", postedOn: "2026-01-02", amountCents: 2500, merchant: "Store", memo: "" },
+      { type: "Cash", fields: "D01/15/2026\nU-3.50\nPSnack", postedOn: "2026-01-15", amountCents: -350, merchant: "Snack", memo: "" },
+      { type: "Oth A", fields: "D3/4/2026\nT100.00\nPBonus", postedOn: "2026-03-04", amountCents: 10000, merchant: "Bonus", memo: "" },
+      { type: "Oth L", fields: "D12/01/2026\nT-9.99\nPFee", postedOn: "2026-12-01", amountCents: -999, merchant: "Fee", memo: "" },
+    ];
+    for (const item of cases) {
+      const row = parseQif(bank(item.type, item.fields), { today })[0];
+      assert.equal(row?.postedOn, item.postedOn, item.type);
+      assert.equal(row?.amountCents, item.amountCents, item.type);
+      assert.equal(row?.merchant, item.merchant, item.type);
+      assert.equal(row?.memo, item.memo, item.type);
+      assert.equal(row?.externalId, "");
+      assert.equal("categoryId" in (row ?? {}), false);
+    }
+  });
+
+  it("reads US dates, including apostrophes, spaces, and a two-digit pivot", () => {
+    assert.equal(parseQif(bank("Bank", "D10/31'26\nT-1.00\nPApostrophe"), { today })[0]?.postedOn, "2026-10-31");
+    assert.equal(parseQif(bank("Bank", "D12/21' 7\nT-1.00\nPShort"), { today })[0]?.postedOn, "2007-12-21");
+    assert.equal(parseQif(bank("Bank", "D1/2'99\nT-1.00\nPCentury"), { today })[0]?.postedOn, "2099-01-02");
+    assert.equal(parseQif(bank("Bank", "D6/ 1/94\nT-1.00\nPPadded"), { today })[0]?.postedOn, "1994-06-01");
+    assert.equal(parseQif(bank("Bank", "D6-1-94\nT-1.00\nPDash"), { today })[0]?.postedOn, "1994-06-01");
+    assert.equal(parseQif(bank("Bank", "D1/1/99\nT-1.00\nPPlain"), { today })[0]?.postedOn, "1999-01-01");
+    assert.equal(parseQif(bank("Bank", "D1/1/27\nT-1.00\nPPivot"), { today })[0]?.postedOn, "2027-01-01");
+    assert.equal(parseQif(bank("Bank", "D1/1/28\nT-1.00\nPPivot"), { today })[0]?.postedOn, "1928-01-01");
+    assert.equal(parseQif(bank("Bank", "T-1.00\nU-2.00\nD1/2/2026\nPTee"), { today })[0]?.amountCents, -100);
+    assert.equal(parseQif(bank("Bank", "D1/2/2026\nT-1,234.56\nPComma"), { today })[0]?.amountCents, -123456);
+  });
+
+  it("decides month versus day once for the whole file", () => {
+    const dayFirst = "!Type:Bank\nD13/01/2026\nT-1.00\nPFirst\n^\nD01/02/2026\nT-2.00\nPSecond\n^\n";
+    const rows = parseQif(dayFirst, { today });
+    assert.deepEqual(rows.map((row) => row.postedOn), ["2026-01-13", "2026-02-01"]);
+    assert.equal(parseQif(bank("Bank", "D01/13/2026\nT-1.00\nPMonth"), { today })[0]?.postedOn, "2026-01-13");
+    assert.equal(parseQif(bank("Bank", "D01/02/2026\nT-1.00\nPAmbiguous"), { today })[0]?.postedOn, "2026-01-02");
+    assert.equal(
+      parseQif(bank("Bank", "D01/02/2026\nT-1.00\nPForced"), { today, dateOrder: "dmy" })[0]?.postedOn,
+      "2026-02-01",
+    );
+    const conflict = "!Type:Bank\nD13/01/2026\nT-1.00\nPDay\n^\nD01/13/2026\nT-1.00\nPMonth\n^\n";
+    assert.doesNotThrow(() => parseQif(conflict, { today }));
+    assert.deepEqual(parseQif(conflict, { today }), []);
+  });
+
+  it("turns /Class into a tag and [Account] into a transfer, without creating a category", () => {
+    const tagged = parseQif(bank("Bank", "D01/02/2026\nT-4.00\nPMarket\nLFood/Vacation"), { today })[0];
+    assert.deepEqual(tagged?.tags, ["Vacation"]);
+    assert.equal(tagged?.categoryHint, "Food");
+    assert.equal(tagged?.transferAccount, undefined);
+    assert.equal("categoryId" in (tagged ?? {}), false);
+
+    const nested = parseQif(bank("Bank", "D01/02/2026\nT-4.00\nPMarket\nLGroceries:Produce/Trip"), { today })[0];
+    assert.equal(nested?.categoryHint, "Groceries:Produce");
+    assert.deepEqual(nested?.tags, ["Trip"]);
+
+    const transfer = parseQif(bank("Bank", "D01/02/2026\nT-4.00\nPPay\nL[Visa]/Project"), { today })[0];
+    assert.equal(transfer?.transferAccount, "Visa");
+    assert.deepEqual(transfer?.tags, ["Project"]);
+    assert.equal(transfer?.categoryHint, undefined);
+    assert.equal("categoryId" in (transfer ?? {}), false);
+  });
+
+  it("imports a split as one parent row with a warning", () => {
+    const text = `!Type:Bank
+D01/15/2026
+T-100.00
+PStore
+Mshopping
+N1042
+SGroceries
+Efood
+$-60.00
+SHousehold
+$-40.00
+^`;
+    const rows = parseQif(text, { today });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.amountCents, -10000);
+    assert.equal(rows[0]?.merchant, "Store");
+    assert.equal(rows[0]?.memo, "shopping");
+    assert.equal(rows[0]?.checkNumber, "1042");
+    assert.match(rows[0]?.warnings?.[0] ?? "", /^split detail not imported/);
+    assert.match(rows[0]?.warnings?.[0] ?? "", /Groceries/);
+    assert.equal(rows[0]?.externalId, "");
+  });
+
+  it("keeps CRLF, a BOM, and skips investment lists", () => {
+    const text = "\uFEFF!Type:Invst\r\nD01/01/2026\r\nT100.00\r\nPAAPL\r\n^\r\n!Type:Cash\r\nD02/02/2026\r\nT-5.00\r\nPFee\r\n^\r\n";
+    const rows = parseQif(text, { today });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.merchant, "Fee");
+    assert.equal(rows[0]?.postedOn, "2026-02-02");
+    assert.equal(rows[0]?.amountCents, -500);
+  });
+
+  it("flags a date more than a year ahead", () => {
+    const row = parseQif(bank("Bank", "D01/01/2030\nT-1.00\nPLater"), { today })[0];
+    assert.equal(row?.postedOn, "2030-01-01");
+    assert.deepEqual(row?.warnings, ["date is more than a year ahead"]);
   });
 });
 
