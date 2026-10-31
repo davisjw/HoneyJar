@@ -7,6 +7,7 @@ import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA, 
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedBlank, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import { recordAudit } from "./care.server";
 import { shouldShowProductionBanner } from "./instance-mode";
+import { nextOpenAiKey } from "./openai-key";
 import { env, honeyJarMode } from "../env.server";
 import { personEmail } from "./person";
 import type {
@@ -990,7 +991,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const filing = p.filingStatus && FILING.has(p.filingStatus) ? p.filingStatus : String(row.filing_status);
       const ai = p.aiProvider && AI.has(p.aiProvider) ? p.aiProvider : String(row.ai_provider);
       const mode = p.deductionMode && ["auto", "standard", "itemized"].includes(p.deductionMode) ? p.deductionMode : String(row.deduction_mode);
-      const openai = p.openaiKey === undefined ? String(row.openai_key ?? "") : str(p.openaiKey, 300);
+      const openai = nextOpenAiKey(String(row.openai_key ?? ""), p.openaiKey);
       await sql`
         update profiles set
           display_name = ${str(p.displayName ?? row.display_name, 80) || "My household"},
