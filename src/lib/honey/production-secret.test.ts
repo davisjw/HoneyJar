@@ -185,9 +185,13 @@ describe("production secret guard", () => {
         assert.equal(auth, "preview-secret");
         assert.equal(files, DEV_AUTH_SECRET);
         assert.equal(productionSecretHttpResponse(), null);
-        assert.equal(warnings.length, 1);
-        assert.match(warnings[0] ?? "", /not in production mode/);
-        assert.match(warnings[0] ?? "", /openssl rand -base64 32/);
+        const secretWarnings = warnings.filter((line) => line.startsWith("HoneyJar is not in production mode"));
+        const bannerWarnings = warnings.filter((line) =>
+          line.startsWith("This instance is not in production mode"),
+        );
+        assert.equal(secretWarnings.length, 1);
+        assert.match(secretWarnings[0] ?? "", /openssl rand -base64 32/);
+        assert.equal(bannerWarnings.length, mode === undefined ? 1 : 0);
       }
     } finally {
       console.warn = original;

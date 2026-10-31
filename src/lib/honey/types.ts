@@ -559,6 +559,8 @@ export type Workspace = {
   keys: ApiKeyPublic[];
   messages: AiMessage[];
   txnHasMore: boolean;
+  /** Server mode. `banner` is the owner-only safety net when the env was never set. */
+  instance: { mode: "production" | "development" | "preview"; banner: boolean };
 };
 
 export type ActionResult = {

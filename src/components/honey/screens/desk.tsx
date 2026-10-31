@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SliceTip, axisTick } from "../charts";
 import { askAdvisor, changeOwnPassword, exportHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
+import { PRODUCTION_MODE_BANNER } from "@/lib/honey/instance-mode";
 import { exportZip } from "@/lib/honey/zip";
 import { signOut } from "@/lib/auth/client";
 import {
@@ -929,6 +930,15 @@ export function SettingsPage() {
   return (
     <div className="space-y-4">
       <PageIntro title="Customize" lede="Names, categories, rules, which pages show up, the advisor, the vault, and the API. The household can be reshaped without waiting on a new version." />
+      {isOwner && data.instance.banner ? (
+        <p role="status" className="rounded-2xl bg-honey-soft px-4 py-3 text-sm">
+          {PRODUCTION_MODE_BANNER}
+        </p>
+      ) : null}
+      <Card>
+        <h2 className="font-display text-xl">Mode</h2>
+        <p className="mt-1 text-sm">{data.instance.mode}</p>
+      </Card>
       {isOwner ? (
         <Card>
           <h2 className="font-display text-xl">Household</h2>
