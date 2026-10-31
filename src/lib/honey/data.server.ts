@@ -6,6 +6,8 @@ import { readReceipt, removeReceipt, removeUserFiles, writeReceipt } from "./fil
 import { parseTiers, starterColumns, templateUnit, DAYS_FORMULA, USAGE_FORMULA, duplicateColumnName, rewriteColumnName } from "./utility";
 import { clearHousehold, ensureJars, ensureLeaseInvoices, ensureSampleBusiness, ensureSampleInvestments, ensureSamplePeople, ensureSampleSale, ensureSampleTags, ensureSampleUtilities, seedBlank, seedHousehold, seedPersonalCategories, seedStarter } from "./seed";
 import { recordAudit } from "./care.server";
+import { shouldShowProductionBanner } from "./instance-mode";
+import { env, honeyJarMode } from "../env.server";
 import { personEmail } from "./person";
 import type {
   AccessRow,
@@ -320,6 +322,15 @@ export async function readWorkspace(
     keys: keys.map(mapKey),
     messages: messages.map(mapMessage).reverse(),
     txnHasMore,
+    instance: {
+      mode: honeyJarMode(),
+      banner: shouldShowProductionBanner({
+        honeyjarEnv: env("HONEYJAR_ENV"),
+        grokProjectId: env("GROK_PROJECT_ID"),
+        databaseUrl: env("DATABASE_URL"),
+        betterAuthUrl: env("BETTER_AUTH_URL"),
+      }),
+    },
   };
 }
 
