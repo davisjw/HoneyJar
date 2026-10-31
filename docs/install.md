@@ -365,7 +365,7 @@ These are optional.
 | OpenAI key in Customize | Stored on the household profile. The browser is told only that a key is set. |
 | Ollama URL in Customize | The HoneyJar server posts the brief and your question to that URL. The address has to be one the server can open; 127.0.0.1 works only when Ollama runs on the same machine. The browser does not call Ollama. |
 
-The advisor receives balances, this month's spending, bills, and goals. Do not turn it on if you do not want those numbers sent to that provider.
+The advisor receives balances, this month's spending, bills, and goals. Do not turn it on if you do not want those numbers sent to that provider. What each outbound call sends, and how to stop it, is in [Connectors](connectors.md).
 
 ## Check the build
 

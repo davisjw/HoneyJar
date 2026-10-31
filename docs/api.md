@@ -37,6 +37,7 @@ Base path: `https://YOUR-HOST/api/v1`
 | `GET /utilities` | Meters, columns, and readings. |
 | `GET /jars` | Each jar's name, kind, and accounts. |
 | `GET /jars?id=ID&from=YYYY-MM-DD&to=YYYY-MM-DD&limit=50` | That jar's bills and transactions. `limit` caps at 200. |
+| `POST /transactions` | Adds one transaction to the personal jar. Body and fields below. |
 
 Amounts on transactions are integer cents. Negative means money out.
 
