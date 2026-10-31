@@ -1,6 +1,6 @@
 -- Keyset order for transaction paging (F3a, HJ-030).
 -- 0025 is reserved for 0025_external_ids.sql on the F2 branch.
--- The PRD's 0026_connectors.sql (F1) is not in the tree; F1 takes a later number.
+-- 0026 is reserved for F1 connectors (0026_connectors.sql). This index is 0027.
 -- Not CONCURRENTLY: both migration runners apply this file inside a transaction.
 -- The existing (user_id, posted_on) index stays.
 -- Only the SQL TransactionStore (HJ-034) should rely on this index.

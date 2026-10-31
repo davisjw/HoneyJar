@@ -6,7 +6,7 @@ import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 
 const root = path.resolve(import.meta.dirname, "../../..");
-const migrationName = "0026_txn_keyset.sql";
+const migrationName = "0027_txn_keyset.sql";
 const indexName = "transactions_user_posted_id_idx";
 
 async function migrationFiles(): Promise<{ name: string; sql: string }[]> {
@@ -30,8 +30,10 @@ describe("transactions keyset index", () => {
   it("is the next file after 0025 and is a plain btree, not concurrent", async () => {
     const files = await migrationFiles();
     const names = files.map((file) => file.name);
-    assert.ok(names.includes(migrationName));
-    assert.equal(names.filter((name) => name.startsWith("0026_")).length, 1);
+    assert.deepEqual(
+      names.filter((name) => name.endsWith("_txn_keyset.sql")),
+      [migrationName],
+    );
     const sql = files.find((file) => file.name === migrationName)?.sql ?? "";
     const statement = sql.replace(/--.*$/gm, "");
     assert.match(statement, /create index if not exists transactions_user_posted_id_idx/i);
