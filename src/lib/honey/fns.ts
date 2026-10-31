@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import type { Action, ActionResult, Workspace } from "./types";
+import { runOpenAiAdvisor } from "./openai-key";
 
 export const getWorkspace = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -118,18 +119,21 @@ export const askAdvisor = createServerFn({ method: "POST" })
       return { mode: "answer" as const, text };
     }
 
-    let url = "https://api.x.ai/v1/chat/completions";
-    let key = process.env.XAI_API_KEY ?? "";
-    let model = "grok-4.5";
+    const url = "https://api.x.ai/v1/chat/completions";
+    const key = process.env.XAI_API_KEY ?? "";
+    const model = "grok-4.5";
     if (ws.profile.aiProvider === "openai") {
       const sql = await getSql();
       const rows = await sql<{ openai_key: string; openai_model: string }>`
         select openai_key, openai_model from profiles where user_id = ${ws.ownerId}
       `;
-      key = rows[0]?.openai_key ?? "";
-      model = rows[0]?.openai_model || "gpt-4.1-mini";
-      url = "https://api.openai.com/v1/chat/completions";
-      if (!key) throw new Error("Add an OpenAI API key in Customize, or switch the advisor to Grok.");
+      const text = await runOpenAiAdvisor({
+        storedKey: rows[0]?.openai_key ?? "",
+        model: rows[0]?.openai_model || "gpt-4.1-mini",
+        messages,
+      });
+      await rememberAdvisor(ws.ownerId, data.question, text);
+      return { mode: "answer" as const, text };
     } else if (!key) {
       throw new Error("Grok isn't available in this environment yet. Switch the advisor to Ollama or add an OpenAI key.");
     }
