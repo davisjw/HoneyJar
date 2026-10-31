@@ -365,7 +365,7 @@ These are optional.
 | OpenAI key in Customize | Stored on the household profile. The browser is told only that a key is set. |
 | Ollama URL in Customize | The browser sends the brief to that URL. The server does not call Ollama. |
 
-The advisor receives balances, this month's spending, bills, and goals. Do not turn it on if you do not want those numbers sent to that provider.
+The advisor receives balances, this month's spending, bills, and goals. Do not turn it on if you do not want those numbers sent to that provider. What each outbound call sends, and how to stop it, is in [Connectors](connectors.md).
 
 ## Check the build
 
