@@ -66,7 +66,9 @@ npm run build
 npm run preview
 ```
 
-`npm run build` applies `migrations/*.sql` when `DATABASE_URL` is set. Each file runs once, in order. Run `npm run db:migrate` on its own after you pull a new migration.
+`npm run build` applies `migrations/*.sql` when `DATABASE_URL` is set. Each file runs once, in order, inside a transaction. Run `npm run db:migrate` on its own after you pull a new migration.
+
+`0025_external_ids.sql` adds `transactions.external_source` and `transactions.external_id`. Existing rows stay blank. It also adds a unique index that ignores those blanks. The migration runner cannot build that index concurrently, because each file runs inside a transaction. Writes to `transactions` wait for the build. Reads do not. On Postgres 16 this was about 14 ms for 100,000 existing rows and about 60 ms for 1,000,000, when the new ids are still blank. If every row already has a distinct id, the same sizes were about 110 ms and 1.3 s. The column adds themselves are instant. Details are in the header comment of that file.
 
 `BETTER_AUTH_URL` must be the origin users type in the browser, with no path. A mismatch makes sign-in fail with `Invalid origin`.
 

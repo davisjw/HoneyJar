@@ -452,8 +452,74 @@ DATA:OFXSGML
   it("reads posted date, signed amount, merchant, and memo", () => {
     const rows = parseOfx(ofx);
     assert.equal(rows.length, 2);
-    assert.deepEqual(rows[0], { postedOn: "2026-10-01", amountCents: -1240, merchant: "Blue Bottle", memo: "coffee" });
-    assert.deepEqual(rows[1], { postedOn: "2026-10-02", amountCents: 150000, merchant: "Payroll", memo: "" });
+    assert.deepEqual(rows[0], {
+      postedOn: "2026-10-01",
+      amountCents: -1240,
+      merchant: "Blue Bottle",
+      memo: "coffee",
+      externalId: "abc",
+    });
+    assert.deepEqual(rows[1], {
+      postedOn: "2026-10-02",
+      amountCents: 150000,
+      merchant: "Payroll",
+      memo: "",
+      externalId: "def",
+    });
+  });
+
+  it("reads a trimmed FITID from XML OFX and caps it at 255 characters", () => {
+    const longId = "x".repeat(300);
+    const xml = `<?xml version="1.0"?>
+<OFX>
+<STMTTRN>
+<TRNTYPE>DEBIT</TRNTYPE>
+<DTPOSTED>20261003</DTPOSTED>
+<TRNAMT>-3.50</TRNAMT>
+<FITID>  xml-id  </FITID>
+<NAME>Cafe</NAME>
+<MEMO>tea</MEMO>
+</STMTTRN>
+<STMTTRN>
+<DTPOSTED>20261004</DTPOSTED>
+<TRNAMT>1.00</TRNAMT>
+<FITID>${longId}</FITID>
+<NAME>Long</NAME>
+</STMTTRN>
+</OFX>`;
+    const rows = parseOfx(xml);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]?.externalId, "xml-id");
+    assert.equal(rows[0]?.amountCents, -350);
+    assert.equal(rows[0]?.memo, "tea");
+    assert.equal(rows[1]?.externalId?.length, 255);
+    assert.equal(rows[1]?.externalId, "x".repeat(255));
+  });
+
+  it("leaves externalId empty when FITID is missing or blank", () => {
+    const text = `<OFX>
+<STMTTRN><DTPOSTED>20261001<TRNAMT>-1.00<NAME>No id</STMTTRN>
+<STMTTRN><DTPOSTED>20261002<TRNAMT>-2.00<FITID>   <NAME>Blank</STMTTRN>
+<STMTTRN><DTPOSTED>20261003<TRNAMT>-3.00<FITID></FITID><NAME>Closed empty</STMTTRN>
+</OFX>`;
+    const rows = parseOfx(text);
+    assert.deepEqual(
+      rows.map((row) => row.externalId),
+      ["", "", ""],
+    );
+  });
+
+  it("keeps duplicate FITIDs as separate rows", () => {
+    const text = `<OFX>
+<STMTTRN><DTPOSTED>20261001<TRNAMT>-1.00<FITID>same<NAME>A</STMTTRN>
+<STMTTRN><DTPOSTED>20261002<TRNAMT>-2.00<FITID>same<NAME>B</STMTTRN>
+</OFX>`;
+    const rows = parseOfx(text);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]?.externalId, "same");
+    assert.equal(rows[1]?.externalId, "same");
+    assert.equal(rows[0]?.merchant, "A");
+    assert.equal(rows[1]?.merchant, "B");
   });
 
   it("treats an OFX paste as a statement and a CSV as a CSV", () => {

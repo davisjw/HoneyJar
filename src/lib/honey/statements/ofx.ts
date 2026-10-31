@@ -1,6 +1,9 @@
 import { dollarsToCents } from "../calc.ts";
 import type { ImportRow, StatementParser } from "./types.ts";
 
+/** OFX FITIDs are capped so one wild id cannot blow past the indexed column. */
+const FITID_MAX = 255;
+
 function ofxDate(raw: string): string | null {
   const digits = raw.trim().slice(0, 8);
   if (!/^\d{8}$/.test(digits)) return null;
@@ -12,7 +15,16 @@ function ofxValue(block: string, tag: string): string {
   return (match?.[1] ?? "").trim();
 }
 
-/** Bank and credit-card transactions from an OFX or QFX file. */
+function fitId(block: string): string {
+  return ofxValue(block, "FITID").slice(0, FITID_MAX);
+}
+
+/**
+ * Bank and credit-card transactions from an OFX or QFX file.
+ * SGML (`<FITID>abc`) and XML (`<FITID>abc</FITID>`) both match.
+ * A missing or blank FITID leaves `externalId` empty. Duplicate FITIDs
+ * in one file are kept; dedupe is not this parser's job.
+ */
 export function parseOfxStatement(text: string): ImportRow[] {
   const rows: ImportRow[] = [];
   for (const match of text.matchAll(/<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi)) {
@@ -28,6 +40,7 @@ export function parseOfxStatement(text: string): ImportRow[] {
       amountCents: dollarsToCents(amountRaw),
       merchant: name || memoText || "Imported",
       memo: name ? memoText : check ? `Check ${check}` : "",
+      externalId: fitId(block),
     };
     if (check) row.checkNumber = check;
     rows.push(row);
