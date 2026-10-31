@@ -12,6 +12,7 @@ import {
 } from "./calc";
 import { apiDocument, hitLimit, keyExpired } from "./care";
 import { applyAction, loadWorkspace } from "./data.server";
+import { TOOLS } from "./mcp-tools";
 
 const keyHits = new Map<string, number[]>();
 
@@ -191,21 +192,6 @@ export async function handlePublicApi(request: Request): Promise<Response> {
     return json({ error: message }, message.startsWith("Too many") ? 429 : 400);
   }
 }
-
-const TOOLS = [
-  { name: "spending_summary", description: "This month's spending by category and net worth." },
-  { name: "list_accounts", description: "Balances for every account." },
-  { name: "list_transactions", description: "Recent transactions. Optional from, to, limit." },
-  { name: "upcoming_bills", description: "Bills, subscriptions, and expected income." },
-  { name: "net_worth", description: "Assets, debts, and net worth." },
-  { name: "portfolio", description: "Lots, typed prices, Dietz and IRR, and dividend flows. Not a live quote." },
-  { name: "list_goals", description: "Savings goals and progress." },
-  { name: "list_alerts", description: "Open watchlist and bill alerts, each with a path inside HoneyJar." },
-  { name: "list_people", description: "People on the household." },
-  { name: "list_documents", description: "Document names. Bodies are not included." },
-  { name: "list_utilities", description: "Meters, columns, and readings." },
-  { name: "list_jars", description: "Personal, business, and property jars. Pass id, from, to, and limit for one jar's transactions." },
-];
 
 export async function handleMcp(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
