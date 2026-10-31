@@ -16,6 +16,7 @@
  */
 import installPageTemplate from "../../scripts/install-page.html?raw";
 import { grokOgIdentity } from "virtual:grok-og-identity";
+import { productionSecretHttpResponse } from "../../src/lib/honey/production-secret.server.ts";
 import {
   acceptsHtml,
   createHeadInjector,
@@ -64,6 +65,9 @@ export default async function grokPwaMiddleware(
   event: GrokPwaEvent,
   next: () => unknown | Promise<unknown>,
 ): Promise<unknown> {
+  const blocked = productionSecretHttpResponse();
+  if (blocked) return blocked;
+
   const method = (event.req.method ?? "GET").toUpperCase();
   if (method !== "GET") return next();
 

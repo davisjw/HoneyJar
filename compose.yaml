@@ -11,6 +11,11 @@
 #   export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
 #   docker compose up --build -d
 #
+# HONEYJAR_ENV defaults to production. There is no built-in development
+# secret. Copy .env.example to .env and set BETTER_AUTH_SECRET before the
+# first start. Compose reads .env on its own. Keep an existing secret value
+# if this install already had one (see docs/upgrade.md).
+#
 # A compose.override.yaml next to this file is local and gitignored. Compose
 # loads it when it exists and does not fail when it does not. See
 # compose.override.example.yaml. Do not include that file from here: include
@@ -27,8 +32,11 @@ services:
       - "${HONEYJAR_PUBLISH:-127.0.0.1:8080}:8080"
     environment:
       DATABASE_URL: postgres://honeyjar:honeyjar@postgres:5432/honeyjar
+      # Production unless the operator sets HONEYJAR_ENV to something else.
+      HONEYJAR_ENV: ${HONEYJAR_ENV:-production}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-honeyjar-dev-secret-change-me}
+      # No default. An empty or missing value fails Compose before the app starts.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env next to compose.yaml. Generate one with openssl rand -base64 32. See docs/install.md}
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}

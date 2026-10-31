@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { secretForFiles } from "./production-secret.server.ts";
 
 /** Receipts stay out of the database so opening the books does not read every file. */
 export function filesRoot(): string {
@@ -8,11 +9,15 @@ export function filesRoot(): string {
 }
 
 function fileKey(): Buffer {
-  const secret = process.env.BETTER_AUTH_SECRET || "honeyjar-dev-secret-change-me";
-  return createHash("sha256").update(`honeyjar-files:${secret}`).digest();
+  return createHash("sha256").update(`honeyjar-files:${secretForFiles()}`).digest();
 }
 
-export async function writeReceipt(userId: string, id: string, bytes: Buffer, root = filesRoot()): Promise<void> {
+export async function writeReceipt(
+  userId: string,
+  id: string,
+  bytes: Buffer,
+  root = filesRoot(),
+): Promise<void> {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", fileKey(), iv);
   const enc = Buffer.concat([cipher.update(bytes), cipher.final()]);

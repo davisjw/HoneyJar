@@ -13,3 +13,12 @@
 #       OIDC_ISSUER: https://auth.example/application/o/honeyjar/
 #     ports:
 #       - "10.0.0.5:8080:8080"
+#
+# Production example. compose.yaml already defaults HONEYJAR_ENV to production
+# and requires BETTER_AUTH_SECRET from the environment or .env. Repeat the
+# mode here only when an override file replaces the app environment block:
+#
+# services:
+#   app:
+#     environment:
+#       HONEYJAR_ENV: production
