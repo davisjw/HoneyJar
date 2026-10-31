@@ -12,6 +12,7 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
 import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
 import { enforceProductionSecret } from "./src/lib/honey/production-secret.server.ts";
+import { migrateOpenAiKeysOnStartup } from "./src/lib/honey/secrets-migrate.server.ts";
 
 /** The files `src/lib/db.ts` globs — same directory, same non-recursive scope. */
 function hasGlobbedMigrations(root: string): boolean {
@@ -172,11 +173,13 @@ const proxyHosts = proxyAllowedHosts();
 function productionSecretPlugin(): Plugin {
   return {
     name: "honeyjar:production-secret",
-    configureServer() {
+    async configureServer() {
       enforceProductionSecret();
+      await migrateOpenAiKeysOnStartup();
     },
-    configurePreviewServer() {
+    async configurePreviewServer() {
       enforceProductionSecret();
+      await migrateOpenAiKeysOnStartup();
     },
   };
 }

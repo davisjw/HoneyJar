@@ -4,9 +4,14 @@
  * 500 and never reaches a handler that could sign or encrypt with a fallback.
  */
 import { productionSecretHttpResponse } from "../../src/lib/honey/production-secret.server.ts";
+import { migrateOpenAiKeysOnStartup } from "../../src/lib/honey/secrets-migrate.server.ts";
 
-export default function productionSecretMiddleware(_event: unknown, next: () => unknown): unknown {
+export default async function productionSecretMiddleware(
+  _event: unknown,
+  next: () => unknown,
+): Promise<unknown> {
   const blocked = productionSecretHttpResponse();
   if (blocked) return blocked;
+  await migrateOpenAiKeysOnStartup();
   return next();
 }
