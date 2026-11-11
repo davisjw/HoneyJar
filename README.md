@@ -56,7 +56,7 @@ App and Postgres together:
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080). The Compose file binds the app to localhost and ships a default auth secret that will be public with this repo. Set `BETTER_AUTH_SECRET` before anyone else can open the port. The database password in that file is `honeyjar`.
+Open [http://localhost:8080](http://localhost:8080). The Compose file binds the app to localhost. Leave `BETTER_AUTH_SECRET` unset and the app generates one on first start. The database password in that file is `honeyjar`.
 
 Advisor is on the household menu after you sign in. Grok answers only when the server has `XAI_API_KEY`. OpenAI and a local Ollama are the other two. What gets sent, and how to turn each one on, is in [Install](docs/install.md#advisor).
 

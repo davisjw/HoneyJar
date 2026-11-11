@@ -1,5 +1,5 @@
 import { useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SliceTip, axisTick } from "../charts";
 import { askAdvisor, changeOwnPassword, exportHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
@@ -22,7 +22,7 @@ import {
   vehicleLine,
   withMileage,
 } from "@/lib/honey/calc";
-import type { Account, Category, Profile, ProfilePatch, Reminder, Watch } from "@/lib/honey/types";
+import type { Account, ActionResult, Category, Profile, ProfilePatch, Reminder, Watch } from "@/lib/honey/types";
 import { createVault, decryptText, encryptText, unlockVault } from "@/lib/honey/vault";
 import { NAV_IDS } from "../shell";
 import { BankSelect } from "../contact-field";
@@ -910,8 +910,20 @@ export function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [recovery, setRecovery] = useState("");
+  const [serverKey, setServerKey] = useState<NonNullable<ActionResult["authSecret"]> | null>(null);
+  const [nextServerKey, setNextServerKey] = useState("");
+  const [pastedServerKey, setPastedServerKey] = useState("");
+  const [serverKeyError, setServerKeyError] = useState("");
+  const serverKeyLoaded = useRef(false);
   const [confirmDelete, setConfirmDelete] = useState("");
   const [audit, setAudit] = useState<{ id: string; action: string; detail: string; createdAt: string }[]>([]);
+  useEffect(() => {
+    if (!isOwner || serverKeyLoaded.current) return;
+    serverKeyLoaded.current = true;
+    void run({ type: "authsecret.status" }).then((res) => {
+      if (res.authSecret) setServerKey(res.authSecret);
+    }).catch(() => undefined);
+  }, [isOwner, run]);
   const [careError, setCareError] = useState("");
   const [localPassword, setLocalPassword] = useState<boolean | null>(null);
   const [sampleStep, setSampleStep] = useState<null | "risk" | "export" | "download">(null);
@@ -1098,6 +1110,68 @@ export function SettingsPage() {
             </Button>
           </div>
           {tryOut ? <pre className="mt-2 max-h-48 overflow-auto rounded-xl bg-paper p-3 text-xs">{tryOut}</pre> : null}
+        </Card>
+      ) : null}
+      {isOwner ? (
+        <Card>
+          <h2 className="font-display text-xl">Server key</h2>
+          <p className="mt-1 text-sm text-muted">This key signs sessions and seals receipt files for every household on this machine. A new key is stored only after every receipt has been rewritten. Until then both keys still open a receipt. Copy the old key before you leave this page. It is not shown again once the move finishes.</p>
+          {serverKeyError ? <p className="mt-2 text-sm text-clay">{serverKeyError}</p> : null}
+          {serverKey?.oldKey ? (
+            <p className="mt-2 break-all rounded-xl bg-honey-soft px-3 py-2 text-sm">Old key: {serverKey.oldKey}</p>
+          ) : null}
+          {serverKey && !serverKey.finished ? (
+            <p className="mt-2 text-sm">{serverKey.pending} receipt{serverKey.pending === 1 ? "" : "s"} still on the old key.{serverKey.failed.length ? ` ${serverKey.failed.length} could not be opened.` : ""}</p>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input className={`${fieldClass} max-w-xs`} value={nextServerKey} onChange={(e) => setNextServerKey(e.target.value)} placeholder="New key, or blank to generate one" autoComplete="off" />
+            <Button
+              onClick={async () => {
+                setServerKeyError("");
+                try {
+                  const res = await run({ type: "authsecret.rotate", nextSecret: nextServerKey.trim() || undefined });
+                  setServerKey(res.authSecret ?? null);
+                  setNextServerKey("");
+                } catch (err) {
+                  setServerKeyError(err instanceof Error ? err.message : "Could not change the server key");
+                }
+              }}
+            >
+              Change server key
+            </Button>
+            {serverKey && !serverKey.finished ? (
+              <Button
+                tone="quiet"
+                onClick={async () => {
+                  setServerKeyError("");
+                  try {
+                    const res = await run({ type: "authsecret.resume" });
+                    setServerKey(res.authSecret ?? null);
+                  } catch (err) {
+                    setServerKeyError(err instanceof Error ? err.message : "Could not resume");
+                  }
+                }}
+              >
+                Resume
+              </Button>
+            ) : null}
+          </div>
+          <form
+            className="mt-3 flex flex-wrap gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setServerKeyError("");
+              try {
+                const res = await run({ type: "authsecret.migrate", oldKey: pastedServerKey });
+                setServerKey(res.authSecret ?? null);
+              } catch (err) {
+                setServerKeyError(err instanceof Error ? err.message : "Could not check those receipts");
+              }
+            }}
+          >
+            <input className={`${fieldClass} max-w-xs`} value={pastedServerKey} onChange={(e) => setPastedServerKey(e.target.value)} placeholder="Old key to check receipts against" autoComplete="off" />
+            <Button type="submit" tone="quiet">Check old receipts</Button>
+          </form>
         </Card>
       ) : null}
       {isOwner ? (

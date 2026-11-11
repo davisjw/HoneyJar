@@ -580,6 +580,13 @@ export type ActionResult = {
     hours: string;
   };
   file?: { mime: string; fileName: string; dataBase64: string };
+  authSecret?: {
+    oldKey: string;
+    migrated: number;
+    pending: number;
+    finished: boolean;
+    failed: string[];
+  };
   patch?: {
     transactions?: Txn[];
     deletedTransactionIds?: string[];
@@ -662,6 +669,10 @@ export type Action = (
   | { type: "invite.revoke"; id: number; ownerId?: string }
   | { type: "apikey.create"; name: string; expiresInDays?: number; scope?: "read" | "write"; ownerId?: string }
   | { type: "apikey.revoke"; id: string; ownerId?: string }
+  | { type: "authsecret.rotate"; nextSecret?: string; ownerId?: string }
+  | { type: "authsecret.resume"; ownerId?: string }
+  | { type: "authsecret.migrate"; oldKey: string; ownerId?: string }
+  | { type: "authsecret.status"; ownerId?: string }
   | { type: "recovery.issue"; ownerId?: string }
   | { type: "account.delete"; confirm: string; ownerId?: string }
   | { type: "sample.clear"; ownerId?: string }

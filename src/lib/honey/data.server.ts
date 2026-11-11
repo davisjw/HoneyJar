@@ -954,7 +954,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
 
   const scoped = await scope(sql, userId, action.ownerId);
   const owner = scoped.owner;
-  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load", "household.begin", "household.blank", "account.delete", "recovery.issue"]);
+  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "authsecret.rotate", "authsecret.resume", "authsecret.migrate", "authsecret.status", "sample.clear", "sample.load", "household.begin", "household.blank", "account.delete", "recovery.issue"]);
   if (action.type !== "weather.ensure") {
     if (ownerOnly.has(action.type)) assertOwner(scoped.role);
     else assertEdit(scoped.role);
@@ -2310,6 +2310,30 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       await sql`delete from api_keys where id = ${action.id} and user_id = ${owner}`;
       await recordAudit(sql, owner, "apikey.revoke", action.id);
       return {};
+    }
+    case "authsecret.status": {
+      const { authSecretStatus, resumeAuthSecret } = await import("./auth-secret.server");
+      const status = authSecretStatus();
+      if (!status.rotating) return { authSecret: { oldKey: "", migrated: 0, pending: 0, finished: true, failed: [] } };
+      return { authSecret: await resumeAuthSecret() };
+    }
+    case "authsecret.resume": {
+      const { resumeAuthSecret } = await import("./auth-secret.server");
+      const authSecret = await resumeAuthSecret();
+      await recordAudit(sql, owner, "authsecret.resume", authSecret.finished ? "finished" : `${authSecret.pending} left`);
+      return { authSecret };
+    }
+    case "authsecret.rotate": {
+      const { rotateAuthSecret } = await import("./auth-secret.server");
+      const authSecret = await rotateAuthSecret(action.nextSecret);
+      await recordAudit(sql, owner, "authsecret.rotate", authSecret.finished ? "finished" : `${authSecret.pending} left`);
+      return { authSecret };
+    }
+    case "authsecret.migrate": {
+      const { migrateReceiptsWithOldKey } = await import("./auth-secret.server");
+      const authSecret = await migrateReceiptsWithOldKey(action.oldKey);
+      await recordAudit(sql, owner, "authsecret.migrate", authSecret.finished ? "finished" : `${authSecret.failed.length} failed`);
+      return { authSecret };
     }
     case "recovery.issue": {
       const { hasLocalPassword, issueRecoveryCode } = await import("./care.server");

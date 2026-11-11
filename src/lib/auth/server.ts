@@ -29,7 +29,6 @@ import { betterAuth } from "better-auth";
 import { bearer, genericOAuth } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
-import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
@@ -37,6 +36,7 @@ import { smtpConfigured } from "../honey/mail";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
 import { OIDC_PROVIDER_ID, oidcProvider } from "./oidc";
+import { bindSigningSecrets, ensureAuthSecretSync, resumeAuthSecret } from "../honey/auth-secret.server.ts";
 import { pgliteDialect } from "./pglite-dialect";
 import {
   GROK_ISSUER_DEFAULT,
@@ -46,19 +46,7 @@ import {
 // Kick (and share) PGLite bootstrap as soon as the auth server module loads.
 void ensureDbReady();
 
-/**
- * Preview secret must outlive module reloads: PGLite (and its session rows) is
- * stored on `globalThis`, so an HMR re-eval of this file must NOT mint a new
- * signing secret or every existing session becomes invalid mid-dev. Process
- * restart clears both the secret and PGLite together.
- */
-const globalAuthRef = globalThis as typeof globalThis & {
-  __grokAuthPreviewSecret__?: string;
-};
-function previewAuthSecret(): string {
-  globalAuthRef.__grokAuthPreviewSecret__ ??= randomBytes(32).toString("hex");
-  return globalAuthRef.__grokAuthPreviewSecret__;
-}
+const bootSecret = ensureAuthSecretSync();
 
 /** Read an env var, treating empty/whitespace as unset. */
 const env = (key: string): string | undefined => {
@@ -190,9 +178,16 @@ const oauthPlugin = oauthConfigs.length > 0 ? genericOAuth({ config: oauthConfig
 
 export const auth = betterAuth({
   baseURL,
-  // Deployed apps inject BETTER_AUTH_SECRET. Preview: process-stable secret on
-  // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
-  secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret(),
+  // The saved server key. A rotation keeps the previous key in `secrets` until every receipt is rewritten.
+  secret: bootSecret.current,
+  ...(bootSecret.previous
+    ? {
+        secrets: [
+          { version: 2, value: bootSecret.current },
+          { version: 1, value: bootSecret.previous },
+        ],
+      }
+    : {}),
   database,
 
   // CSRF / origin check for credentialed auth POSTs (email sign-up/sign-in, …).
@@ -285,6 +280,28 @@ export const auth = betterAuth({
     // last so it runs after every other plugin's hooks.
     tanstackStartCookies(),
   ],
+});
+
+bindSigningSecrets((current, previous) => {
+  void auth.$context.then((ctx) => {
+    const live = ctx as typeof ctx & { secret: string; secretConfig: unknown };
+    live.secret = current;
+    live.options.secret = current;
+    live.secretConfig = previous
+      ? {
+          keys: new Map<number, string>([
+            [2, current],
+            [1, previous],
+          ]),
+          currentVersion: 2,
+          legacySecret: previous,
+        }
+      : current;
+  });
+});
+
+void resumeAuthSecret().catch((err) => {
+  console.error(err instanceof Error ? err.message : "The server key change did not finish.");
 });
 
 export function readSessionToken(): string | null {
