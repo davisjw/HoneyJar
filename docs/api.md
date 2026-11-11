@@ -4,7 +4,7 @@ Another program, including an AI, reads the books with an API key. The same key 
 
 ## Make a key
 
-Open **Customize** while you are the household owner. **Create key**. Leave the days field blank for a key that does not expire, or enter a number of days. The token is shown once. It starts with `hj_`. The database keeps a SHA-256 hash, a short prefix, and the expiry. Copy the token then. There is no way to show it again. Revoke it on the same screen.
+Open **Customize** while you are the household owner. **Create key**. Leave the days field blank for a key that does not expire, or enter a number of days. Choose **Read only** or **Can add a transaction**. A new key starts as read only. A key created before this choice can still add a transaction. The token is shown once. It starts with `hj_`. The database keeps a SHA-256 hash, a short prefix, the scope, and the expiry. Copy the token then. There is no way to show it again. Revoke it on the same screen.
 
 Each server process allows 60 requests a minute for a key. A second process counts separately. An expired key is rejected.
 
@@ -14,7 +14,7 @@ Send it on every request:
 Authorization: Bearer hj_...
 ```
 
-Anyone with the token can read the personal jar and can add a transaction. Treat it like a password. Do not put it in a page, a prompt you paste into a public chat, or a shell history you share.
+Anyone with a write token can read the jars and can add a transaction. A read-only token can read and gets `403` with `{"error":"This key is read-only."}` if it tries to add one. Treat either token like a password. Do not put it in a page, a prompt you paste into a public chat, or a shell history you share.
 
 ## JSON API
 
@@ -49,7 +49,7 @@ curl -s -X POST "$BASE/api/v1/transactions" \
   -d '{"accountId":"ACCOUNT_ID","merchant":"Market","amountCents":-4280,"postedOn":"2026-10-16"}'
 ```
 
-`accountId`, `merchant`, and `amountCents` are required. Optional fields are `memo`, `categoryId`, `personId`, and `tags` (an array of strings). The transaction is marked `source: "api"`. The account balance moves by the same amount.
+`accountId`, `merchant`, and an integer `amountCents` are required. Optional fields are `postedOn`, `memo`, `categoryId`, `personId`, and `tags` (an array of strings). The transaction is marked `source: "api"`. The account balance moves by the same amount. A read-only key is refused.
 
 A missing or wrong token is `401` with `{"error":"Send Authorization: Bearer hj_…"}`. An unknown path is `404`.
 
@@ -59,7 +59,7 @@ There is no paging beyond `limit`, no webhook, and no filter by person or tag. P
 
 `POST /api/mcp` with the same bearer token. The body is JSON-RPC.
 
-`initialize` and `tools/list` return the tool names. `tools/call` runs one tool and returns the JSON above as a text block.
+`initialize` and `tools/list` return the tool names the key is allowed to call. A read-only key does not see `add_transaction`. `tools/call` runs one tool and returns the JSON above as a text block.
 
 | Tool | Same as |
 | --- | --- |
@@ -75,6 +75,7 @@ There is no paging beyond `limit`, no webhook, and no filter by person or tag. P
 | `list_utilities` | `GET /utilities` |
 | `list_jars` | `GET /jars`. Arguments `id`, `from`, `to`, `limit`. |
 | `list_transactions` | `GET /transactions`. Arguments `from`, `to`, `limit`. |
+| `add_transaction` | `POST /transactions`. Arguments `accountId`, `merchant`, `amountCents`, and optionally `postedOn`, `memo`, `categoryId`, `personId`, `tags`. Write keys only. |
 
 `list_transactions` and `list_jars` pass `from`, `to`, `limit`, and (for jars) `id` through to the JSON API. Other tools ignore arguments.
 

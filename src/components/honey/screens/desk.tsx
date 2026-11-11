@@ -904,6 +904,7 @@ export function SettingsPage() {
   const [token, setToken] = useState("");
   const [keyName, setKeyName] = useState("Advisor key");
   const [keyDays, setKeyDays] = useState("");
+  const [keyScope, setKeyScope] = useState<"read" | "write">("read");
   const [tryOut, setTryOut] = useState("");
   const [cat, setCat] = useState<Partial<Category> | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -1058,14 +1059,18 @@ export function SettingsPage() {
       {isOwner ? (
         <Card>
           <h2 className="font-display text-xl">API & MCP</h2>
-          <p className="mt-1 text-sm text-muted">Bearer keys for your own tools. REST lives at /api/v1. MCP is a JSON-RPC post to /api/mcp with methods tools/list and tools/call.</p>
+          <p className="mt-1 text-sm text-muted">Bearer keys for your own tools. A read-only key can look and cannot add a transaction. REST lives at /api/v1. MCP is a JSON-RPC post to /api/mcp with methods tools/list and tools/call.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <input className={`${fieldClass} max-w-xs`} value={keyName} onChange={(e) => setKeyName(e.target.value)} />
             <input className={`${fieldClass} max-w-[8rem]`} inputMode="numeric" placeholder="Days, or blank" value={keyDays} onChange={(e) => setKeyDays(e.target.value)} />
+            <select className={fieldClass} value={keyScope} onChange={(e) => setKeyScope(e.target.value === "write" ? "write" : "read")}>
+              <option value="read">Read only</option>
+              <option value="write">Can add a transaction</option>
+            </select>
             <Button
               onClick={async () => {
                 const days = Number(keyDays);
-                const res = await run({ type: "apikey.create", name: keyName, expiresInDays: Number.isFinite(days) && days > 0 ? days : undefined });
+                const res = await run({ type: "apikey.create", name: keyName, expiresInDays: Number.isFinite(days) && days > 0 ? days : undefined, scope: keyScope });
                 setToken(res.token ?? "");
               }}
             >
@@ -1076,7 +1081,7 @@ export function SettingsPage() {
           <ul className="mt-3 text-sm">
             {data.keys.map((k) => (
               <li key={k.id} className="flex justify-between py-1">
-                <span>{k.name} · {k.prefix}…{k.expiresAt ? ` · until ${k.expiresAt.slice(0, 10)}` : ""}</span>
+                <span>{k.name} · {k.prefix}… · {k.scope === "read" ? "read only" : "can add a transaction"}{k.expiresAt ? ` · until ${k.expiresAt.slice(0, 10)}` : ""}</span>
                 <button type="button" className="text-clay" onClick={() => run({ type: "apikey.revoke", id: k.id })}>Revoke</button>
               </li>
             ))}

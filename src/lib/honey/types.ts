@@ -352,6 +352,7 @@ export type ApiKeyPublic = {
   createdAt: string;
   lastUsed: string | null;
   expiresAt: string | null;
+  scope: "read" | "write";
 };
 
 export type Draw = {
@@ -659,7 +660,7 @@ export type Action = (
   | { type: "invite.create"; role: string; email: string; ownerId?: string }
   | { type: "invite.accept"; code: string; ownerId?: string }
   | { type: "invite.revoke"; id: number; ownerId?: string }
-  | { type: "apikey.create"; name: string; expiresInDays?: number; ownerId?: string }
+  | { type: "apikey.create"; name: string; expiresInDays?: number; scope?: "read" | "write"; ownerId?: string }
   | { type: "apikey.revoke"; id: string; ownerId?: string }
   | { type: "recovery.issue"; ownerId?: string }
   | { type: "account.delete"; confirm: string; ownerId?: string }

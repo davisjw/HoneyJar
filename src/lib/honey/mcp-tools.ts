@@ -39,6 +39,12 @@ const dateRange = {
   },
 };
 
+export const WRITE_TOOLS = new Set(["add_transaction"]);
+
+export function toolsForScope(scope: "read" | "write"): McpTool[] {
+  return scope === "write" ? TOOLS : TOOLS.filter((tool) => !WRITE_TOOLS.has(tool.name));
+}
+
 export const TOOLS: McpTool[] = [
   {
     name: "spending_summary",
@@ -86,5 +92,27 @@ export const TOOLS: McpTool[] = [
       },
       ...dateRange,
     }),
+  },
+  {
+    name: "add_transaction",
+    description:
+      "Add one transaction and move that account balance. amountCents is integer cents, negative for money out. A read-only key cannot call this.",
+    inputSchema: {
+      $schema: DRAFT,
+      type: "object",
+      additionalProperties: false,
+      description: "The transaction to add.",
+      required: ["accountId", "merchant", "amountCents"],
+      properties: {
+        accountId: { type: "string", description: "Account id from list_accounts." },
+        merchant: { type: "string", description: "Who was paid or who paid you." },
+        amountCents: { type: "integer", description: "Integer cents. Negative is money out." },
+        postedOn: { type: "string", description: "YYYY-MM-DD. Defaults to today." },
+        memo: { type: "string" },
+        categoryId: { type: "string" },
+        personId: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+      },
+    },
   },
 ];

@@ -231,7 +231,7 @@ export async function readWorkspace(
       sql<Record<string, unknown>>`select * from mileage where user_id = ${owner} order by trip_on desc`,
       sql<Record<string, unknown>>`select * from leases where user_id = ${owner} order by tenant`,
       sql<Record<string, unknown>>`select * from realizations where user_id = ${owner} order by sold_on desc`,
-      sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used, expires_at from api_keys where user_id = ${owner} order by created_at desc`,
+      sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used, expires_at, scope from api_keys where user_id = ${owner} order by created_at desc`,
       sql<Record<string, unknown>>`select * from ai_messages where user_id = ${owner} order by created_at desc limit 40`,
       sql<Record<string, unknown>>`
         select a.*, coalesce(p.display_name, 'Household') as household_name
@@ -865,6 +865,7 @@ function mapKey(r: Record<string, unknown>): ApiKeyPublic {
     createdAt: stamp(r.created_at) ?? "",
     lastUsed: stamp(r.last_used),
     expiresAt: stamp(r.expires_at),
+    scope: r.scope === "read" ? "read" : "write",
   };
 }
 function mapMessage(r: Record<string, unknown>): AiMessage {
@@ -2297,11 +2298,12 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const hash = createHash("sha256").update(token).digest("hex");
       const days = Math.min(3650, Math.max(0, Math.floor(Number(action.expiresInDays) || 0)));
       const expires = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
+      const scope = action.scope === "read" ? "read" : "write";
       await sql`
-        insert into api_keys (id, user_id, name, prefix, token_hash, expires_at)
-        values (${nid()}, ${owner}, ${str(action.name, 60) || "Key"}, ${token.slice(0, 10)}, ${hash}, ${expires})
+        insert into api_keys (id, user_id, name, prefix, token_hash, expires_at, scope)
+        values (${nid()}, ${owner}, ${str(action.name, 60) || "Key"}, ${token.slice(0, 10)}, ${hash}, ${expires}, ${scope})
       `;
-      await recordAudit(sql, owner, "apikey.create", days ? `${days}d` : "no expiry");
+      await recordAudit(sql, owner, "apikey.create", `${scope} ${days ? `${days}d` : "no expiry"}`);
       return { token };
     }
     case "apikey.revoke": {

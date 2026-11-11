@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
-import { TOOLS } from "./mcp-tools.ts";
+import { TOOLS, toolsForScope } from "./mcp-tools.ts";
 
 const NAMES = [
   "spending_summary",
@@ -16,6 +16,7 @@ const NAMES = [
   "list_documents",
   "list_utilities",
   "list_jars",
+  "add_transaction",
 ];
 
 describe("MCP inputSchema", () => {
@@ -29,7 +30,7 @@ describe("MCP inputSchema", () => {
       assert.equal(typeof tool.description, "string");
       assert.ok(tool.description.length > 0);
       const validate = ajv.compile(tool.inputSchema);
-      assert.equal(validate({}), true, tool.name);
+      assert.equal(validate({}), tool.name !== "add_transaction", tool.name);
       assert.equal(tool.inputSchema.$schema, "https://json-schema.org/draft/2020-12/schema");
       assert.equal(tool.inputSchema.type, "object");
       assert.equal(tool.inputSchema.additionalProperties, false);
@@ -69,5 +70,20 @@ describe("MCP inputSchema", () => {
     assert.ok(accounts);
     const validateAccounts = ajv.compile(accounts.inputSchema);
     assert.equal(validateAccounts({ from: "2026-01-01" }), false);
+
+    const add = TOOLS.find((tool) => tool.name === "add_transaction");
+    assert.ok(add);
+    const validateAdd = ajv.compile(add.inputSchema);
+    assert.equal(validateAdd({ accountId: "checking", merchant: "Market", amountCents: -4280 }), true);
+    assert.equal(validateAdd({ accountId: "checking", merchant: "Market", amountCents: -42.8 }), false);
+    assert.equal(validateAdd({ merchant: "Market" }), false);
+    assert.deepEqual(
+      toolsForScope("read").map((tool) => tool.name),
+      NAMES.filter((name) => name !== "add_transaction"),
+    );
+    assert.deepEqual(
+      toolsForScope("write").map((tool) => tool.name),
+      NAMES,
+    );
   });
 });
