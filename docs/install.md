@@ -1,6 +1,6 @@
 # Install
 
-HoneyJar is a server app. The screens are a Vite build. The books live in Postgres. With no `DATABASE_URL` they live in a local file, which is enough to try the app on one machine.
+HoneyJar is one app with two seats. On one machine, leave `DATABASE_URL` unset and the books live in a local file. As a server, point `DATABASE_URL` at Postgres. A packaged app you open without starting a Node process is the direction, and it is not built yet. The screens are a Vite build either way.
 
 You need Node 22 and npm.
 
@@ -28,7 +28,13 @@ Open the same address. Leave `DATABASE_URL` unset for a first try. The books are
 
 The first sign-in asks for a household name and starts blank. **Load sample household** in Customize puts the Calder books in, and it asks before it erases what is already there.
 
-With no `DATABASE_URL`, the database is a file at `data/pglite` (override the directory with `PGLITE_DATA_DIR`). Restarting the server keeps the book. That directory is gitignored. It is one machine and one process, and deleting it deletes the books. Use Postgres when the data should last, or when more than one machine should see it.
+With no `DATABASE_URL`, the database is a file at `data/pglite` (override the directory with `PGLITE_DATA_DIR`). Restarting the process keeps the book. That directory is gitignored. It is one machine and one process, and deleting it deletes the books. Use Postgres when the data should last, or when more than one machine should see it.
+
+## Asking Grok to install it
+
+[Grok Build](https://x.ai/cli) is a terminal agent that runs on your computer. From this repo, ask it to follow this page. The result is the same app: Node, npm, and either the local file or Postgres. There is no separate Grok edition.
+
+Grok Bot is not an install target. HoneyJar is not a plugin for it, and the bot does not store these books. A bot that can run a shell on a machine you control can run the commands in [Try it](#try-it). You still choose the machine, and you still keep the database.
 
 ## Docker
 

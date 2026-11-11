@@ -13,6 +13,8 @@ Browser (React 19, TanStack Router)
               Postgres, or PGLite when no DATABASE_URL
 ```
 
+The same screens run in both seats. PGLite is the one-machine file (`data/pglite`, or `PGLITE_DATA_DIR`). Postgres is the server seat. A packaged local app, with no Node process to start by hand, is the direction. It is not a second product, and it is not in this tree yet.
+
 Money math lives in `src/lib/honey/calc.ts` so the UI, the API, and the advisor brief share one set of rules.
 
 ## Stack

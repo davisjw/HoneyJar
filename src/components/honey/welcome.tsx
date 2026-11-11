@@ -100,7 +100,7 @@ export function Welcome() {
             <button type="submit" disabled={pending} className="min-h-11 w-full rounded-lg bg-honey font-medium text-ink disabled:opacity-60">
               {pending ? "Working…" : mode === "up" ? "Create account" : "Sign in"}
             </button>
-            <p className="text-xs text-muted">The first sign-in loads a sample household you can edit or clear.</p>
+            <p className="text-xs text-muted">The first sign-in asks you to name the household and starts blank. A sample household can be loaded later from Customize.</p>
           </form>
           <button type="button" className="block text-sm text-honey-deep underline" onClick={() => setMode(mode === "up" ? "in" : "up")}>
             {mode === "up" ? "Already have an account" : "Need an account"}
