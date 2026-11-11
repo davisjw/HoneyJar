@@ -7,8 +7,10 @@ import { createServer } from "vite";
 
 /**
  * Loads the real household reader against a fresh database.
- * The first call seeds the sample book. The second call is what every page
- * pays after that, and it should not keep writing.
+ * The first call creates the blank household. The sample is loaded after that,
+ * the way Customize does, and one more read lets the jar backfill finish.
+ * The timed call is what every page pays once the books are already there, and
+ * it should not keep writing.
  */
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -52,10 +54,13 @@ function countedSql() {
 }
 
 const { readWorkspace } = await vite.ssrLoadModule("/src/lib/honey/data.server.ts");
+const { seedHousehold } = await vite.ssrLoadModule("/src/lib/honey/seed.ts");
 const sql = countedSql();
 const userId = "load_perf_user";
 
 const seededAt = performance.now();
+await readWorkspace(sql, userId);
+await seedHousehold(sql, userId);
 await readWorkspace(sql, userId);
 const seedMs = performance.now() - seededAt;
 
@@ -80,5 +85,4 @@ console.log(
   `household load: seed ${seedMs.toFixed(0)}ms, second load ${loadMs.toFixed(0)}ms, ${queries} queries, ${writes} writes`,
 );
 
-await vite.close();
-await pg.close();
+process.exit(0);
