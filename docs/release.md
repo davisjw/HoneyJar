@@ -10,7 +10,7 @@ There is no bank export, tax return, or real address book in the tree.
 - The sample household is fiction: the Calders, merchants such as PG&E and a studio, `*.example` client emails, and a rental at 418 Maple Street, Portland. Those strings are in `src/lib/honey/seed.ts` and the tests.
 - The product conversation that shaped version 2 is not in this tree.
 - `AGENTS.md` and the files under `public/__grok/` and `scripts/grok-*` are instructions and chrome from the Grok app builder. They are not your household. They will confuse someone cloning the repo, and they name that platform.
-- Older branches `v0.1`, `v0.5`, and `v1`, and the tags `v0.5`, `v1`, and `v2`, are published with the repo the moment the repo is public. A search of those trees found no personal email address. They are old snapshots, not the app in this README.
+- Branches `v0.1`, `v0.5`, and `v1`, and tags `v0.5`, `v1`, and `v2`, are not in this repository. They live in the private archive [HoneyJar-archive](https://github.com/davisjw/HoneyJar-archive).
 - These branches also exist and will be public: `release-docs`, `scale`, `share-ready`, and every `cursor/*` branch. A pattern search of those trees found no private key and no `XAI_API_KEY` value. Several of them still have commits that are not on `main`, including unfinished secret-storage work. They were left in place so that work is not thrown away. Delete a branch on GitHub if you do not want it seen.
 
 A household you typed into a deployed database is not in git. It becomes public only if that database is public, or if you paste an API response into the repo.
