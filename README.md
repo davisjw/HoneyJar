@@ -48,7 +48,7 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Choose **Need an account**. The password has to be at least 8 characters. Leave `DATABASE_URL` unset for this first run. Stopping the process does not delete the books. Deleting `data/pglite` does.
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Choose **Need an account**. The password has to be at least 8 characters. Leave `DATABASE_URL` unset for this first run. That is the local setup: one machine, books in `data/pglite`. Stopping the process does not delete the books. Deleting that directory does. The same steps, including Windows, are under [Local setup](docs/install.md#local-setup).
 
 App and Postgres together:
 
@@ -56,9 +56,11 @@ App and Postgres together:
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080). Set `BETTER_AUTH_SECRET` before you do this if anyone else can reach the machine.
+Open [http://localhost:8080](http://localhost:8080). The Compose file binds the app to localhost and ships a default auth secret that will be public with this repo. Set `BETTER_AUTH_SECRET` before anyone else can open the port. The database password in that file is `honeyjar`.
 
-The longer path is in [docs/install.md](docs/install.md): Postgres on its own, a reverse proxy, and a host that already has nginx. [docs/features.md](docs/features.md) is the screen-by-screen list. [docs/architecture.md](docs/architecture.md) is for someone changing the code.
+Advisor is on the household menu after you sign in. Grok answers only when the server has `XAI_API_KEY`. OpenAI and a local Ollama are the other two. What gets sent, and how to turn each one on, is in [Install](docs/install.md#advisor).
+
+The longer path is in [docs/install.md](docs/install.md): Postgres on its own, a reverse proxy, and a host that already has nginx. [docs/features.md](docs/features.md) is the screen-by-screen list. [docs/architecture.md](docs/architecture.md) is for someone changing the code. [docs/release.md](docs/release.md) is the list to read before the repo is public.
 
 ### Asking Grok to install it
 

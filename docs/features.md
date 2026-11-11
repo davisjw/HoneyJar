@@ -48,7 +48,7 @@ Business and property jars add invoices, mileage, and a lease. Rent invoices can
 | Documents | A title, a kind, a year, and notes. A body can be stored in the vault. A receipt (JPEG, PNG, WebP, GIF, or PDF, up to 8 MB) can be attached to a transaction or a bill. That file is encrypted on disk and is not loaded with the books. |
 | Sharing | Invite an email as editor, viewer, or advisor. They see this household after they accept. |
 | Accounts | The account list, the CSV, OFX, or QFX import, and the note that there is no bank login. |
-| Advisor | A short brief of the books, sent to Grok, OpenAI, or an Ollama server you name. It is told not to invent numbers and not to act as a broker. |
+| Advisor | A short brief of the books, sent to Grok, OpenAI, or an Ollama server you name. It is told not to invent numbers and not to act as a broker. Setup is in [Install](install.md#advisor). Grok answers only when the server has `XAI_API_KEY`. OpenAI uses a key saved in Customize. Ollama is called by the server, at the URL you set, which defaults to the same machine. |
 | Customize | Categories, rules, which nav links are hidden, API keys, the vault, and the sample household. |
 | Jars | Open, create, or archive a personal, business, or property jar. |
 

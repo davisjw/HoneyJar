@@ -4,7 +4,7 @@ HoneyJar is one app with two seats. On one machine, leave `DATABASE_URL` unset a
 
 You need Node 22 and npm.
 
-## Try it
+## Local setup
 
 ```bash
 git clone https://github.com/davisjw/HoneyJar.git
@@ -34,7 +34,21 @@ With no `DATABASE_URL`, the database is a file at `data/pglite` (override the di
 
 [Grok Build](https://x.ai/cli) is a terminal agent that runs on your computer. From this repo, ask it to follow this page. The result is the same app: Node, npm, and either the local file or Postgres. There is no separate Grok edition.
 
-Grok Bot is not an install target. HoneyJar is not a plugin for it, and the bot does not store these books. A bot that can run a shell on a machine you control can run the commands in [Try it](#try-it). You still choose the machine, and you still keep the database.
+Grok Bot is not an install target. HoneyJar is not a plugin for it, and the bot does not store these books. A bot that can run a shell on a machine you control can run the commands in [Local setup](#local-setup). You still choose the machine, and you still keep the database.
+
+## Advisor
+
+The Advisor screen is in the app after you install it. It is not part of Grok Bot, and installing HoneyJar does not sign you into Grok.
+
+Customize picks the model. The default is Grok. The server sends a short brief, not every transaction: the household name, today's date, net worth, account names and balances, the largest spending categories this period, the next eight bills, goals, a portfolio summary, and the filing status. The last eight advisor messages go along as the conversation. The model is told to use only those figures, and that it is not a broker and not filing a return.
+
+| Provider | When it answers | How to set it up |
+| --- | --- | --- |
+| Grok | The server process has `XAI_API_KEY`. A Grok chat login is not that key. | Create a key at [console.x.ai](https://console.x.ai) and put it in the environment of the process that serves the app. `npm run dev` reads the variable from the shell. Docker Compose does not pass it through unless you add `XAI_API_KEY` to the app service. The call is `https://api.x.ai/v1/chat/completions` with model `grok-4.5`. Without the key, Advisor says Grok is not available and you can switch providers. |
+| OpenAI | A key is saved on the household. | Customize, then **OpenAI**, then paste the key and choose a model. The default model is `gpt-4.1-mini`. The key is stored in the database and is not encrypted at rest. It is not shown again. |
+| Ollama | The HoneyJar process can reach the URL in Customize. The browser does not make this call. | The default is `http://127.0.0.1:11434` and model `llama3.1`. That works for `npm run dev` when Ollama is on the same machine. Inside Docker, `127.0.0.1` is the container, not your computer. Point the URL at the host, or run Ollama where the container can reach it. |
+
+Grok is the one to use when the host already has an xAI key and you do not want to store a model key in the household database. Ollama is the one to use when the brief should not leave your machine. OpenAI is the one to use when you have that key and you accept it sitting in the database.
 
 ## Docker
 
