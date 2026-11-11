@@ -292,6 +292,15 @@ If nginx is on the same machine as Docker, skip `HONEYJAR_PUBLISH` and use `prox
 
 Email and password are on. Google and X appear only when the host sets `GROK_AUTH_CLIENT_ID` and `GROK_AUTH_CLIENT_SECRET` (and, if you are not using the default broker, `GROK_AUTH_ISSUER`). Those values are not in the source. A copy you run yourself can ignore them and use email and password.
 
+The broker has to allow these redirect URLs, with the origin people type in the browser:
+
+```text
+https://books.example.com/api/auth/callback/grok-google
+https://books.example.com/api/auth/callback/grok-x
+```
+
+Better Auth 1.7 does not serve `/api/auth/oauth2/callback/grok-google` or `/api/auth/oauth2/callback/grok-x`. A broker app still registered on those old paths has to be updated.
+
 ## OpenID Connect
 
 Email and password stay on the sign-in page. Google and X stay too, and they still appear only when the broker client is set. A directory adds one more button. Leave the `OIDC_` variables unset and that button is not shown.
