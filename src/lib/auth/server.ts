@@ -149,6 +149,9 @@ const grokConfigs = oauthConfigured
       tokenUrl: grokTokenUrl,
       userInfoUrl: grokUserInfoUrl,
       scopes: ["openid", "profile", "email"],
+      // The broker this app talks to does not require PKCE. 1.7 turns it on
+      // unless it is set off.
+      pkce: false,
       // `prompt: "login"` forces the broker to re-authenticate against the
       // upstream on every sign-in instead of silently reusing an existing
       // broker session. Combined with the broker sending Google

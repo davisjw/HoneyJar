@@ -299,10 +299,10 @@ Email and password stay on the sign-in page. Google and X stay too, and they sti
 Any OpenID Connect directory works. The steps below use Authentik. Okta, Microsoft Entra, Google Workspace, Keycloak, and Auth0 use the same four variables. The redirect URL HoneyJar gives the directory is always:
 
 ```text
-https://books.example.com/api/auth/oauth2/callback/oidc
+https://books.example.com/api/auth/callback/oidc
 ```
 
-Use the origin people type in the browser. No trailing slash on the origin. The path is fixed.
+Use the origin people type in the browser. No trailing slash on the origin. The path is fixed. A directory that was pointed at `/api/auth/oauth2/callback/oidc` has to be changed to this path. Better Auth 1.7 no longer serves the old one.
 
 ### Authentik
 
