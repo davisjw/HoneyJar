@@ -268,14 +268,17 @@ export async function readWorkspace(
   let books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage, leases, meters, utilColumns, utilReadings).map((book) =>
     annotateJar(book, today, startDay),
   );
+  const home = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
   let txnHasMore = false;
   if (opts?.window) {
-    const focus = opts.focusLedgerId || "";
-    if (focus) {
-      const older = await sql`select 1 from transactions where user_id = ${owner} and ledger_id = ${focus} and posted_on < ${since} limit 1`;
+    const requested = opts.focusLedgerId || "";
+    const focused = requested ? books.find((book) => book.id === requested) : undefined;
+    const keep = focused?.id || home?.id || "";
+    if (keep) {
+      const older = await sql`select 1 from transactions where user_id = ${owner} and ledger_id = ${keep} and posted_on < ${since} limit 1`;
       txnHasMore = older.length > 0;
     }
-    books = books.map((book) => (focus && book.id === focus ? book : { ...book, transactions: [] }));
+    books = books.map((book) => (keep && book.id === keep ? book : { ...book, transactions: [] }));
   }
   const primary = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
 

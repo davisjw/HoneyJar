@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { exportZip } from "./zip.ts";
-import { parseExportFile, planImport } from "./import-book.ts";
+import { countExportedTransactions, parseExportFile, planImport } from "./import-book.ts";
 
 describe("household import", () => {
   it("reads an export zip and rewrites ids onto this sign-in", async () => {
@@ -23,6 +23,7 @@ describe("household import", () => {
     };
     const zip = exportZip(book, [{ id: "doc-1", fileName: "scan.pdf", dataBase64: btoa("hello") }]);
     const parsed = parseExportFile(zip);
+    assert.equal(countExportedTransactions(parsed.book), 1);
     const planned = planImport(parsed.book, "User 1");
     assert.equal(planned.profile.displayName, "Calder household");
     assert.equal(planned.profile.filingStatus, "mfj");

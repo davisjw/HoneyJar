@@ -97,6 +97,12 @@ function matchDocument(name: string, ids: string[]): string {
   return hit;
 }
 
+/** Transactions stored on the jars in an export. The root list is the same personal jar, not a second copy. */
+export function countExportedTransactions(book: unknown): number {
+  const root = asBag(book);
+  return arr(root?.ledgers).reduce((sum, ledger) => sum + arr(ledger.transactions).length, 0);
+}
+
 /** A HoneyJar zip, or a honeyjar.json file saved on its own. */
 export function parseExportFile(bytes: Uint8Array): { book: unknown; files: ImportFile[] } {
   if (bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b) {

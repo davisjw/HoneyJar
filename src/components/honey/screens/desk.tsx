@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SliceTip, axisTick } from "../charts";
 import { askAdvisor, changeOwnPassword, exportHousehold, importHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
-import { parseExportFile } from "@/lib/honey/import-book";
+import { parseExportFile, countExportedTransactions } from "@/lib/honey/import-book";
 import { exportZip } from "@/lib/honey/zip";
 import { signOut } from "@/lib/auth/client";
 import {
@@ -930,7 +930,7 @@ export function SettingsPage() {
   const [sampleStep, setSampleStep] = useState<null | "risk" | "export" | "download">(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
-  const [pendingImport, setPendingImport] = useState<{ book: unknown; files: { id: string; dataBase64: string }[]; jars: number; name: string } | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ book: unknown; files: { id: string; dataBase64: string }[]; jars: number; transactions: number; name: string } | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const [blankOpen, setBlankOpen] = useState(false);
   const [blankName, setBlankName] = useState("");
@@ -1273,6 +1273,7 @@ export function SettingsPage() {
                       book: parsed.book,
                       files: parsed.files,
                       jars: book.ledgers.length,
+                      transactions: countExportedTransactions(parsed.book),
                       name: String(book.profile.displayName || "this household"),
                     });
                     setImportOpen(true);
@@ -1311,7 +1312,7 @@ export function SettingsPage() {
       ) : null}
       <Modal open={importOpen} title="Import a household" onClose={() => { if (!importBusy) setImportOpen(false); }}>
         <div className="space-y-3">
-          <p className="text-sm">This replaces the books on this sign-in with {pendingImport?.name ?? "the file"} ({pendingImport?.jars ?? 0} jars). Jars, transactions, bills, and the tax figures are erased. That cannot be undone unless you export first. The sign-in and API keys stay.</p>
+          <p className="text-sm">This replaces the books on this sign-in with {pendingImport?.name ?? "the file"} ({pendingImport?.jars ?? 0} jars, {pendingImport?.transactions ?? 0} transactions). Jars, transactions, bills, and the tax figures are erased. That cannot be undone unless you export first. The sign-in and API keys stay.</p>
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={importBusy}
