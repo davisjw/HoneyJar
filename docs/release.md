@@ -33,7 +33,7 @@ Do these before you flip the repository to public, and again before anyone else 
 - Pull requests and pushes to `main` run [the test workflow](../.github/workflows/ci.yml) and [CodeQL](../.github/workflows/codeql.yml). The test workflow runs `npm run test:app` and `npm run typecheck`. It does not run `scripts/**/*.test.mjs`. Those checks expect the Grok builder tree, including `.grok/`, and that directory is not in this repository. `npm audit --audit-level=high` is the other job. Report a vulnerability the way [SECURITY.md](../SECURITY.md) says, not in a public issue. Code scanning has to be turned on in the repository settings before the CodeQL job can upload results. On a private repository that setting is part of GitHub Code Security. It is free once the repository is public.
 - The README and these docs, kept true when a screen changes. [architecture.md](architecture.md) is the note for someone changing the code. Its closing section is older than the business jar and the portfolio. Prefer [features.md](features.md) for what the app does now.
 - A hosted instance only after the items above. Source on its own is enough for someone technical to run it.
-- A one-line backup story: `pg_dump` of `DATABASE_URL`. There is no full-household export in the app. Taxes can export a schedule. That is not a backup.
+- A one-line backup story: `pg_dump` of `DATABASE_URL`. Customize can export a zip of the jars this sign-in owns, and can import that zip back. That zip is not a copy of the database. Taxes can export a schedule. That is not a backup either.
 - A place to file issues, and a sentence that the tax screen is a planner.
 
 ## Not built, and easy to forget
@@ -41,6 +41,6 @@ Do these before you flip the repository to public, and again before anyone else 
 - No bank connection, and no plan to store a bank password.
 - The public API reads people, utility meters and readings, document names (not bodies), and each jar. It still does not return vault bodies.
 - MCP `list_transactions` and `list_jars` take `from`, `to`, and `limit`. `list_jars` also takes `id`.
-- Customize can export the owned jars as JSON, and can delete the sign-in after the household name is typed. There is still no audit of every edit. The activity list covers sign-in, password changes, recovery codes, export, delete, API keys, and invites.
+- Customize can export the owned jars as a zip and import that zip, replacing the books on that sign-in. It can delete the sign-in after the household name is typed. There is still no audit of every edit. The activity list covers sign-in, password changes, recovery codes, export, import, delete, API keys, and invites.
 - Page budgets in `npm test` catch an expensive screen. They do not catch a hostile API client.
 - `package.json` is marked `"private": true`. That only stops `npm publish`. It does not stop GitHub from showing the code.

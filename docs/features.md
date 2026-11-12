@@ -49,7 +49,7 @@ Business and property jars add invoices, mileage, and a lease. Rent invoices can
 | Sharing | Invite an email as editor, viewer, or advisor. They see this household after they accept. |
 | Accounts | The account list, the CSV, OFX, or QFX import, and the note that there is no bank login. |
 | Advisor | A short brief of the books, sent to Grok, OpenAI, or an Ollama server you name. It is told not to invent numbers and not to act as a broker. Setup is in [Install](install.md#advisor). Grok answers only when the server has `XAI_API_KEY`. OpenAI uses a key saved in Customize. Ollama is called by the server, at the URL you set, which defaults to the same machine. |
-| Customize | Categories, rules, which nav links are hidden, API keys (read only, or allowed to add a transaction), the vault, and the sample household. |
+| Customize | Categories, rules, which nav links are hidden, API keys (read only, or allowed to add a transaction), the vault, and the sample household. Export downloads a zip of the jars this sign-in owns. Import replaces those books from that zip. |
 | Jars | Open, create, or archive a personal, business, or property jar. |
 
 ## Vault

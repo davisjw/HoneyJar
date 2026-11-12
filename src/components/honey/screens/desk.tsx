@@ -2,7 +2,8 @@ import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SliceTip, axisTick } from "../charts";
-import { askAdvisor, changeOwnPassword, exportHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
+import { askAdvisor, changeOwnPassword, exportHousehold, importHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
+import { parseExportFile } from "@/lib/honey/import-book";
 import { exportZip } from "@/lib/honey/zip";
 import { signOut } from "@/lib/auth/client";
 import {
@@ -898,7 +899,7 @@ export function AdvisorPage() {
 }
 
 export function SettingsPage() {
-  const { data, run, isOwner, vaultKey, setVaultKey } = useBook();
+  const { data, run, reload, isOwner, vaultKey, setVaultKey } = useBook();
   const [pass, setPass] = useState("");
   const [openai, setOpenai] = useState("");
   const [token, setToken] = useState("");
@@ -927,6 +928,10 @@ export function SettingsPage() {
   const [careError, setCareError] = useState("");
   const [localPassword, setLocalPassword] = useState<boolean | null>(null);
   const [sampleStep, setSampleStep] = useState<null | "risk" | "export" | "download">(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [pendingImport, setPendingImport] = useState<{ book: unknown; files: { id: string; dataBase64: string }[]; jars: number; name: string } | null>(null);
+  const importInput = useRef<HTMLInputElement>(null);
   const [blankOpen, setBlankOpen] = useState(false);
   const [blankName, setBlankName] = useState("");
   const [rulePattern, setRulePattern] = useState("");
@@ -1246,11 +1251,42 @@ export function SettingsPage() {
             >
               Export everything
             </Button>
+            <Button tone="quiet" onClick={() => importInput.current?.click()}>Import a household</Button>
+            <input
+              ref={importInput}
+              type="file"
+              accept=".zip,.json,application/zip,application/json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                void file.arrayBuffer().then((buf) => {
+                  setCareError("");
+                  try {
+                    const parsed = parseExportFile(new Uint8Array(buf));
+                    const book = parsed.book as { ledgers?: unknown; profile?: { displayName?: string } };
+                    if (!book || typeof book !== "object" || !Array.isArray(book.ledgers) || !book.profile) {
+                      throw new Error("This file is not a HoneyJar export.");
+                    }
+                    setPendingImport({
+                      book: parsed.book,
+                      files: parsed.files,
+                      jars: book.ledgers.length,
+                      name: String(book.profile.displayName || "this household"),
+                    });
+                    setImportOpen(true);
+                  } catch (err) {
+                    setCareError(err instanceof Error ? err.message : "Could not read that file");
+                  }
+                }).catch(() => setCareError("Could not read that file"));
+              }}
+            />
             <Button tone="danger" onClick={() => run({ type: "sample.clear" })}>Clear books</Button>
             <Button tone="quiet" onClick={() => { setBlankName(""); setBlankOpen(true); }}>Start blank</Button>
             <Button tone="quiet" onClick={() => setSampleStep("risk")}>Load sample household</Button>
           </div>
-          <p className="mt-2 text-xs text-muted">Export is a zip of every jar this sign-in owns, including older transactions, plus the receipt files decrypted from disk. honeyjar.json is the books. The files folder holds each picture or PDF. A receipt that cannot be read is named in files-missing.txt. API keys are not included. Clear keeps the starter category names and your sign-in, and it zeros the monthly plan and the tax figures. Start blank does that and lets you name the household. Load sample replaces the books with the Calder household after you confirm. Deleting the account signs you out. The next sign-in starts blank and asks for a name. It does not bring the sample back.</p>
+          <p className="mt-2 text-xs text-muted">Export is a zip of every jar this sign-in owns, including older transactions, plus the receipt files decrypted from disk. honeyjar.json is the books. The files folder holds each picture or PDF. A receipt that cannot be read is named in files-missing.txt. API keys are not included. Import reads that zip, or a honeyjar.json file, and replaces the books on this sign-in. The sign-in and API keys stay. The OpenAI key stays, because the export does not contain it. Clear keeps the starter category names and your sign-in, and it zeros the monthly plan and the tax figures. Start blank does that and lets you name the household. Load sample replaces the books with the Calder household after you confirm. Deleting the account signs you out. The next sign-in starts blank and asks for a name. It does not bring the sample back.</p>
           <form
             className="mt-3 flex flex-wrap gap-2"
             onSubmit={async (e) => {
@@ -1273,6 +1309,34 @@ export function SettingsPage() {
           </form>
         </Card>
       ) : null}
+      <Modal open={importOpen} title="Import a household" onClose={() => { if (!importBusy) setImportOpen(false); }}>
+        <div className="space-y-3">
+          <p className="text-sm">This replaces the books on this sign-in with {pendingImport?.name ?? "the file"} ({pendingImport?.jars ?? 0} jars). Jars, transactions, bills, and the tax figures are erased. That cannot be undone unless you export first. The sign-in and API keys stay.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={importBusy}
+              onClick={async () => {
+                if (!pendingImport) return;
+                setImportBusy(true);
+                setCareError("");
+                try {
+                  await importHousehold({ data: { book: pendingImport.book, files: pendingImport.files } });
+                  setImportOpen(false);
+                  setPendingImport(null);
+                  await reload();
+                } catch (err) {
+                  setCareError(err instanceof Error ? err.message : "Could not import that file");
+                } finally {
+                  setImportBusy(false);
+                }
+              }}
+            >
+              {importBusy ? "Importing…" : "Replace the books"}
+            </Button>
+            <Button tone="quiet" disabled={importBusy} onClick={() => setImportOpen(false)}>Cancel</Button>
+          </div>
+        </div>
+      </Modal>
       <Modal open={sampleStep !== null} title="Load the sample household" onClose={() => setSampleStep(null)}>
         {sampleStep === "risk" ? (
           <div className="space-y-3">
