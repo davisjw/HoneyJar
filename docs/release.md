@@ -34,7 +34,7 @@ Do these before you flip the repository to public, and again before anyone else 
 - The README and these docs, kept true when a screen changes. [architecture.md](architecture.md) is the note for someone changing the code. Its closing section is older than the business jar and the portfolio. Prefer [features.md](features.md) for what the app does now.
 - A hosted instance only after the items above. Source on its own is enough for someone technical to run it.
 - A one-line backup story: `pg_dump` of `DATABASE_URL`. Customize can export a zip of the jars this sign-in owns, and can import that zip back. That zip is not a copy of the database. Taxes can export a schedule. That is not a backup either.
-- A place to file issues, and a sentence that the tax screen is a planner.
+- A place to file issues. Bug and change forms are in [.github/ISSUE_TEMPLATE](../.github/ISSUE_TEMPLATE). Pull requests use [.github/PULL_REQUEST_TEMPLATE.md](../.github/PULL_REQUEST_TEMPLATE.md). [CONTRIBUTING.md](../CONTRIBUTING.md) is the short path. The tax screen is a planner, not a return.
 
 ## Not built, and easy to forget
 

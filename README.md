@@ -77,6 +77,6 @@ Grok Bot is a different product. HoneyJar is not a bot plugin, and the bot does 
 
 ## License
 
-[Apache License 2.0](LICENSE). Report a vulnerability the way [SECURITY.md](SECURITY.md) describes. Do not put a household export in an issue.
+[Apache License 2.0](LICENSE). Report a vulnerability the way [SECURITY.md](SECURITY.md) describes. Do not put a household export in an issue. Changes go through [CONTRIBUTING.md](CONTRIBUTING.md). People working on the project follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 `AGENTS.md`, `public/__grok/`, and `scripts/grok-*` are instructions from the builder that produced this app. They are not required to run HoneyJar.

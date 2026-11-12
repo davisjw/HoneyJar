@@ -1,0 +1,63 @@
+name: Bug
+description: Something in HoneyJar did the wrong thing.
+title: ""
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste a household export, an API key, a database dump, or a real account number. A vulnerability goes through private reporting, not this form.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Before you file
+      options:
+        - label: This report has no household export, API key, database dump, or real account number.
+          required: true
+        - label: This is not a security vulnerability. I used SECURITY.md for those.
+          required: true
+  - type: textarea
+    id: did
+    attributes:
+      label: What you did
+      description: The screen and the steps. Name the jar if it was not the personal one.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: dropdown
+    id: seat
+    attributes:
+      label: How you run it
+      options:
+        - One machine, no DATABASE_URL (data/pglite)
+        - Docker Compose
+        - Postgres I run myself
+        - I do not know
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or version
+      description: The output of `git rev-parse --short HEAD` if you have the clone. Otherwise the version you pulled.
+      placeholder: 51b530f
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Node version if it is not 22. A screenshot is fine if it shows no balances you would not show a stranger.
+    validations:
+      required: false
