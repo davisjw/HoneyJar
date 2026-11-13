@@ -310,9 +310,13 @@ describe("production secret guard", () => {
       new URL("../../../server/middleware/00-production-secret.ts", import.meta.url),
       "utf8",
     );
-    assert.match(auth, /secret:\s*secretForAuth\(previewAuthSecret\)/);
+    const enforceAt = auth.indexOf("enforceProductionSecret()");
+    const ensureAt = auth.indexOf("ensureAuthSecretSync()");
+    const bootAt = auth.indexOf("bootSecret.current");
+    assert.ok(enforceAt >= 0 && ensureAt > enforceAt);
+    assert.ok(bootAt > enforceAt);
     assert.doesNotMatch(auth, /env\("BETTER_AUTH_SECRET"\)\s*\?\?\s*previewAuthSecret/);
-    assert.match(files, /secretForFiles\(\)/);
+    assert.match(files, /activeFileSecrets\(\)/);
     assert.doesNotMatch(files, /honeyjar-dev-secret-change-me/);
     assert.match(middleware, /productionSecretHttpResponse/);
 

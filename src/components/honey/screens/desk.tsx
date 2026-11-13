@@ -1,8 +1,9 @@
 import { useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { SliceTip, axisTick } from "../charts";
-import { askAdvisor, changeOwnPassword, exportHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
+import { askAdvisor, changeOwnPassword, exportHousehold, importHousehold, listAudit, localSignIn } from "@/lib/honey/fns";
+import { parseExportFile, countExportedTransactions } from "@/lib/honey/import-book";
 import { exportZip } from "@/lib/honey/zip";
 import { signOut } from "@/lib/auth/client";
 import {
@@ -22,7 +23,7 @@ import {
   vehicleLine,
   withMileage,
 } from "@/lib/honey/calc";
-import type { Account, Category, Profile, ProfilePatch, Reminder, Watch } from "@/lib/honey/types";
+import type { Account, ActionResult, Category, Profile, ProfilePatch, Reminder, Watch } from "@/lib/honey/types";
 import { createVault, decryptText, encryptText, unlockVault } from "@/lib/honey/vault";
 import { NAV_IDS } from "../shell";
 import { BankSelect } from "../contact-field";
@@ -898,22 +899,39 @@ export function AdvisorPage() {
 }
 
 export function SettingsPage() {
-  const { data, run, isOwner, vaultKey, setVaultKey } = useBook();
+  const { data, run, reload, isOwner, vaultKey, setVaultKey } = useBook();
   const [pass, setPass] = useState("");
   const [openai, setOpenai] = useState("");
   const [token, setToken] = useState("");
   const [keyName, setKeyName] = useState("Advisor key");
   const [keyDays, setKeyDays] = useState("");
+  const [keyScope, setKeyScope] = useState<"read" | "write">("read");
   const [tryOut, setTryOut] = useState("");
   const [cat, setCat] = useState<Partial<Category> | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [recovery, setRecovery] = useState("");
+  const [serverKey, setServerKey] = useState<NonNullable<ActionResult["authSecret"]> | null>(null);
+  const [nextServerKey, setNextServerKey] = useState("");
+  const [pastedServerKey, setPastedServerKey] = useState("");
+  const [serverKeyError, setServerKeyError] = useState("");
+  const serverKeyLoaded = useRef(false);
   const [confirmDelete, setConfirmDelete] = useState("");
   const [audit, setAudit] = useState<{ id: string; action: string; detail: string; createdAt: string }[]>([]);
+  useEffect(() => {
+    if (!isOwner || serverKeyLoaded.current) return;
+    serverKeyLoaded.current = true;
+    void run({ type: "authsecret.status" }).then((res) => {
+      if (res.authSecret) setServerKey(res.authSecret);
+    }).catch(() => undefined);
+  }, [isOwner, run]);
   const [careError, setCareError] = useState("");
   const [localPassword, setLocalPassword] = useState<boolean | null>(null);
   const [sampleStep, setSampleStep] = useState<null | "risk" | "export" | "download">(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [pendingImport, setPendingImport] = useState<{ book: unknown; files: { id: string; dataBase64: string }[]; jars: number; transactions: number; name: string } | null>(null);
+  const importInput = useRef<HTMLInputElement>(null);
   const [blankOpen, setBlankOpen] = useState(false);
   const [blankName, setBlankName] = useState("");
   const [rulePattern, setRulePattern] = useState("");
@@ -1058,14 +1076,18 @@ export function SettingsPage() {
       {isOwner ? (
         <Card>
           <h2 className="font-display text-xl">API & MCP</h2>
-          <p className="mt-1 text-sm text-muted">Bearer keys for your own tools. REST lives at /api/v1. MCP is a JSON-RPC post to /api/mcp with methods tools/list and tools/call.</p>
+          <p className="mt-1 text-sm text-muted">Bearer keys for your own tools. A read-only key can look and cannot add a transaction. REST lives at /api/v1. MCP is a JSON-RPC post to /api/mcp with methods tools/list and tools/call.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <input className={`${fieldClass} max-w-xs`} value={keyName} onChange={(e) => setKeyName(e.target.value)} />
             <input className={`${fieldClass} max-w-[8rem]`} inputMode="numeric" placeholder="Days, or blank" value={keyDays} onChange={(e) => setKeyDays(e.target.value)} />
+            <select className={fieldClass} value={keyScope} onChange={(e) => setKeyScope(e.target.value === "write" ? "write" : "read")}>
+              <option value="read">Read only</option>
+              <option value="write">Can add a transaction</option>
+            </select>
             <Button
               onClick={async () => {
                 const days = Number(keyDays);
-                const res = await run({ type: "apikey.create", name: keyName, expiresInDays: Number.isFinite(days) && days > 0 ? days : undefined });
+                const res = await run({ type: "apikey.create", name: keyName, expiresInDays: Number.isFinite(days) && days > 0 ? days : undefined, scope: keyScope });
                 setToken(res.token ?? "");
               }}
             >
@@ -1076,7 +1098,7 @@ export function SettingsPage() {
           <ul className="mt-3 text-sm">
             {data.keys.map((k) => (
               <li key={k.id} className="flex justify-between py-1">
-                <span>{k.name} · {k.prefix}…{k.expiresAt ? ` · until ${k.expiresAt.slice(0, 10)}` : ""}</span>
+                <span>{k.name} · {k.prefix}… · {k.scope === "read" ? "read only" : "can add a transaction"}{k.expiresAt ? ` · until ${k.expiresAt.slice(0, 10)}` : ""}</span>
                 <button type="button" className="text-clay" onClick={() => run({ type: "apikey.revoke", id: k.id })}>Revoke</button>
               </li>
             ))}
@@ -1093,6 +1115,68 @@ export function SettingsPage() {
             </Button>
           </div>
           {tryOut ? <pre className="mt-2 max-h-48 overflow-auto rounded-xl bg-paper p-3 text-xs">{tryOut}</pre> : null}
+        </Card>
+      ) : null}
+      {isOwner ? (
+        <Card>
+          <h2 className="font-display text-xl">Server key</h2>
+          <p className="mt-1 text-sm text-muted">This key signs sessions and seals receipt files for every household on this machine. A new key is stored only after every receipt has been rewritten. Until then both keys still open a receipt. Copy the old key before you leave this page. It is not shown again once the move finishes.</p>
+          {serverKeyError ? <p className="mt-2 text-sm text-clay">{serverKeyError}</p> : null}
+          {serverKey?.oldKey ? (
+            <p className="mt-2 break-all rounded-xl bg-honey-soft px-3 py-2 text-sm">Old key: {serverKey.oldKey}</p>
+          ) : null}
+          {serverKey && !serverKey.finished ? (
+            <p className="mt-2 text-sm">{serverKey.pending} receipt{serverKey.pending === 1 ? "" : "s"} still on the old key.{serverKey.failed.length ? ` ${serverKey.failed.length} could not be opened.` : ""}</p>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input className={`${fieldClass} max-w-xs`} value={nextServerKey} onChange={(e) => setNextServerKey(e.target.value)} placeholder="New key, or blank to generate one" autoComplete="off" />
+            <Button
+              onClick={async () => {
+                setServerKeyError("");
+                try {
+                  const res = await run({ type: "authsecret.rotate", nextSecret: nextServerKey.trim() || undefined });
+                  setServerKey(res.authSecret ?? null);
+                  setNextServerKey("");
+                } catch (err) {
+                  setServerKeyError(err instanceof Error ? err.message : "Could not change the server key");
+                }
+              }}
+            >
+              Change server key
+            </Button>
+            {serverKey && !serverKey.finished ? (
+              <Button
+                tone="quiet"
+                onClick={async () => {
+                  setServerKeyError("");
+                  try {
+                    const res = await run({ type: "authsecret.resume" });
+                    setServerKey(res.authSecret ?? null);
+                  } catch (err) {
+                    setServerKeyError(err instanceof Error ? err.message : "Could not resume");
+                  }
+                }}
+              >
+                Resume
+              </Button>
+            ) : null}
+          </div>
+          <form
+            className="mt-3 flex flex-wrap gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setServerKeyError("");
+              try {
+                const res = await run({ type: "authsecret.migrate", oldKey: pastedServerKey });
+                setServerKey(res.authSecret ?? null);
+              } catch (err) {
+                setServerKeyError(err instanceof Error ? err.message : "Could not check those receipts");
+              }
+            }}
+          >
+            <input className={`${fieldClass} max-w-xs`} value={pastedServerKey} onChange={(e) => setPastedServerKey(e.target.value)} placeholder="Old key to check receipts against" autoComplete="off" />
+            <Button type="submit" tone="quiet">Check old receipts</Button>
+          </form>
         </Card>
       ) : null}
       {isOwner ? (
@@ -1167,11 +1251,43 @@ export function SettingsPage() {
             >
               Export everything
             </Button>
+            <Button tone="quiet" onClick={() => importInput.current?.click()}>Import a household</Button>
+            <input
+              ref={importInput}
+              type="file"
+              accept=".zip,.json,application/zip,application/json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                void file.arrayBuffer().then((buf) => {
+                  setCareError("");
+                  try {
+                    const parsed = parseExportFile(new Uint8Array(buf));
+                    const book = parsed.book as { ledgers?: unknown; profile?: { displayName?: string } };
+                    if (!book || typeof book !== "object" || !Array.isArray(book.ledgers) || !book.profile) {
+                      throw new Error("This file is not a HoneyJar export.");
+                    }
+                    setPendingImport({
+                      book: parsed.book,
+                      files: parsed.files,
+                      jars: book.ledgers.length,
+                      transactions: countExportedTransactions(parsed.book),
+                      name: String(book.profile.displayName || "this household"),
+                    });
+                    setImportOpen(true);
+                  } catch (err) {
+                    setCareError(err instanceof Error ? err.message : "Could not read that file");
+                  }
+                }).catch(() => setCareError("Could not read that file"));
+              }}
+            />
             <Button tone="danger" onClick={() => run({ type: "sample.clear" })}>Clear books</Button>
             <Button tone="quiet" onClick={() => { setBlankName(""); setBlankOpen(true); }}>Start blank</Button>
             <Button tone="quiet" onClick={() => setSampleStep("risk")}>Load sample household</Button>
           </div>
-          <p className="mt-2 text-xs text-muted">Export is a zip of every jar this sign-in owns, including older transactions, plus the receipt files decrypted from disk. honeyjar.json is the books. The files folder holds each picture or PDF. A receipt that cannot be read is named in files-missing.txt. API keys are not included. Clear keeps the starter category names and your sign-in, and it zeros the monthly plan and the tax figures. Start blank does that and lets you name the household. Load sample replaces the books with the Calder household after you confirm. Deleting the account signs you out. The next sign-in starts blank and asks for a name. It does not bring the sample back.</p>
+          <p className="mt-2 text-xs text-muted">Export is a zip of every jar this sign-in owns, including older transactions, plus the receipt files decrypted from disk. honeyjar.json is the books. The files folder holds each picture or PDF. A receipt that cannot be read is named in files-missing.txt. API keys are not included. Import reads that zip, or a honeyjar.json file, and replaces the books on this sign-in. The sign-in and API keys stay. The OpenAI key stays, because the export does not contain it. Clear keeps the starter category names and your sign-in, and it zeros the monthly plan and the tax figures. Start blank does that and lets you name the household. Load sample replaces the books with the Calder household after you confirm. Deleting the account signs you out. The next sign-in starts blank and asks for a name. It does not bring the sample back.</p>
           <form
             className="mt-3 flex flex-wrap gap-2"
             onSubmit={async (e) => {
@@ -1194,6 +1310,34 @@ export function SettingsPage() {
           </form>
         </Card>
       ) : null}
+      <Modal open={importOpen} title="Import a household" onClose={() => { if (!importBusy) setImportOpen(false); }}>
+        <div className="space-y-3">
+          <p className="text-sm">This replaces the books on this sign-in with {pendingImport?.name ?? "the file"} ({pendingImport?.jars ?? 0} jars, {pendingImport?.transactions ?? 0} transactions). Jars, transactions, bills, and the tax figures are erased. That cannot be undone unless you export first. The sign-in and API keys stay.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={importBusy}
+              onClick={async () => {
+                if (!pendingImport) return;
+                setImportBusy(true);
+                setCareError("");
+                try {
+                  await importHousehold({ data: { book: pendingImport.book, files: pendingImport.files } });
+                  setImportOpen(false);
+                  setPendingImport(null);
+                  await reload();
+                } catch (err) {
+                  setCareError(err instanceof Error ? err.message : "Could not import that file");
+                } finally {
+                  setImportBusy(false);
+                }
+              }}
+            >
+              {importBusy ? "Importing…" : "Replace the books"}
+            </Button>
+            <Button tone="quiet" disabled={importBusy} onClick={() => setImportOpen(false)}>Cancel</Button>
+          </div>
+        </div>
+      </Modal>
       <Modal open={sampleStep !== null} title="Load the sample household" onClose={() => setSampleStep(null)}>
         {sampleStep === "risk" ? (
           <div className="space-y-3">

@@ -30,3 +30,6 @@ public/summary-examples/
 # Local Compose overrides. docker compose up loads this when it exists.
 compose.override.yaml
 compose.override.yml
+
+# Local exports and screenshots. Not part of the app.
+attachments/

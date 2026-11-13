@@ -15,7 +15,9 @@
 # secret. Copy .env.example to .env and set BETTER_AUTH_SECRET before the
 # first start. Compose reads .env on its own. Keep an existing secret value
 # if this install already had one (see docs/upgrade.md).
-#
+# If the app is started outside Compose with no BETTER_AUTH_SECRET, the first
+# start generates a key and keeps it in the honeyjar-auth volume. The public
+# default is not used.
 # A compose.override.yaml next to this file is local and gitignored. Compose
 # loads it when it exists and does not fail when it does not. See
 # compose.override.example.yaml. Do not include that file from here: include
@@ -44,9 +46,11 @@ services:
       OIDC_PKCE: ${OIDC_PKCE:-}
     volumes:
       - honeyjar-files:/app/data/files
+      - honeyjar-auth:/app/data/auth
     depends_on:
       postgres:
         condition: service_healthy
 
 volumes:
   honeyjar-files:
+  honeyjar-auth:
