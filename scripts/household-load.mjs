@@ -7,10 +7,10 @@ import { createServer } from "vite";
 
 /**
  * Loads the real household reader against a fresh database.
- * The first call creates the blank household. The sample is loaded after that,
- * the way Customize does, and one more read lets the jar backfill finish.
- * The timed call is what every page pays once the books are already there, and
- * it should not keep writing.
+ *
+ * A new household starts blank (`seedBlank`). The Calder sample is loaded
+ * only from Customize, which calls `seedHousehold`. The timed read is the
+ * page load after that sample is in place, and it should not keep writing.
  */
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -58,11 +58,18 @@ const { seedHousehold } = await vite.ssrLoadModule("/src/lib/honey/seed.ts");
 const sql = countedSql();
 const userId = "load_perf_user";
 
+const blank = await readWorkspace(sql, userId);
+const blankJar = blank.ledgers.find((ledger) => ledger.kind === "personal");
+assert.ok(blankJar, "a new household has a personal jar");
+assert.equal(blankJar.transactions.length, 0, "a new household does not start on the sample");
+
 const seededAt = performance.now();
-await readWorkspace(sql, userId);
 await seedHousehold(sql, userId);
-await readWorkspace(sql, userId);
 const seedMs = performance.now() - seededAt;
+
+// The next read finishes one-time sample backfills (business, property, utilities).
+// The read after that is what every later page pays.
+await readWorkspace(sql, userId);
 
 queries = 0;
 writes = 0;
