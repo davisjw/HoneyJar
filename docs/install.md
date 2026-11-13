@@ -63,16 +63,22 @@ npm run db:migrate
 npm run dev
 ```
 
-App and Postgres together:
+App and Postgres together. Compose sets `HONEYJAR_ENV` to `production` and will not start without `BETTER_AUTH_SECRET`. It does not ship a development secret.
+
+```bash
+cp .env.example .env
+openssl rand -base64 32
+```
+
+Paste that value into `BETTER_AUTH_SECRET` in `.env`, then:
 
 ```bash
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. Leave `BETTER_AUTH_SECRET` unset and the container generates one on first start, stored in the `honeyjar-auth` volume. Set it yourself if you want to choose the key. Receipts sealed with an older key are rewritten before that older key is dropped. The database port is bound to `127.0.0.1` only. On a remote host, follow [Nginx on a different machine from Docker](#nginx-on-a-different-machine-from-docker) instead of opening port 8080.
+Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. An install that already had its own secret must keep that same value. See [upgrade.md](upgrade.md). Outside Compose, leaving `BETTER_AUTH_SECRET` unset makes the first start generate one and store it in the `honeyjar-auth` volume. Set it yourself if you want to choose the key. Receipts sealed with an older key are rewritten before that older key is dropped. The database port is bound to `127.0.0.1` only. On a remote host, follow [Nginx on a different machine from Docker](#nginx-on-a-different-machine-from-docker) instead of opening port 8080.
 
 Local Compose changes belong in `compose.override.yaml`, copied from [compose.override.example.yaml](../compose.override.example.yaml). `docker compose up` loads that file when it is present and does not fail when it is absent. It is gitignored, so a pull does not replace it. An `include` cannot do this: Compose stops if an included path is missing, and an include is not allowed to override a service defined in the included file. If you pass `-f` yourself, Compose no longer looks for the override. Add `-f compose.override.yaml` last, and only when the file exists.
-
 
 ## Keep the data
 
@@ -82,6 +88,7 @@ Use any Postgres 15 or newer, including [Neon](https://neon.tech).
 export DATABASE_URL="postgres://USER:PASSWORD@HOST/honeyjar?sslmode=require"
 export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
 export BETTER_AUTH_URL="https://books.example.com"
+export HONEYJAR_ENV=production
 npm run build
 npm run preview
 ```
@@ -90,7 +97,21 @@ npm run preview
 
 `BETTER_AUTH_URL` must be the origin users type in the browser, with no path. A mismatch makes sign-in fail with `Invalid origin`.
 
-Put those three variables in the host's environment. Do not commit them. There is no `.env` file in this repo on purpose.
+## Production mode
+
+`HONEYJAR_ENV=production` means this install is a real one, on any host. Docker Compose sets that by default. Unset, `development`, and `preview` are not production. `NODE_ENV` does not select it.
+
+In production mode the server refuses to start when `BETTER_AUTH_SECRET` is missing, shorter than 32 bytes, or still `honeyjar-dev-secret-change-me`. The process exits on Node. A serverless host answers the first request with 500 and that same text, and does not sign or encrypt with a fallback secret. Generate a secret with:
+
+```bash
+openssl rand -base64 32
+```
+
+Keep that value. Sessions and receipt files are tied to it. The refusal points back to this page.
+
+Outside production mode, including `npm run dev` with `HONEYJAR_ENV` unset, the server still starts, logs a warning, and uses a development fallback. Do not expose that to anyone else.
+
+Put the variables in the host's environment or in `.env` for Compose. Do not commit them. `.env` is gitignored. [`.env.example`](../.env.example) lists the names.
 
 The process has to stay running. A static file host is not enough. `npm run preview` serves the production build on `127.0.0.1:8081` only. That port is fixed. Do not open it on the firewall. Put a reverse proxy on the same machine in front of it.
 
@@ -166,6 +187,7 @@ sudo tee /etc/honeyjar.env >/dev/null <<'EOF'
 DATABASE_URL=postgres://honeyjar:PASSWORD@127.0.0.1:5432/honeyjar
 BETTER_AUTH_SECRET=PASTE_A_LONG_RANDOM_VALUE
 BETTER_AUTH_URL=https://books.example.com
+HONEYJAR_ENV=production
 EOF
 sudo chmod 600 /etc/honeyjar.env
 ```
@@ -365,32 +387,32 @@ The sign-in page then shows **Continue with Acme** under the email form. The ema
 
 Set `OIDC_PKCE=false` only when the provider rejects the code challenge. Leave it unset when Authentik is on S256.
 
-| Variable | Why |
-| --- | --- |
-| `OIDC_ISSUER` | Issuer URL from the directory. Not the discovery document. |
-| `OIDC_CLIENT_ID` | Client id of the confidential client. |
-| `OIDC_CLIENT_SECRET` | Client secret. Keep it in the environment, not in git. |
-| `OIDC_LABEL` | Button text. Defaults to "OpenID Connect". |
-| `OIDC_PKCE` | Optional. `false` turns the code challenge off. |
+| Variable             | Why                                                        |
+| -------------------- | ---------------------------------------------------------- |
+| `OIDC_ISSUER`        | Issuer URL from the directory. Not the discovery document. |
+| `OIDC_CLIENT_ID`     | Client id of the confidential client.                      |
+| `OIDC_CLIENT_SECRET` | Client secret. Keep it in the environment, not in git.     |
+| `OIDC_LABEL`         | Button text. Defaults to "OpenID Connect".                 |
+| `OIDC_PKCE`          | Optional. `false` turns the code challenge off.            |
 
 ## Password reset
 
 There is no password-reset email unless you set SMTP. Then the sign-in page can email a link. Without SMTP, a signed-in owner can still change the password and can create a recovery code.
 
-| Variable | Why |
-| --- | --- |
-| `SMTP_HOST` | Mail server. Leave unset to keep email reset off. |
-| `SMTP_PORT` | Defaults to 587. Use 465 for implicit TLS. |
-| `SMTP_USER` / `SMTP_PASS` | Optional login for that server. |
-| `SMTP_FROM` | The From address. Required with `SMTP_HOST`. |
+| Variable                  | Why                                               |
+| ------------------------- | ------------------------------------------------- |
+| `SMTP_HOST`               | Mail server. Leave unset to keep email reset off. |
+| `SMTP_PORT`               | Defaults to 587. Use 465 for implicit TLS.        |
+| `SMTP_USER` / `SMTP_PASS` | Optional login for that server.                   |
+| `SMTP_FROM`               | The From address. Required with `SMTP_HOST`.      |
 
 ## Advisor keys
 
 These are optional.
 
-| Variable or setting | What it does |
-| --- | --- |
-| `XAI_API_KEY` | Lets the Advisor call Grok from the server. The browser never sees this key. |
+| Variable or setting     | What it does                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `XAI_API_KEY`           | Lets the Advisor call Grok from the server. The browser never sees this key. |
 | OpenAI key in Customize | Stored on the household profile. The browser is told only that a key is set. |
 | Ollama URL in Customize | The HoneyJar server posts the brief and your question to that URL. The address has to be one the server can open; 127.0.0.1 works only when Ollama runs on the same machine. The browser does not call Ollama. |
 

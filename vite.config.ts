@@ -11,6 +11,7 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
+import { enforceProductionSecret } from "./src/lib/honey/production-secret.server.ts";
 
 /** The files `src/lib/db.ts` globs — same directory, same non-recursive scope. */
 function hasGlobbedMigrations(root: string): boolean {
@@ -164,6 +165,22 @@ function proxyAllowedHosts(): string[] | undefined {
 
 const proxyHosts = proxyAllowedHosts();
 
+/**
+ * Production mode with a bad BETTER_AUTH_SECRET exits before the server
+ * listens. Outside production mode this only logs a warning.
+ */
+function productionSecretPlugin(): Plugin {
+  return {
+    name: "honeyjar:production-secret",
+    configureServer() {
+      enforceProductionSecret();
+    },
+    configurePreviewServer() {
+      enforceProductionSecret();
+    },
+  };
+}
+
 export default defineConfig(({ command, isPreview }) => ({
   server: {
     host: "0.0.0.0",
@@ -179,6 +196,7 @@ export default defineConfig(({ command, isPreview }) => ({
   },
   resolve: { tsconfigPaths: true },
   plugins: [
+    productionSecretPlugin(),
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),

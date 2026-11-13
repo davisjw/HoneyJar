@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { openReceiptWith, sealReceipt } from "./receipt-box.ts";
+import { enforceProductionSecret } from "./production-secret.server.ts";
 
 export const PUBLIC_AUTH_SECRET = "honeyjar-dev-secret-change-me";
 
@@ -87,6 +88,7 @@ export function activeFileSecrets(): { write: string; read: string[] } {
 
 /** Load or create the server key. A public default starts a rotation and is not stored as the new key. */
 export function ensureAuthSecretSync(): { current: string; previous: string | null } {
+  enforceProductionSecret();
   const disk = readDisk();
   if (disk.rotation) {
     publish(disk.rotation.newSecret, disk.rotation.oldSecret);
