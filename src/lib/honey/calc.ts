@@ -651,6 +651,27 @@ export function parseTags(raw: unknown): string[] {
   return out;
 }
 
+/**
+ * Pack tags for `transactions.tags` (`text`, default `'[]'`, `migrations/0004_tags.sql`).
+ *
+ * HJ-031 finding: the column is a JSON array string, not jsonb and not a tag
+ * row. `parseTags` trims, collapses whitespace, caps each tag at 32 characters,
+ * drops case-insensitive duplicates (first spelling wins), and keeps at most 8.
+ * `mapTxn` runs `parseTags` again on read, which is idempotent for values
+ * written here.
+ *
+ * The register (`money.tsx`) keeps a row when the selected tag equals one
+ * stored tag, ignoring case. An empty tag is not a constraint. The query is
+ * not trimmed (`hasTag` does trim, and treats a blank query as match-all).
+ * Repeatable API tags AND that register test.
+ *
+ * The filter spec (`TransactionQuery.tags` in `txn-query.ts`) is a plain list.
+ * `matchesAllTags` is that list's meaning. `packedTagsSql` in `txn-tags-sql.ts`
+ * is the predicate the SQL store adapter will apply to this column. It is
+ * residual: a btree cannot serve case-insensitive membership, and a jsonb
+ * `@>` index would be case-sensitive, so it would disagree with the register.
+ * No `transaction_tags` table in this change.
+ */
 export function packTags(tags: unknown): string {
   return JSON.stringify(parseTags(tags));
 }

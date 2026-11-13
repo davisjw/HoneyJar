@@ -92,10 +92,4 @@ console.log(
   `household load: seed ${seedMs.toFixed(0)}ms, second load ${loadMs.toFixed(0)}ms, ${queries} queries, ${writes} writes`,
 );
 
-// Loading the server module also opens the app's PGLite. Closing Vite does not
-// always drop that handle, so exit explicitly once the checks have passed.
-await Promise.race([
-  Promise.allSettled([vite.close(), pg.close()]),
-  new Promise((resolve) => setTimeout(resolve, 1000)),
-]);
 process.exit(0);
