@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { getSql, type Sql } from "@/lib/db";
 import { balanceDelta, holdingTerm, LEDGER_LINES, annotateJar, historyStart, importMatches, matchCategory, otherTransferAccount, packTags, parseTags, portfolioPerformance, shiftDays, stepDue, todayISO, transferMatches } from "./calc";
 import { averagesFromDaily, monthBounds } from "./weather";
@@ -2275,8 +2275,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
     case "invite.create": {
       const role = action.role === "editor" || action.role === "advisor" ? action.role : "viewer";
       const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      const bytes = randomBytes(8);
-      const code = [...bytes].map((b) => alphabet[b % alphabet.length]).join("");
+      const code = Array.from({ length: 8 }, () => alphabet[randomInt(alphabet.length)]).join("");
       await sql`
         insert into book_access (owner_user_id, member_email, role, invite_code, status)
         values (${owner}, ${str(action.email, 120).toLowerCase()}, ${role}, ${code}, 'pending')
