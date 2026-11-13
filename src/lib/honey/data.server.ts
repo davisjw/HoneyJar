@@ -231,7 +231,7 @@ export async function readWorkspace(
       sql<Record<string, unknown>>`select * from mileage where user_id = ${owner} order by trip_on desc`,
       sql<Record<string, unknown>>`select * from leases where user_id = ${owner} order by tenant`,
       sql<Record<string, unknown>>`select * from realizations where user_id = ${owner} order by sold_on desc`,
-      sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used, expires_at from api_keys where user_id = ${owner} order by created_at desc`,
+      sql<Record<string, unknown>>`select id, name, prefix, created_at, last_used, expires_at, scope from api_keys where user_id = ${owner} order by created_at desc`,
       sql<Record<string, unknown>>`select * from ai_messages where user_id = ${owner} order by created_at desc limit 40`,
       sql<Record<string, unknown>>`
         select a.*, coalesce(p.display_name, 'Household') as household_name
@@ -268,14 +268,17 @@ export async function readWorkspace(
   let books = assembleLedgers(ledgers, accounts, categories, transactions, bills, draws, rules, plan, goals, milestones, watches, reminders, documents, reports, invoices, mileage, leases, meters, utilColumns, utilReadings).map((book) =>
     annotateJar(book, today, startDay),
   );
+  const home = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
   let txnHasMore = false;
   if (opts?.window) {
-    const focus = opts.focusLedgerId || "";
-    if (focus) {
-      const older = await sql`select 1 from transactions where user_id = ${owner} and ledger_id = ${focus} and posted_on < ${since} limit 1`;
+    const requested = opts.focusLedgerId || "";
+    const focused = requested ? books.find((book) => book.id === requested) : undefined;
+    const keep = focused?.id || home?.id || "";
+    if (keep) {
+      const older = await sql`select 1 from transactions where user_id = ${owner} and ledger_id = ${keep} and posted_on < ${since} limit 1`;
       txnHasMore = older.length > 0;
     }
-    books = books.map((book) => (focus && book.id === focus ? book : { ...book, transactions: [] }));
+    books = books.map((book) => (keep && book.id === keep ? book : { ...book, transactions: [] }));
   }
   const primary = books.find((b) => b.kind === "personal" && !b.archived) ?? books.find((b) => b.kind === "personal");
 
@@ -865,6 +868,7 @@ function mapKey(r: Record<string, unknown>): ApiKeyPublic {
     createdAt: stamp(r.created_at) ?? "",
     lastUsed: stamp(r.last_used),
     expiresAt: stamp(r.expires_at),
+    scope: r.scope === "read" ? "read" : "write",
   };
 }
 function mapMessage(r: Record<string, unknown>): AiMessage {
@@ -953,7 +957,7 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
 
   const scoped = await scope(sql, userId, action.ownerId);
   const owner = scoped.owner;
-  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "sample.clear", "sample.load", "household.begin", "household.blank", "account.delete", "recovery.issue"]);
+  const ownerOnly = new Set(["profile.update", "invite.create", "invite.revoke", "apikey.create", "apikey.revoke", "authsecret.rotate", "authsecret.resume", "authsecret.migrate", "authsecret.status", "sample.clear", "sample.load", "household.begin", "household.blank", "account.delete", "recovery.issue"]);
   if (action.type !== "weather.ensure") {
     if (ownerOnly.has(action.type)) assertOwner(scoped.role);
     else assertEdit(scoped.role);
@@ -2297,17 +2301,42 @@ export async function applyAction(userId: string, action: Action): Promise<Actio
       const hash = createHash("sha256").update(token).digest("hex");
       const days = Math.min(3650, Math.max(0, Math.floor(Number(action.expiresInDays) || 0)));
       const expires = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
+      const scope = action.scope === "read" ? "read" : "write";
       await sql`
-        insert into api_keys (id, user_id, name, prefix, token_hash, expires_at)
-        values (${nid()}, ${owner}, ${str(action.name, 60) || "Key"}, ${token.slice(0, 10)}, ${hash}, ${expires})
+        insert into api_keys (id, user_id, name, prefix, token_hash, expires_at, scope)
+        values (${nid()}, ${owner}, ${str(action.name, 60) || "Key"}, ${token.slice(0, 10)}, ${hash}, ${expires}, ${scope})
       `;
-      await recordAudit(sql, owner, "apikey.create", days ? `${days}d` : "no expiry");
+      await recordAudit(sql, owner, "apikey.create", `${scope} ${days ? `${days}d` : "no expiry"}`);
       return { token };
     }
     case "apikey.revoke": {
       await sql`delete from api_keys where id = ${action.id} and user_id = ${owner}`;
       await recordAudit(sql, owner, "apikey.revoke", action.id);
       return {};
+    }
+    case "authsecret.status": {
+      const { authSecretStatus, resumeAuthSecret } = await import("./auth-secret.server");
+      const status = authSecretStatus();
+      if (!status.rotating) return { authSecret: { oldKey: "", migrated: 0, pending: 0, finished: true, failed: [] } };
+      return { authSecret: await resumeAuthSecret() };
+    }
+    case "authsecret.resume": {
+      const { resumeAuthSecret } = await import("./auth-secret.server");
+      const authSecret = await resumeAuthSecret();
+      await recordAudit(sql, owner, "authsecret.resume", authSecret.finished ? "finished" : `${authSecret.pending} left`);
+      return { authSecret };
+    }
+    case "authsecret.rotate": {
+      const { rotateAuthSecret } = await import("./auth-secret.server");
+      const authSecret = await rotateAuthSecret(action.nextSecret);
+      await recordAudit(sql, owner, "authsecret.rotate", authSecret.finished ? "finished" : `${authSecret.pending} left`);
+      return { authSecret };
+    }
+    case "authsecret.migrate": {
+      const { migrateReceiptsWithOldKey } = await import("./auth-secret.server");
+      const authSecret = await migrateReceiptsWithOldKey(action.oldKey);
+      await recordAudit(sql, owner, "authsecret.migrate", authSecret.finished ? "finished" : `${authSecret.failed.length} failed`);
+      return { authSecret };
     }
     case "recovery.issue": {
       const { hasLocalPassword, issueRecoveryCode } = await import("./care.server");

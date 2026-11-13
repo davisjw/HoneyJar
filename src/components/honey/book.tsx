@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { toast } from "sonner";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import { applyAction, getWorkspace, noteSignIn } from "@/lib/honey/fns";
-import { addMonths, annotateJar } from "@/lib/honey/calc";
+import { addMonths, annotateJar, historyStart } from "@/lib/honey/calc";
 import type { Account, Action, ActionResult, LedgerBook, Rule, Txn, Workspace } from "@/lib/honey/types";
 
 type BookValue = {
@@ -179,6 +179,13 @@ export function BookProvider({ children }: { children: ReactNode }) {
       }),
   });
 
+  useEffect(() => {
+    if (!query.data || !jarId || jarId === SUMMARY) return;
+    if (query.data.ledgers.some((book) => book.id === jarId)) return;
+    window.localStorage.removeItem(jarKey(ownerId));
+    setJarId(undefined);
+  }, [query.data, jarId, ownerId]);
+
   const value = useMemo<BookValue>(() => {
     const raw = query.data;
     const open = raw?.ledgers.filter((l) => !l.archived) ?? [];
@@ -219,8 +226,10 @@ export function BookProvider({ children }: { children: ReactNode }) {
       showEarlier: () => {
         if (loadingEarlier) return;
         const oldest = jar?.transactions.reduce((min, txn) => (!min || txn.postedOn < min ? txn.postedOn : min), "");
-        if (!oldest) return;
-        const next = addMonths(oldest, -24);
+        const today = query.data?.today ?? "";
+        const anchor = oldest || txnSince || (today ? historyStart(today) : "");
+        if (!anchor) return;
+        const next = addMonths(anchor, -24);
         if (next === txnSince) return;
         setLoadingEarlier(true);
         setTxnSince(next);

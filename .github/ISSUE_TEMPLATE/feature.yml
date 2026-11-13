@@ -1,0 +1,44 @@
+name: Change
+description: A change to a screen, a calculation, or the docs.
+title: ""
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        HoneyJar does not log into a bank, a card, or a brokerage, and it does not quote a live price. The tax screen is a planner, not a return. Do not paste a household export or an API key.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Before you file
+      options:
+        - label: This request has no household export, API key, or database dump.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is hard today
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: What should change
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Money
+        - Utilities
+        - Bills or the spending plan
+        - A business or property jar
+        - Tax worksheet
+        - Sign-in or sharing
+        - Import or export
+        - Docs
+        - Something else
+    validations:
+      required: true

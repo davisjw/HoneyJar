@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
 import type { Sql } from "@/lib/db";
-import { readReceipt, removeUserFiles } from "./files.server";
+import { readReceipt, removeUserFiles, writeReceipt } from "./files.server";
 import type { DocumentRow, Workspace } from "./types";
 import { hashRecoveryCode, makeRecoveryCode, namesMatch, publicExport } from "./care";
+import { planImport, type ImportFile } from "./import-book";
+import { clearHousehold } from "./seed";
 
 function nid(): string {
   return randomBytes(9).toString("hex");
@@ -143,6 +145,100 @@ export async function exportOwned(sql: Sql, userId: string) {
     }
   }
   return { book, files };
+}
+
+const IMPORT_TABLES = new Set([
+  "ledgers",
+  "accounts",
+  "categories",
+  "transactions",
+  "bills",
+  "rules",
+  "plan_months",
+  "goals",
+  "milestones",
+  "watchlists",
+  "reminders",
+  "documents",
+  "reports",
+  "invoices",
+  "mileage",
+  "leases",
+  "draws",
+  "utility_meters",
+  "utility_columns",
+  "utility_readings",
+  "people",
+  "contacts",
+  "bill_payments",
+  "assets",
+  "valuations",
+  "snapshots",
+  "contributions",
+  "credit_scores",
+  "lots",
+  "prices",
+  "portfolio_flows",
+  "realizations",
+  "retirement_sketches",
+  "ai_messages",
+  "alert_reads",
+  "weather_months",
+]);
+
+async function putRow(sql: Sql, table: string, row: Record<string, unknown>) {
+  if (!IMPORT_TABLES.has(table)) throw new Error("This file is not a HoneyJar export.");
+  const keys = Object.keys(row);
+  const cols = keys.join(", ");
+  const ph = keys.map((_, i) => `$${i + 1}`).join(", ");
+  await sql.query(`insert into ${table} (${cols}) values (${ph})`, keys.map((key) => row[key]));
+}
+
+/** Replace this sign-in's books with an export. The sign-in and API keys stay. */
+export async function importOwned(sql: Sql, userId: string, book: unknown, files: ImportFile[]) {
+  const planned = planImport(book, userId);
+  if (files.length > 500) throw new Error("This export has too many receipt files.");
+  await sql`insert into profiles (user_id) values (${userId}) on conflict do nothing`;
+  await clearHousehold(sql, userId);
+  await sql`delete from alert_reads where user_id = ${userId}`;
+  await removeUserFiles(userId);
+  const p = planned.profile;
+  await sql`
+    update profiles set
+      display_name = ${p.displayName},
+      currency = ${p.currency},
+      filing_status = ${p.filingStatus},
+      state_code = ${p.stateCode},
+      dependents = ${p.dependents},
+      wages_cents = ${p.wagesCents},
+      other_income_cents = ${p.otherIncomeCents},
+      withholding_cents = ${p.withholdingCents},
+      estimated_paid_cents = ${p.estimatedPaidCents},
+      prior_year_tax_cents = ${p.priorYearTaxCents},
+      deduction_mode = ${p.deductionMode},
+      salt_cap_cents = ${p.saltCapCents},
+      state_rate_bps = ${p.stateRateBps},
+      nav_hidden = ${p.navHidden},
+      ai_provider = ${p.aiProvider},
+      openai_model = ${p.openaiModel},
+      ollama_url = ${p.ollamaUrl},
+      ollama_model = ${p.ollamaModel},
+      vault_salt = ${p.vaultSalt},
+      vault_verifier = ${p.vaultVerifier},
+      month_start_day = ${p.monthStartDay},
+      seeded = false,
+      initialized = true
+    where user_id = ${userId}
+  `;
+  for (const row of planned.rows) await putRow(sql, row.table, row.values);
+  for (const file of files) {
+    const id = planned.idMap.get(file.id);
+    if (!id || !file.dataBase64) continue;
+    if (file.dataBase64.length > 20_000_000) throw new Error("A receipt in this export is too large.");
+    await writeReceipt(userId, id, Buffer.from(file.dataBase64, "base64"));
+  }
+  await recordAudit(sql, userId, "import", `${planned.jars} jars`);
+  return { jars: planned.jars };
 }
 
 function receiptDocs(ws: Workspace): DocumentRow[] {
