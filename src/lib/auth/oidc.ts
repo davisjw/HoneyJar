@@ -1,4 +1,4 @@
-/** Provider id and callback path segment: `/api/auth/oauth2/callback/oidc`. */
+/** Provider id and callback path segment: `/api/auth/callback/oidc`. */
 export const OIDC_PROVIDER_ID = "oidc";
 
 export type OidcInput = {
