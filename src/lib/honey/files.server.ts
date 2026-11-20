@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { activeFileSecrets } from "./auth-secret.server.ts";
-import { parseOldSecrets } from "./secret-box.server.ts";
+import { deriveFileKey, parseOldSecrets } from "./secret-box.server.ts";
 import { openReceipt, sealReceipt } from "./receipt-box.ts";
 
 /** Receipts stay out of the database so opening the books does not read every file. */
@@ -18,6 +18,15 @@ function readSecrets(): string[] {
   return out;
 }
 
+/** HJF1 bytes for `bytes` under `secret`, or the current file secret when omitted. */
+export function encodeHjf1(bytes: Buffer, secret = activeFileSecrets().write): Buffer {
+  return sealReceipt(bytes, secret);
+}
+
+export function currentReceiptKid(secret = activeFileSecrets().write): number {
+  return deriveFileKey(secret).kidByte;
+}
+
 export async function writeReceipt(
   userId: string,
   id: string,
@@ -27,7 +36,7 @@ export async function writeReceipt(
   const { write } = activeFileSecrets();
   const dir = path.join(root, userId);
   await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, id), sealReceipt(bytes, write));
+  await writeFile(path.join(dir, id), encodeHjf1(bytes, write));
 }
 
 export async function readReceipt(userId: string, id: string, root = filesRoot()): Promise<Buffer> {
