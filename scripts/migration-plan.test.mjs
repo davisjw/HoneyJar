@@ -56,10 +56,30 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
   assert.deepEqual(pendingMigrations(["auth", "README.md"], []), []);
 });
 
-test("the auth schema ships outside the globbed directory", () => {
+test("app migrations are globbed and the auth source directory is not", () => {
+  // HoneyJar ships a real schema, so the globbed directory is not empty.
+  // The expected set is whatever `migrations/*.sql` is on disk, in name order.
+  // Dropping in 0025_external_ids.sql or 0027_txn_keyset.sql needs no edit here.
+  // migrations/auth/ is the source copy and is not descended into, so the auth
+  // file is applied once, by basename.
   const migrationsDir = join(projectRoot(), "migrations");
-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
+  const entries = readdirSync(migrationsDir);
+  assert.ok(entries.includes("auth"));
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+  const sqlNames = entries.filter((name) => name.endsWith(".sql")).sort();
+  const pending = pendingMigrations(entries, []);
+  assert.deepEqual(
+    pending.map((item) => item.name),
+    sqlNames,
+  );
+  assert.ok(sqlNames.includes("0001_auth.sql"));
+  assert.ok(sqlNames.includes("0002_honey.sql"));
+  assert.ok(sqlNames.every((name) => /^\d{4}_.+\.sql$/.test(name)));
+  assert.equal(pending.filter((item) => item.name === "0001_auth.sql").length, 1);
+  assert.equal(
+    pending.some((item) => item.path.includes("auth/")),
+    false,
+  );
 });
 
 test("this workspace's auth schema copy is byte-identical to its source", () => {

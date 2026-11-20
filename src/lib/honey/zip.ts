@@ -15,6 +15,14 @@ function u32(view: DataView, offset: number, value: number) {
   view.setUint32(offset, value, true);
 }
 
+function readU16(view: DataView, offset: number): number {
+  return view.getUint16(offset, true);
+}
+
+function readU32(view: DataView, offset: number): number {
+  return view.getUint32(offset, true);
+}
+
 /** A zip of stored files. No compression, so a photo or PDF is copied as itself. */
 export function zipStore(entries: { name: string; data: Uint8Array }[]): Uint8Array {
   const parts: Uint8Array[] = [];
@@ -56,6 +64,31 @@ export function zipStore(entries: { name: string; data: Uint8Array }[]): Uint8Ar
   u32(endView, 12, directory.length);
   u32(endView, 16, offset);
   return concat([...parts, directory, end]);
+}
+
+/** Read a zip this app wrote. Compressed entries are refused. */
+export function unzipStore(bytes: Uint8Array): { name: string; data: Uint8Array }[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const out: { name: string; data: Uint8Array }[] = [];
+  let offset = 0;
+  while (offset + 30 <= bytes.length) {
+    if (readU32(view, offset) !== 0x04034b50) break;
+    const method = readU16(view, offset + 8);
+    const size = readU32(view, offset + 18);
+    const nameLen = readU16(view, offset + 26);
+    const extraLen = readU16(view, offset + 28);
+    const start = offset + 30;
+    const nameEnd = start + nameLen;
+    const dataEnd = nameEnd + extraLen + size;
+    if (dataEnd > bytes.length) throw new Error("This zip is incomplete.");
+    if (method !== 0) throw new Error("This zip is compressed. HoneyJar exports are stored, not compressed.");
+    const name = new TextDecoder().decode(bytes.subarray(start, nameEnd));
+    if (name.includes("..") || name.startsWith("/") || name.includes("\\")) throw new Error("This zip has an unsafe file name.");
+    out.push({ name, data: bytes.subarray(nameEnd + extraLen, dataEnd) });
+    offset = dataEnd;
+  }
+  if (!out.length) throw new Error("This zip has no files.");
+  return out;
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {

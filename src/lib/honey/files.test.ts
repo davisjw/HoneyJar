@@ -17,12 +17,14 @@ const saved = {
   secret: process.env.BETTER_AUTH_SECRET,
   old: process.env.HONEYJAR_OLD_SECRETS,
   mode: process.env.HONEYJAR_ENV,
+  auth: process.env.HONEYJAR_AUTH_DIR,
 };
 
 afterEach(() => {
   restore("BETTER_AUTH_SECRET", saved.secret);
   restore("HONEYJAR_OLD_SECRETS", saved.old);
   restore("HONEYJAR_ENV", saved.mode);
+  restore("HONEYJAR_AUTH_DIR", saved.auth);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -36,6 +38,10 @@ function useSecret(secret: string | undefined, old?: string): void {
   if (old === undefined) delete process.env.HONEYJAR_OLD_SECRETS;
   else process.env.HONEYJAR_OLD_SECRETS = old;
   delete process.env.HONEYJAR_ENV;
+  process.env.HONEYJAR_AUTH_DIR = path.join(
+    tmpdir(),
+    `honeyjar-auth-${randomBytes(4).toString("hex")}`,
+  );
 }
 
 function legacyPacked(secret: string, bytes: Buffer): Buffer {
@@ -50,6 +56,7 @@ describe("receipt files", () => {
   it("round-trips HJF1 and records the kid of the current secret", async () => {
     useSecret(VALID);
     const root = await mkdtemp(path.join(tmpdir(), "honeyjar-files-"));
+    process.env.HONEYJAR_AUTH_DIR = path.join(root, "auth");
     const raw = Buffer.from("receipt-bytes");
     await writeReceipt("user", "doc", raw, root);
     const stored = await readFile(path.join(root, "user", "doc"));

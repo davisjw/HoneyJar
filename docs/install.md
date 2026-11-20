@@ -1,10 +1,10 @@
 # Install
 
-HoneyJar is a server app. The screens are a Vite build. The books live in Postgres. With no `DATABASE_URL` they live in a local file, which is enough to try the app on one machine.
+HoneyJar is one app with two seats. On one machine, leave `DATABASE_URL` unset and the books live in a local file. As a server, point `DATABASE_URL` at Postgres. A packaged app you open without starting a Node process is the direction, and it is not built yet. The screens are a Vite build either way.
 
 You need Node 22 and npm.
 
-## Try it
+## Local setup
 
 ```bash
 git clone https://github.com/davisjw/HoneyJar.git
@@ -28,7 +28,27 @@ Open the same address. Leave `DATABASE_URL` unset for a first try. The books are
 
 The first sign-in asks for a household name and starts blank. **Load sample household** in Customize puts the Calder books in, and it asks before it erases what is already there.
 
-With no `DATABASE_URL`, the database is a file at `data/pglite` (override the directory with `PGLITE_DATA_DIR`). Restarting the server keeps the book. That directory is gitignored. It is one machine and one process, and deleting it deletes the books. Use Postgres when the data should last, or when more than one machine should see it.
+With no `DATABASE_URL`, the database is a file at `data/pglite` (override the directory with `PGLITE_DATA_DIR`). Restarting the process keeps the book. That directory is gitignored. It is one machine and one process, and deleting it deletes the books. Use Postgres when the data should last, or when more than one machine should see it.
+
+## Asking Grok to install it
+
+[Grok Build](https://x.ai/cli) is a terminal agent that runs on your computer. From this repo, ask it to follow this page. The result is the same app: Node, npm, and either the local file or Postgres. There is no separate Grok edition.
+
+Grok Bot is not an install target. HoneyJar is not a plugin for it, and the bot does not store these books. A bot that can run a shell on a machine you control can run the commands in [Local setup](#local-setup). You still choose the machine, and you still keep the database.
+
+## Advisor
+
+The Advisor screen is in the app after you install it. It is not part of Grok Bot, and installing HoneyJar does not sign you into Grok.
+
+Customize picks the model. The default is Grok. The server sends a short brief, not every transaction: the household name, today's date, net worth, account names and balances, the largest spending categories this period, the next eight bills, goals, a portfolio summary, and the filing status. The last eight advisor messages go along as the conversation. The model is told to use only those figures, and that it is not a broker and not filing a return.
+
+| Provider | When it answers | How to set it up |
+| --- | --- | --- |
+| Grok | The server process has `XAI_API_KEY`. A Grok chat login is not that key. | Create a key at [console.x.ai](https://console.x.ai) and put it in the environment of the process that serves the app. `npm run dev` reads the variable from the shell. Docker Compose does not pass it through unless you add `XAI_API_KEY` to the app service. The call is `https://api.x.ai/v1/chat/completions` with model `grok-4.5`. Without the key, Advisor says Grok is not available and you can switch providers. |
+| OpenAI | A key is saved on the household. | Customize, then **OpenAI**, then paste the key and choose a model. The default model is `gpt-4.1-mini`. The key is stored in the database and is not encrypted at rest. It is not shown again. |
+| Ollama | The HoneyJar process can reach the URL in Customize. The browser does not make this call. | The default is `http://127.0.0.1:11434` and model `llama3.1`. That works for `npm run dev` when Ollama is on the same machine. Inside Docker, `127.0.0.1` is the container, not your computer. Point the URL at the host, or run Ollama where the container can reach it. |
+
+Grok is the one to use when the host already has an xAI key and you do not want to store a model key in the household database. Ollama is the one to use when the brief should not leave your machine. OpenAI is the one to use when you have that key and you accept it sitting in the database.
 
 ## Docker
 
@@ -56,7 +76,7 @@ Paste that value into `BETTER_AUTH_SECRET` in `.env`, then:
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. An install that already had its own secret must keep that same value. See [upgrade.md](upgrade.md). The database port is bound to `127.0.0.1` only. On a remote host, follow [Nginx on a different machine from Docker](#nginx-on-a-different-machine-from-docker) instead of opening port 8080.
+Open [http://localhost:8080](http://localhost:8080). The container applies migrations, then runs the dev server. The published build is served by `npm run preview` on the host, not inside this image. An install that already had its own secret must keep that same value. See [upgrade.md](upgrade.md). Outside Compose, leaving `BETTER_AUTH_SECRET` unset makes the first start generate one and store it in the `honeyjar-auth` volume. Set it yourself if you want to choose the key. Receipts sealed with an older key are rewritten before that older key is dropped. The database port is bound to `127.0.0.1` only. On a remote host, follow [Nginx on a different machine from Docker](#nginx-on-a-different-machine-from-docker) instead of opening port 8080.
 
 Local Compose changes belong in `compose.override.yaml`, copied from [compose.override.example.yaml](../compose.override.example.yaml). `docker compose up` loads that file when it is present and does not fail when it is absent. It is gitignored, so a pull does not replace it. An `include` cannot do this: Compose stops if an included path is missing, and an include is not allowed to override a service defined in the included file. If you pass `-f` yourself, Compose no longer looks for the override. Add `-f compose.override.yaml` last, and only when the file exists.
 
@@ -294,6 +314,15 @@ If nginx is on the same machine as Docker, skip `HONEYJAR_PUBLISH` and use `prox
 
 Email and password are on. Google and X appear only when the host sets `GROK_AUTH_CLIENT_ID` and `GROK_AUTH_CLIENT_SECRET` (and, if you are not using the default broker, `GROK_AUTH_ISSUER`). Those values are not in the source. A copy you run yourself can ignore them and use email and password.
 
+The broker has to allow these redirect URLs, with the origin people type in the browser:
+
+```text
+https://books.example.com/api/auth/callback/grok-google
+https://books.example.com/api/auth/callback/grok-x
+```
+
+Better Auth 1.7 does not serve `/api/auth/oauth2/callback/grok-google` or `/api/auth/oauth2/callback/grok-x`. A broker app still registered on those old paths has to be updated.
+
 ## OpenID Connect
 
 Email and password stay on the sign-in page. Google and X stay too, and they still appear only when the broker client is set. A directory adds one more button. Leave the `OIDC_` variables unset and that button is not shown.
@@ -301,10 +330,10 @@ Email and password stay on the sign-in page. Google and X stay too, and they sti
 Any OpenID Connect directory works. The steps below use Authentik. Okta, Microsoft Entra, Google Workspace, Keycloak, and Auth0 use the same four variables. The redirect URL HoneyJar gives the directory is always:
 
 ```text
-https://books.example.com/api/auth/oauth2/callback/oidc
+https://books.example.com/api/auth/callback/oidc
 ```
 
-Use the origin people type in the browser. No trailing slash on the origin. The path is fixed.
+Use the origin people type in the browser. No trailing slash on the origin. The path is fixed. A directory that was pointed at `/api/auth/oauth2/callback/oidc` has to be changed to this path. Better Auth 1.7 no longer serves the old one.
 
 ### Authentik
 
@@ -385,7 +414,7 @@ These are optional.
 | ----------------------- | ---------------------------------------------------------------------------- |
 | `XAI_API_KEY`           | Lets the Advisor call Grok from the server. The browser never sees this key. |
 | OpenAI key in Customize | Stored on the household profile. The browser is told only that a key is set. |
-| Ollama URL in Customize | The browser sends the brief to that URL. The server does not call Ollama.    |
+| Ollama URL in Customize | The HoneyJar server posts the brief and your question to that URL. The address has to be one the server can open; 127.0.0.1 works only when Ollama runs on the same machine. The browser does not call Ollama. |
 
 The advisor receives balances, this month's spending, bills, and goals. Do not turn it on if you do not want those numbers sent to that provider.
 

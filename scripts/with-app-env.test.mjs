@@ -59,8 +59,12 @@ test("an explicit process-env override wins over the file", () => {
   assert.equal(merged.PATH, "/usr/bin");
 });
 
-test("the template ships auth off", () => {
-  assert.deepEqual(readAppEnv(projectRoot()), { VITE_AUTH_ENABLED: "false" });
+test("this app does not ship an auth-off override", () => {
+  // No `.grok/app-env.json`. Unset means sign-in stays on (`!== "false"`).
+  // A file that set "false" would turn accounts off for the whole app.
+  const env = readAppEnv(projectRoot());
+  assert.notEqual(env.VITE_AUTH_ENABLED, "false");
+  assert.equal(env.VITE_AUTH_ENABLED, undefined);
 });
 
 test("vite loadEnv resolves the wrapped value", () => {
@@ -80,7 +84,8 @@ test("the wrapped command runs with the app env applied", async () => {
     "-e",
     PRINT_FLAG,
   ]);
-  assert.equal(stdout, "false");
+  // This workspace has no app-env file, so the child inherits an unset flag.
+  assert.equal(stdout, "undefined");
 });
 
 test("the wrapped command sees an explicit override, not the file value", async () => {
@@ -124,5 +129,5 @@ test("the CLI still runs when invoked through a symlinked path", async () => {
     "-e",
     PRINT_FLAG,
   ]);
-  assert.equal(stdout, "false");
+  assert.equal(stdout, "undefined");
 });
