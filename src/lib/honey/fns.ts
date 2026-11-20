@@ -167,6 +167,26 @@ export const exportHousehold = createServerFn({ method: "GET" })
     return exportOwned(await getSql(), context.userId);
   });
 
+export const importHousehold = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { book: unknown; files?: { id: string; dataBase64: string }[] }) => {
+    if (!input || typeof input.book !== "object" || input.book === null) throw new Error("This file is not a HoneyJar export.");
+    const files = Array.isArray(input.files) ? input.files : [];
+    if (files.length > 500) throw new Error("This export has too many receipt files.");
+    return {
+      book: input.book,
+      files: files.map((file) => ({
+        id: String(file?.id ?? "").slice(0, 80),
+        dataBase64: String(file?.dataBase64 ?? ""),
+      })),
+    };
+  })
+  .handler(async ({ context, data }) => {
+    const { getSql } = await import("@/lib/db");
+    const { importOwned } = await import("./care.server");
+    return importOwned(await getSql(), context.userId, data.book, data.files);
+  });
+
 export const listAudit = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {

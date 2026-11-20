@@ -12,6 +12,7 @@ import {
 } from "./calc";
 import { apiDocument, hitLimit, keyExpired } from "./care";
 import { applyAction, loadWorkspace } from "./data.server";
+import { toolsForScope } from "./mcp-tools";
 
 const keyHits = new Map<string, number[]>();
 
@@ -27,13 +28,15 @@ function json(data: unknown, status = 200) {
   return cors(Response.json(data, { status }));
 }
 
-async function userFromKey(sql: Sql, request: Request, count = true): Promise<string | null> {
+type KeyAuth = { userId: string; scope: "read" | "write" };
+
+async function userFromKey(sql: Sql, request: Request, count = true): Promise<KeyAuth | null> {
   const header = request.headers.get("authorization") ?? "";
   const token = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
   if (!token) return null;
   const hash = createHash("sha256").update(token).digest("hex");
-  const rows = await sql<{ id: string; user_id: string; expires_at: string | null }>`
-    select id, user_id, expires_at from api_keys where token_hash = ${hash}
+  const rows = await sql<{ id: string; user_id: string; expires_at: string | null; scope: string | null }>`
+    select id, user_id, expires_at, scope from api_keys where token_hash = ${hash}
   `;
   const row = rows[0];
   if (!row) return null;
@@ -44,7 +47,7 @@ async function userFromKey(sql: Sql, request: Request, count = true): Promise<st
     if (hit.limited) throw new Error("Too many requests. Wait a minute.");
   }
   await sql`update api_keys set last_used = now() where id = ${row.id}`;
-  return row.user_id;
+  return { userId: row.user_id, scope: row.scope === "read" ? "read" : "write" };
 }
 
 function apiPath(request: Request): string {
@@ -58,8 +61,9 @@ export async function handlePublicApi(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
   try {
     const sql = await getSql();
-    const userId = await userFromKey(sql, request);
-    if (!userId) return json({ error: "Send Authorization: Bearer hj_…" }, 401);
+    const auth = await userFromKey(sql, request);
+    if (!auth) return json({ error: "Send Authorization: Bearer hj_…" }, 401);
+    const userId = auth.userId;
     const ws = await loadWorkspace(userId);
     const path = apiPath(request);
     const url = new URL(request.url);
@@ -156,6 +160,7 @@ export async function handlePublicApi(request: Request): Promise<Response> {
       return json({ jars });
     }
     if (request.method === "POST" && path === "/transactions") {
+      if (auth.scope !== "write") return json({ error: "This key is read-only." }, 403);
       const body = (await request.json()) as {
         accountId?: string;
         postedOn?: string;
@@ -166,15 +171,16 @@ export async function handlePublicApi(request: Request): Promise<Response> {
         personId?: string;
         tags?: string[];
       };
-      if (!body.accountId || !body.merchant || body.amountCents == null) {
-        return json({ error: "accountId, merchant, and amountCents are required." }, 400);
+      const amountCents = body.amountCents;
+      if (!body.accountId || !body.merchant || typeof amountCents !== "number" || !Number.isInteger(amountCents)) {
+        return json({ error: "accountId, merchant, and an integer amountCents are required." }, 400);
       }
       await applyAction(userId, {
         type: "txn.save",
         txn: {
           accountId: body.accountId,
           postedOn: body.postedOn || ws.today,
-          amountCents: body.amountCents,
+          amountCents,
           merchant: body.merchant,
           memo: body.memo ?? "",
           categoryId: body.categoryId ?? null,
@@ -192,21 +198,6 @@ export async function handlePublicApi(request: Request): Promise<Response> {
   }
 }
 
-const TOOLS = [
-  { name: "spending_summary", description: "This month's spending by category and net worth." },
-  { name: "list_accounts", description: "Balances for every account." },
-  { name: "list_transactions", description: "Recent transactions. Optional from, to, limit." },
-  { name: "upcoming_bills", description: "Bills, subscriptions, and expected income." },
-  { name: "net_worth", description: "Assets, debts, and net worth." },
-  { name: "portfolio", description: "Lots, typed prices, Dietz and IRR, and dividend flows. Not a live quote." },
-  { name: "list_goals", description: "Savings goals and progress." },
-  { name: "list_alerts", description: "Open watchlist and bill alerts, each with a path inside HoneyJar." },
-  { name: "list_people", description: "People on the household." },
-  { name: "list_documents", description: "Document names. Bodies are not included." },
-  { name: "list_utilities", description: "Meters, columns, and readings." },
-  { name: "list_jars", description: "Personal, business, and property jars. Pass id, from, to, and limit for one jar's transactions." },
-];
-
 export async function handleMcp(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
   try {
@@ -217,22 +208,29 @@ export async function handleMcp(request: Request): Promise<Response> {
       method?: string;
       params?: { name?: string; arguments?: Record<string, unknown> };
     };
-    const userId = await userFromKey(sql, request, body.method !== "tools/call");
-    if (!userId) return json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized" } }, 401);
+    const auth = await userFromKey(sql, request, body.method !== "tools/call");
+    if (!auth) return json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Unauthorized" } }, 401);
     const id = body.id ?? null;
     if (body.method === "initialize" || body.method === "tools/list") {
-      return json({ jsonrpc: "2.0", id, result: { protocolVersion: "2025-03-26", tools: TOOLS } });
+      return json({ jsonrpc: "2.0", id, result: { protocolVersion: "2025-03-26", tools: toolsForScope(auth.scope) } });
     }
     if (body.method === "tools/call") {
       const name = body.params?.name ?? "";
       const args = body.params?.arguments ?? {};
+      if (name === "add_transaction" && auth.scope !== "write") {
+        return json({ jsonrpc: "2.0", id, error: { code: -32001, message: "This key is read-only." } }, 403);
+      }
       const query = new URLSearchParams();
       for (const key of ["from", "to", "limit", "id"] as const) {
         const value = args[key];
         if (value != null && String(value)) query.set(key, String(value));
       }
+      const headers = new Headers(request.headers);
+      headers.delete("content-length");
       const fake = new Request(new URL(`/api/v1/${toolPath(name)}?${query}`, request.url), {
-        headers: request.headers,
+        method: name === "add_transaction" ? "POST" : "GET",
+        headers,
+        body: name === "add_transaction" ? JSON.stringify(args) : undefined,
       });
       const inner = await handlePublicApi(fake);
       const payload = await inner.json();
@@ -251,7 +249,7 @@ export async function handleMcp(request: Request): Promise<Response> {
 
 function toolPath(name: string): string {
   if (name === "list_accounts") return "accounts";
-  if (name === "list_transactions") return "transactions";
+  if (name === "list_transactions" || name === "add_transaction") return "transactions";
   if (name === "upcoming_bills") return "bills";
   if (name === "net_worth") return "networth";
   if (name === "portfolio") return "portfolio";
