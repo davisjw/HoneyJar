@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { activeFileSecrets } from "./auth-secret.server.ts";
+import { parseOldSecrets } from "./secret-box.server.ts";
 import { openReceipt, sealReceipt } from "./receipt-box.ts";
 
 /** Receipts stay out of the database so opening the books does not read every file. */
@@ -8,7 +9,21 @@ export function filesRoot(): string {
   return process.env.HONEYJAR_FILES_DIR || path.join(process.cwd(), "data", "files");
 }
 
-export async function writeReceipt(userId: string, id: string, bytes: Buffer, root = filesRoot()): Promise<void> {
+/** Current file keys, then each `HONEYJAR_OLD_SECRETS` entry, without duplicates. */
+function readSecrets(): string[] {
+  const out = [...activeFileSecrets().read];
+  for (const old of parseOldSecrets(process.env.HONEYJAR_OLD_SECRETS)) {
+    if (!out.includes(old)) out.push(old);
+  }
+  return out;
+}
+
+export async function writeReceipt(
+  userId: string,
+  id: string,
+  bytes: Buffer,
+  root = filesRoot(),
+): Promise<void> {
   const { write } = activeFileSecrets();
   const dir = path.join(root, userId);
   await mkdir(dir, { recursive: true });
@@ -17,7 +32,7 @@ export async function writeReceipt(userId: string, id: string, bytes: Buffer, ro
 
 export async function readReceipt(userId: string, id: string, root = filesRoot()): Promise<Buffer> {
   const packed = await readFile(path.join(root, userId, id));
-  return openReceipt(packed, activeFileSecrets().read);
+  return openReceipt(packed, readSecrets());
 }
 
 export async function removeReceipt(userId: string, id: string, root = filesRoot()): Promise<void> {

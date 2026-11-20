@@ -1,4 +1,5 @@
 import { env, isProductionMode } from "../env.server.ts";
+import { warnUnspecifiedProduction } from "./instance-mode.ts";
 
 /**
  * Shared production-mode guard for the auth signing secret and the receipt
@@ -147,6 +148,7 @@ export function secretForFiles(): string {
 export function enforceProductionSecret(): void {
   const decision = readProductionSecret();
   if (decision.kind === "stop") stopProcess(decision.message);
+  warnUnspecifiedProduction();
 }
 
 /**
@@ -155,6 +157,7 @@ export function enforceProductionSecret(): void {
  */
 export function productionSecretHttpResponse(): Response | null {
   const decision = readProductionSecret();
+  warnUnspecifiedProduction();
   if (decision.kind !== "stop") return null;
   return new Response(decision.message, {
     status: 500,
