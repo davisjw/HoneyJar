@@ -340,4 +340,67 @@ describe("production secret guard", () => {
     setEnv({ HONEYJAR_ENV: "development", BETTER_AUTH_SECRET: VALID });
     enforceProductionSecret();
   });
+
+  it("covers every invalid secret against every mode, on Node start and a serverless handler", async () => {
+    const secrets: Array<{ name: string; value: string | undefined; invalid: boolean; reason: RegExp }> = [
+      { name: "missing", value: undefined, invalid: true, reason: /is not set/ },
+      { name: "empty", value: "", invalid: true, reason: /is not set/ },
+      { name: "blank", value: "   ", invalid: true, reason: /is not set/ },
+      { name: "placeholder", value: DEV_AUTH_SECRET, invalid: true, reason: /public development value/ },
+      { name: "short", value: SHORT, invalid: true, reason: /shorter than 32 bytes/ },
+      { name: "valid", value: VALID, invalid: false, reason: /$^/ },
+    ];
+    const modes = [undefined, "development", "preview", "production"] as const;
+
+    for (const mode of modes) {
+      for (const secret of secrets) {
+        const label = `${mode ?? "unset"}/${secret.name}`;
+        const stop = mode === "production" && secret.invalid;
+
+        setEnv({
+          HONEYJAR_ENV: mode,
+          BETTER_AUTH_SECRET: secret.value,
+          VERCEL: "1",
+          NODE_ENV: "production",
+        });
+        const response = productionSecretHttpResponse();
+        if (stop) {
+          assert.ok(response, label);
+          assert.equal(response.status, 500);
+          const body = await response.text();
+          assertActionable(body);
+          assert.match(body, secret.reason);
+          let fallback = false;
+          assert.throws(
+            () =>
+              secretForAuth(() => {
+                fallback = true;
+                return "fallback";
+              }),
+            ProductionSecretError,
+          );
+          assert.equal(fallback, false);
+        } else {
+          assert.equal(response, null, label);
+        }
+
+        const started = await runNode({
+          HONEYJAR_ENV: mode,
+          BETTER_AUTH_SECRET: secret.value,
+          NODE_ENV: "production",
+          VERCEL: undefined,
+        });
+        if (stop) {
+          assert.equal(started.code, 1, `${label}\n${started.stderr}`);
+          assert.equal(started.stdout.includes("SERVED"), false);
+          assert.ok(started.elapsed < 2000, label);
+          assertActionable(started.stderr);
+          assert.match(started.stderr, secret.reason);
+        } else {
+          assert.equal(started.code, 0, `${label}\n${started.stderr}`);
+          assert.match(started.stdout, /SERVED/);
+        }
+      }
+    }
+  });
 });
